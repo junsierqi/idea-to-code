@@ -1,0 +1,4 @@
+interface:
+  display_name: "Idea To Code"
+  short_description: "Turn ideas into delivered software"
+  default_prompt: "Use $idea-to-code to turn my idea into implemented, tested, and iteratively refined code."

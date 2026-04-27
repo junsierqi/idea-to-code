@@ -1,0 +1,6 @@
+.idea-to-code/
+.tmp-skill-smoke/
+__pycache__/
+*.py[cod]
+*.bak
+.DS_Store
