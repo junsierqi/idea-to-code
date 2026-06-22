@@ -14,7 +14,7 @@ It helps agents structure long-running delivery work through requirements, miles
 ## What's Included
 
 - `skills/idea-to-code/SKILL.md` - agent workflow instructions
-- `skills/idea-to-code/scripts/manage_delivery_bundle.py` - delivery artifact manager
+- `skills/idea-to-code/scripts/idea_to_code_bundle.py` - delivery artifact manager
 - `skills/idea-to-code/references/` - focused workflow references
 - `skills/idea-to-code/agents/openai.yaml` - Codex/OpenAI UI metadata
 
@@ -34,5 +34,5 @@ $HOME/.codex/skills/idea-to-code
 The bundled script can also be used directly from this repository:
 
 ```bash
-python skills/idea-to-code/scripts/manage_delivery_bundle.py --help
+python skills/idea-to-code/scripts/idea_to_code_bundle.py --help
 ```

@@ -15,6 +15,8 @@ from pathlib import Path
 
 SCRIPT = Path(__file__).with_name("idea_to_code_bundle.py")
 SKILL_DIR = SCRIPT.parent.parent
+REPO_ROOT = SKILL_DIR.parent.parent
+README_MD = REPO_ROOT / "README.md"
 REFERENCES_DIR = SKILL_DIR / "references"
 SKILL_MD = SKILL_DIR / "SKILL.md"
 ALLOWED_REFERENCES = {
@@ -61,6 +63,13 @@ class BundleTest(unittest.TestCase):
         self.assertLessEqual(refs, ALLOWED_REFERENCES)
         for ref in refs:
             self.assertTrue((REFERENCES_DIR / ref).exists(), ref)
+
+    def test_readme_documents_current_bundle_script(self) -> None:
+        text = README_MD.read_text(encoding="utf-8")
+        expected_path = "skills/idea-to-code/scripts/idea_to_code_bundle.py"
+        self.assertIn(expected_path, text)
+        self.assertIn(f"python {expected_path} --help", text)
+        self.assertNotIn("manage_delivery_bundle.py", text)
 
     def test_skill_description_is_concise_and_capability_focused(self) -> None:
         text = SKILL_MD.read_text(encoding="utf-8")
