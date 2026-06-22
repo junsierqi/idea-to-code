@@ -70,7 +70,7 @@ Must include:
 Must not include:
 
 - claims that implementation or validation already happened unless those role gates have actually run
-- vague phrases such as `planned`, `ready`, or `looks good` without REQ/TASK context
+- vague phrases such as planned, ready, or looks good without REQ/TASK context
 
 ### Implementer Evidence
 
@@ -84,7 +84,7 @@ Must include:
 Must not include:
 
 - test-only evidence without naming the implemented change
-- broad claims such as `done` without file/module and TASK/IMP context
+- broad claims such as done without file/module and TASK/IMP context
 
 ### Validator Evidence
 
@@ -98,7 +98,7 @@ Must include:
 Must not include:
 
 - a passing command without explaining the validation type or covered requirement
-- `unverified` evidence without naming the missing dependency or reason
+- unverified evidence without naming the missing dependency or reason
 
 ### Reviewer Evidence
 
@@ -107,7 +107,7 @@ Must include:
 - scope, coverage, boundary, architecture, acceptance matrix, or residual risk review
 - reviewed requirements, implementation, verification, or REQ/TASK/IMP IDs
 - review work, not another role
-- `same-agent review` when the reviewer is not a real independent subagent
+- same-agent review when the reviewer is not a real independent subagent
 
 Must not include:
 

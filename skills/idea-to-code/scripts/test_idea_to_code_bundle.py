@@ -54,6 +54,20 @@ def run_test_subprocess(
         ) from exc
 
 
+def role_checklist_items(text: str, role: str, heading: str) -> list[str]:
+    role_heading = f"### {role.title()} Evidence"
+    section = text.split(role_heading, 1)[1].split("\n## ", 1)[0].split("\n### ", 1)[0]
+    subsection = section.split(f"{heading}:", 1)[1]
+    for next_heading in ["Must include:", "Must not include:"]:
+        if next_heading != f"{heading}:" and next_heading in subsection:
+            subsection = subsection.split(next_heading, 1)[0]
+    return [
+        line[2:].strip().strip("`")
+        for line in subsection.splitlines()
+        if line.startswith("- ")
+    ]
+
+
 class BundleTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -103,15 +117,20 @@ class BundleTest(unittest.TestCase):
             self.assertIn("Must include:", section)
             self.assertIn("Must not include:", section)
 
-    def test_role_explain_must_include_matches_checklist(self) -> None:
+    def test_role_explain_guidance_matches_checklist_bidirectionally(self) -> None:
         text = ROLES_STATE_MD.read_text(encoding="utf-8")
         result = self.run_bundle("role", "explain")
         payload = json.loads(result.stdout)
         for entry in payload["roles"]:
-            heading = f"### {entry['role'].title()} Evidence"
-            section = text.split(heading, 1)[1].split("\n### ", 1)[0]
-            for item in entry["must_include"]:
-                self.assertIn(item, section)
+            documented_must = role_checklist_items(text, entry["role"], "Must include")
+            documented_must_not = role_checklist_items(text, entry["role"], "Must not include")
+            self.assertEqual(entry["must_include"], documented_must)
+            self.assertEqual(entry["must_not_include"], documented_must_not)
+        reviewer = next(entry for entry in payload["roles"] if entry["role"] == "reviewer")
+        self.assertIn(
+            "same-agent review when the reviewer is not a real independent subagent",
+            reviewer["must_include"],
+        )
 
     def test_skill_points_role_record_flow_to_checklist_helper(self) -> None:
         text = SKILL_MD.read_text(encoding="utf-8")

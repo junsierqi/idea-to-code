@@ -218,6 +218,10 @@ ROLE_GUIDANCE = {
             "TASK/IMP IDs or implementation-plan reference",
             "planning work, not validation, review, or closeout work",
         ],
+        "must_not_include": [
+            "claims that implementation or validation already happened unless those role gates have actually run",
+            "vague phrases such as planned, ready, or looks good without REQ/TASK context",
+        ],
         "example": "REQ-1 planned in 00-idea.md with acceptance matrix and TASK-1 ready in 00-idea.md",
     },
     "implementer": {
@@ -228,15 +232,23 @@ ROLE_GUIDANCE = {
             "implementation verbs such as added, updated, changed, created, or refactored",
             "implementation work, not planning, validation, review, or closeout work",
         ],
+        "must_not_include": [
+            "test-only evidence without naming the implemented change",
+            "broad claims such as done without file/module and TASK/IMP context",
+        ],
         "example": "TASK-1 implemented by updating skills/idea-to-code/scripts/idea_to_code_bundle.py",
     },
     "validator": {
         "purpose": "Record validation evidence with the validation type, command, and covered requirements.",
         "must_include": [
             "covered REQ IDs",
-            "one validation type",
+            "one validation type from the approved validation taxonomy",
             "validation action, command, or inspection path",
             "validation work, not another role",
+        ],
+        "must_not_include": [
+            "a passing command without explaining the validation type or covered requirement",
+            "unverified evidence without naming the missing dependency or reason",
         ],
         "example": "REQ-1 source-only validation ran python skills/idea-to-code/scripts/test_idea_to_code_bundle.py BundleTest.test_example",
     },
@@ -246,6 +258,11 @@ ROLE_GUIDANCE = {
             "scope, coverage, boundary, architecture, acceptance matrix, or residual risk review",
             "reviewed requirements, implementation, verification, or REQ/TASK/IMP IDs",
             "review work, not another role",
+            "same-agent review when the reviewer is not a real independent subagent",
+        ],
+        "must_not_include": [
+            "independent-review claims unless a real subagent/person actually ran and returned evidence",
+            "acceptance claims that ignore counterexamples, non-goals, unverified items, or residual risks",
         ],
         "example": "same-agent review checked REQ-1 scope, diff, acceptance matrix, validation strength, and residual risk",
     },
@@ -255,6 +272,10 @@ ROLE_GUIDANCE = {
             "pre-close verify passed",
             "final decision, gate alignment, or REQ coverage",
             "closeout work, not another role",
+        ],
+        "must_not_include": [
+            "closeout before Reviewer evidence and pre-close verify",
+            "accepted/completed claims when coverage, validation, role evidence, or final verify is still missing",
         ],
         "example": "Closeout work for REQ-1: pre-close source-only verify passed, milestone coverage is pass, and final decision is accepted",
     },
