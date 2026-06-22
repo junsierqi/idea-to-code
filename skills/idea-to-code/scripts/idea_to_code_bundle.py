@@ -1555,25 +1555,27 @@ def route_task(root: Path, user_input: str) -> int:
 
 def doctor(root: Path) -> int:
     """Inspect project governance and active idea-to-code state."""
-    governance_candidates = [
+    required_governance_candidates = [
         "AGENTS.md",
         "CONTRIBUTING.md",
-        "docs/README.md",
-        "docs/engineering/00-project-charter.md",
-        "docs/engineering/01-architecture-overview.md",
-        "docs/engineering/02-module-boundaries.md",
-        "docs/engineering/03-development-rules.md",
-        "docs/engineering/04-testing-and-acceptance.md",
-        "docs/engineering/roadmap-and-backlog.md",
     ]
     found = []
     missing = []
-    for rel in governance_candidates:
+    for rel in required_governance_candidates:
         path = root / rel
         if path.exists():
             found.append(rel)
         else:
             missing.append(rel)
+    optional_found = []
+    docs_dir = root / "docs"
+    if docs_dir.exists():
+        for path in sorted(docs_dir.rglob("*.md")):
+            if not path.is_file():
+                continue
+            rel = str(path.relative_to(root)).replace("\\", "/")
+            found.append(rel)
+            optional_found.append(rel)
 
     current = read_current(root)
     active_bundle = None
@@ -1601,6 +1603,7 @@ def doctor(root: Path) -> int:
         "english_only": True,
         "project_governance_found": found,
         "project_governance_missing": missing,
+        "project_governance_optional_found": optional_found,
         "has_project_agent_entry": "AGENTS.md" in found,
         "active_bundle": active_bundle,
         "active_gate": active_gate,
@@ -2558,7 +2561,7 @@ def build_parser() -> argparse.ArgumentParser:
     rl.add_argument("--root", required=True)
     rl.add_argument("--slug", required=True)
 
-    p = sub.add_parser("record", help="Manage local MaskPilot-style sub-records under the active bundle.")
+    p = sub.add_parser("record", help="Manage local structured sub-records under the active bundle.")
     record_sub = p.add_subparsers(dest="record_command", required=True)
     radd = record_sub.add_parser("add", help="Add a local sub-record.")
     radd.add_argument("--root", required=True)

@@ -25,10 +25,22 @@ It helps agents structure long-running delivery work through requirements, miles
 
 ## Install
 
-Copy or symlink `skills/idea-to-code/` into your Codex skills directory, commonly:
+Run the installer from the repository root:
+
+```bash
+python scripts/install_skill.py
+```
+
+This installs or updates the skill at:
 
 ```bash
 $HOME/.codex/skills/idea-to-code
+```
+
+To preview the update without writing files:
+
+```bash
+python scripts/install_skill.py --dry-run
 ```
 
 The bundled script can also be used directly from this repository:

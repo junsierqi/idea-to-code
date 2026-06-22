@@ -11,6 +11,8 @@ Drive an idea from vague intent to verified implementation. Keep moving between 
 
 This skill is an execution workflow for idea-to-code delivery, not a replacement for project governance. If the repository has `AGENTS.md`, `CONTRIBUTING.md`, architecture docs, testing docs, or acceptance rules, treat them as project-local authority and layer this skill underneath them. A task ledger or roadmap records state and evidence; it must not define behavior policy unless the project explicitly gives it that authority.
 
+`SKILL.md` is the skill runtime entry point. `AGENTS.md` is an optional project-specific entry point for agents working inside a repository, and `CONTRIBUTING.md` is optional project-specific contributor guidance. Project governance can constrain repo work when present, but it is not the definition of this skill.
+
 ## Core Operating Contract
 
 When this skill loads, understand its core as: turn an idea into a verified software change through a project-local bundle, not through chat memory. The bundle, script gates, and recorded evidence are the source of continuity.
@@ -292,11 +294,11 @@ Do not add ad hoc top-level Markdown files to a bundle. If a new artifact seems 
 
 Roles and files are intentionally many-to-many, not one-to-one. Planner, Implementer, Validator, Reviewer, and Closer are lifecycle gates; the compact bundle files are durable artifacts. A role may read and update several artifacts, and one artifact may contain evidence from several roles. The authoritative mapping is exposed by `contract.role_artifact_map`.
 
-For MaskPilot-style audit visibility:
+For structured audit visibility:
 
 - Run `status --full` for the machine-readable lifecycle account: requirements, user inputs, role evidence, milestones, blockers, verification state, and closeout.
 - Run `ledger --root "$(pwd)" --slug <slug>` or open `01-progress.md` for the human-readable lifecycle event trail.
-- Use `record add/list` for observed MaskPilot-style local sub-records: `A` acceptance, `D` discovery, `I` iteration, `R` risk, `V` validation, and `F` follow-up.
+- Use `record add/list` for observed local sub-records: `A` acceptance, `D` discovery, `I` iteration, `R` risk, `V` validation, and `F` follow-up.
 - Use `01-progress.md` for delivered slices and REQ coverage.
 - Use `01-progress.md` for validation history.
 

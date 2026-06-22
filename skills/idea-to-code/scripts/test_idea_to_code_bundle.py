@@ -17,6 +17,7 @@ SCRIPT = Path(__file__).with_name("idea_to_code_bundle.py")
 SKILL_DIR = SCRIPT.parent.parent
 REPO_ROOT = SKILL_DIR.parent.parent
 README_MD = REPO_ROOT / "README.md"
+INSTALL_SKILL = REPO_ROOT / "scripts" / "install_skill.py"
 REFERENCES_DIR = SKILL_DIR / "references"
 SKILL_MD = SKILL_DIR / "SKILL.md"
 ALLOWED_REFERENCES = {
@@ -64,12 +65,104 @@ class BundleTest(unittest.TestCase):
         for ref in refs:
             self.assertTrue((REFERENCES_DIR / ref).exists(), ref)
 
+    def test_skill_text_does_not_embed_third_party_project_names(self) -> None:
+        combined = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in [SKILL_MD, *sorted(REFERENCES_DIR.glob("*.md"))]
+        )
+        forbidden_patterns = [
+            r"\bMaskPilot\b",
+            r"\bmaskpilot\b",
+            r"\bMP-\d+\b",
+            r"\bComposio\b",
+            r"\bawesome-codex-skills\b",
+        ]
+        for pattern in forbidden_patterns:
+            self.assertIsNone(re.search(pattern, combined), pattern)
+
     def test_readme_documents_current_bundle_script(self) -> None:
+        if not README_MD.exists():
+            self.skipTest("repository README.md is not present in this installed skill context")
         text = README_MD.read_text(encoding="utf-8")
         expected_path = "skills/idea-to-code/scripts/idea_to_code_bundle.py"
         self.assertIn(expected_path, text)
         self.assertIn(f"python {expected_path} --help", text)
         self.assertNotIn("manage_delivery_bundle.py", text)
+
+    def test_readme_documents_one_command_install_update(self) -> None:
+        if not README_MD.exists():
+            self.skipTest("repository README.md is not present in this installed skill context")
+        text = README_MD.read_text(encoding="utf-8")
+        self.assertIn("python scripts/install_skill.py", text)
+        self.assertIn("installs or updates", text)
+        self.assertIn("$HOME/.codex/skills/idea-to-code", text)
+
+    def test_install_skill_updates_existing_target_and_skips_generated_files(self) -> None:
+        if not INSTALL_SKILL.exists():
+            self.skipTest("repository install script is not present in this installed skill context")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source" / "idea-to-code"
+            target = root / "target" / "idea-to-code"
+            source.mkdir(parents=True)
+            (source / "SKILL.md").write_text("# Skill\n", encoding="utf-8")
+            (source / "scripts").mkdir()
+            (source / "scripts" / "idea_to_code_bundle.py").write_text("print('ok')\n", encoding="utf-8")
+            (source / "scripts" / "__pycache__").mkdir()
+            (source / "scripts" / "__pycache__" / "skip.pyc").write_bytes(b"cache")
+            target.mkdir(parents=True)
+            (target / "stale.txt").write_text("remove me\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(INSTALL_SKILL),
+                    "--source",
+                    str(source),
+                    "--target",
+                    str(target),
+                ],
+                cwd=REPO_ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue((target / "SKILL.md").exists())
+            self.assertTrue((target / "scripts" / "idea_to_code_bundle.py").exists())
+            self.assertFalse((target / "stale.txt").exists())
+            self.assertFalse((target / "scripts" / "__pycache__").exists())
+
+    def test_install_skill_dry_run_does_not_create_target(self) -> None:
+        if not INSTALL_SKILL.exists():
+            self.skipTest("repository install script is not present in this installed skill context")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source" / "idea-to-code"
+            target = root / "target" / "idea-to-code"
+            source.mkdir(parents=True)
+            (source / "SKILL.md").write_text("# Skill\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(INSTALL_SKILL),
+                    "--source",
+                    str(source),
+                    "--target",
+                    str(target),
+                    "--dry-run",
+                ],
+                cwd=REPO_ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Mode: dry-run", result.stdout)
+            self.assertFalse(target.exists())
 
     def test_skill_description_is_concise_and_capability_focused(self) -> None:
         text = SKILL_MD.read_text(encoding="utf-8")
@@ -1724,6 +1817,23 @@ Validation types: real-product-path, mock-only, fixture-only, source-only, dom-o
         payload = json.loads(result.stdout)
         self.assertTrue(payload["has_project_agent_entry"])
         self.assertIn("AGENTS.md", payload["project_governance_found"])
+        self.assertIn("CONTRIBUTING.md", payload["project_governance_missing"])
+        self.assertEqual(payload["project_governance_optional_found"], [])
+
+    def test_doctor_treats_docs_markdown_as_optional_governance(self) -> None:
+        result = self.run_bundle("doctor", "--root", str(self.root))
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["project_governance_missing"], ["AGENTS.md", "CONTRIBUTING.md"])
+        self.assertEqual(payload["project_governance_optional_found"], [])
+
+        process = self.root / "docs" / "process"
+        process.mkdir(parents=True)
+        (process / "testing.md").write_text("# Testing\n", encoding="utf-8")
+        result = self.run_bundle("doctor", "--root", str(self.root))
+        payload = json.loads(result.stdout)
+        self.assertIn("docs/process/testing.md", payload["project_governance_found"])
+        self.assertIn("docs/process/testing.md", payload["project_governance_optional_found"])
+        self.assertNotIn("docs/process/testing.md", payload["project_governance_missing"])
 
 
 class NonZeroTextTestResult(unittest.TextTestResult):
