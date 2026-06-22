@@ -701,7 +701,7 @@ Planned Verification:
             "planner": "REQ-1 planned in 00-idea.md with TASK-1 in 00-idea.md",
             "implementer": "TASK-1 implemented through state.json bundle records for REQ-1",
             "validator": "REQ-1 source-only validation with python idea_to_code_bundle.py verify recorded in 01-progress.md",
-            "reviewer": "REQ-1 review checked 00-idea.md, 00-idea.md, and 01-progress.md coverage",
+            "reviewer": "same-agent review checked REQ-1 scope, 00-idea.md, 00-idea.md, and 01-progress.md coverage",
         }
         for role, evidence in role_evidence.items():
             self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", role, "--evidence", evidence, "--covers", "REQ-1")
@@ -845,7 +845,7 @@ Planned Verification:
         self.checkpoint(slug)
         self.run_bundle("verify", "--root", str(self.root), "--slug", slug)
         time.sleep(1.1)
-        self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "reviewer", "--evidence", "REQ-1 review checked residual risk and coverage in 01-progress.md after prior verify", "--covers", "REQ-1")
+        self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "reviewer", "--evidence", "same-agent review checked REQ-1 residual risk and coverage in 01-progress.md after prior verify", "--covers", "REQ-1")
         result = self.run_bundle(
             "role", "record",
             "--root", str(self.root),
@@ -905,6 +905,16 @@ Planned Verification:
         result = self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "reviewer", "--evidence", "REQ-1 source-only python validation ran in 01-progress.md", "--covers", "REQ-1", check=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Reviewer evidence must describe scope", result.stderr)
+
+    def test_reviewer_requires_role_independence_disclosure(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "planner", "--evidence", "REQ-1 planned in 00-idea.md with acceptance matrix and TASK-1 in 00-idea.md", "--covers", "REQ-1")
+        self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "implementer", "--evidence", "TASK-1 implemented by updating state.json behavior in 00-idea.md", "--covers", "REQ-1")
+        self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "validator", "--evidence", "REQ-1 source-only validation ran python idea_to_code_bundle.py verify command", "--covers", "REQ-1")
+        result = self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "reviewer", "--evidence", "REQ-1 review checked scope, coverage, boundary, and residual risk in 01-progress.md", "--covers", "REQ-1", check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Reviewer evidence must disclose role independence", result.stderr)
 
     def test_progress_role_gates_summary_updates_with_latest_evidence(self) -> None:
         slug = self.init_bundle()
@@ -1733,7 +1743,7 @@ Validation types: real-product-path, mock-only, fixture-only, source-only, dom-o
         self.run_bundle("role", "record", "--root", str(self.root), "--slug", large, "--role", "planner", "--evidence", "REQ-1/REQ-2/REQ-3 planned in 00-idea.md with TASK-1..TASK-4 ready in 00-idea.md", "--covers", covers)
         self.run_bundle("role", "record", "--root", str(self.root), "--slug", large, "--role", "implementer", "--evidence", "TASK-1..TASK-4 implemented through state.json 01-progress.md 01-progress.md and 02-report.md records", "--covers", covers)
         self.run_bundle("role", "record", "--root", str(self.root), "--slug", large, "--role", "validator", "--evidence", "REQ-1/REQ-2/REQ-3 source-only validation ran idea_to_code_bundle.py verify command flow", "--covers", covers)
-        self.run_bundle("role", "record", "--root", str(self.root), "--slug", large, "--role", "reviewer", "--evidence", "REQ-1/REQ-2/REQ-3 review checked 00-idea.md 00-idea.md and 01-progress.md coverage", "--covers", covers)
+        self.run_bundle("role", "record", "--root", str(self.root), "--slug", large, "--role", "reviewer", "--evidence", "same-agent review checked REQ-1/REQ-2/REQ-3 00-idea.md 00-idea.md and 01-progress.md coverage", "--covers", covers)
         for index in range(1, 5):
             self.run_bundle("checkpoint", "--root", str(self.root), "--slug", large, "--milestone", f"Large milestone {index}", "--delivered", "REQ-1/REQ-2/REQ-3 evidence recorded", "--verified", "source-only command flow evidence", "--next", "continue", "--focus", f"milestone {index}", "--gate", "acceptance", "--gate-status", "pass", "--covers", covers)
         listed = self.run_bundle("requirement", "list", "--root", str(self.root), "--slug", large)

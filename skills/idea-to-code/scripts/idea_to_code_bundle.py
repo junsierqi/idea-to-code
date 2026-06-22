@@ -1239,6 +1239,10 @@ def _role_specific_evidence_problems(role: str, evidence: str) -> list[str]:
             problems.append("Reviewer evidence must describe scope, coverage, boundary, or risk review")
         if not re.search(r"\b(00-idea\.md|01-progress\.md|REQ-\d+|TASK-\d+|IMP-\d+)\b", evidence, re.I):
             problems.append("Reviewer evidence must reference reviewed requirements, implementation, verification, or IDs")
+        if not re.search(r"\b(same-agent review|independent review|hybrid-team|independent-team)\b", lowered):
+            problems.append(
+                "Reviewer evidence must disclose role independence with same-agent review, independent review, hybrid-team, or independent-team"
+            )
     elif role == "closer":
         if re.search(r"\bplanner|implementer|validator|reviewer\b", lowered):
             problems.append("Closer evidence must describe closeout work, not another role")
