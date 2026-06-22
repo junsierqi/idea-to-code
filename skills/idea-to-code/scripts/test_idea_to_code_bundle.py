@@ -79,6 +79,16 @@ class BundleTest(unittest.TestCase):
         ]:
             self.assertNotIn(overly_specific, description)
 
+    def test_test_runner_rejects_zero_test_selection(self) -> None:
+        result = subprocess.run(
+            [sys.executable, __file__, "-k", "definitely_no_idea_to_code_tests_match"],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Ran 0 tests", result.stderr)
+
     def test_skill_entry_contract_orients_fresh_agents(self) -> None:
         text = SKILL_MD.read_text(encoding="utf-8")
         for required in [
@@ -116,6 +126,12 @@ class BundleTest(unittest.TestCase):
             "Validation Type",
         ]:
             self.assertIn(required, combined)
+
+    def test_zero_test_runs_are_not_validation_evidence(self) -> None:
+        verification_text = (REFERENCES_DIR / "verification-and-evidence.md").read_text(encoding="utf-8")
+        self.assertIn("Ran 0 tests", verification_text)
+        self.assertIn("not validation evidence", verification_text)
+        self.assertIn("fix the command/test runner", verification_text)
 
     def test_console_handoff_contract_is_documented(self) -> None:
         skill_text = SKILL_MD.read_text(encoding="utf-8")
@@ -158,6 +174,123 @@ class BundleTest(unittest.TestCase):
             "switch",
             "new-task",
             "archive",
+        ]:
+            self.assertIn(required, combined)
+
+    def test_confirmation_handoff_contract_is_documented(self) -> None:
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        verification_text = (REFERENCES_DIR / "verification-and-evidence.md").read_text(encoding="utf-8")
+        combined = "\n".join([skill_text, verification_text])
+
+        for required in [
+            "Confirmation Required",
+            "explicit decision request",
+            "paused before implementation",
+            "Proposed scope after approval",
+            "Please reply with one of:",
+            '"yes" or "approved"',
+            '"change: <correction>"',
+            '"pause"',
+            '"cancel"',
+            "what happens next",
+            "If the user cannot tell how to answer",
+        ]:
+            self.assertIn(required, combined)
+
+    def test_user_intent_acceptance_contract_is_documented(self) -> None:
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        roles_text = (REFERENCES_DIR / "roles-and-state.md").read_text(encoding="utf-8")
+        verification_text = (REFERENCES_DIR / "verification-and-evidence.md").read_text(encoding="utf-8")
+        combined = "\n".join([skill_text, roles_text, verification_text])
+
+        for required in [
+            "user-intent acceptance",
+            "restated user goal",
+            "observable user outcome",
+            "acceptance examples",
+            "counterexamples",
+            "wrong-but-working",
+            "non-goal boundaries",
+            "technically working but solves a different problem",
+            "Command success is not enough for acceptance",
+            "result fits the user's intended outcome",
+        ]:
+            self.assertIn(required, combined)
+
+    def test_role_execution_mode_contract_is_documented(self) -> None:
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        roles_text = (REFERENCES_DIR / "roles-and-state.md").read_text(encoding="utf-8")
+        verification_text = (REFERENCES_DIR / "verification-and-evidence.md").read_text(encoding="utf-8")
+        combined = "\n".join([skill_text, roles_text, verification_text])
+
+        for required in [
+            "Role Execution Mode",
+            "same-agent",
+            "hybrid-team",
+            "independent-team",
+            "Check visible tool availability",
+            "independent Validator or Reviewer",
+            "same-agent review",
+            "fallback reason",
+            "Do not fabricate independent work",
+            "Do not claim an independent agent ran unless",
+            "implementation-confirmation bias",
+        ]:
+            self.assertIn(required, combined)
+
+    def test_subagent_delegation_health_contract_is_documented(self) -> None:
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        roles_text = (REFERENCES_DIR / "roles-and-state.md").read_text(encoding="utf-8")
+        verification_text = (REFERENCES_DIR / "verification-and-evidence.md").read_text(encoding="utf-8")
+        combined = "\n".join([skill_text, roles_text, verification_text])
+
+        for required in [
+            "bounded delegation health check",
+            "recent successful subagent result",
+            "one role, one question, one file set",
+            "clear output shape",
+            "If a subagent times out",
+            "split the task smaller",
+            "closed-without-result subagent is a risk record",
+            "not validation or review evidence",
+        ]:
+            self.assertIn(required, combined)
+
+    def test_delegation_failure_root_cause_must_not_be_guessed(self) -> None:
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        roles_text = (REFERENCES_DIR / "roles-and-state.md").read_text(encoding="utf-8")
+        verification_text = (REFERENCES_DIR / "verification-and-evidence.md").read_text(encoding="utf-8")
+        combined = "\n".join([skill_text, roles_text, verification_text])
+
+        for required in [
+            "Do not guess delegation failure causes",
+            "classify the cause only from observed data",
+            "bounded comparison tests",
+            "ping, scoped file review",
+            "broader review",
+            "root cause `unverified`",
+            "Do not turn fallback into root-cause proof",
+            "The broad timeout cause remains `unverified`",
+            "Record unknown causes explicitly",
+        ]:
+            self.assertIn(required, combined)
+
+    def test_fact_hypothesis_decision_verification_contract_is_documented(self) -> None:
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        verification_text = (REFERENCES_DIR / "verification-and-evidence.md").read_text(encoding="utf-8")
+        combined = "\n".join([skill_text, verification_text])
+
+        for required in [
+            "Fact / Hypothesis / Decision / Verification",
+            "`Fact`: observed evidence only",
+            "`Hypothesis`: possible explanation",
+            "Hypotheses are allowed",
+            "`Decision`: the next action",
+            "`Verification`: evidence that proves",
+            "cannot use an unverified Hypothesis as if it were a Fact",
+            "do not present a hypothesis as a conclusion",
+            "Unverified Items",
+            "Residual Risks",
         ]:
             self.assertIn(required, combined)
 
@@ -648,6 +781,34 @@ Planned Verification: x
     def test_implementation_ready_accepts_intake_without_confirmation_needed(self) -> None:
         slug = self.init_bundle()
         self.write_ready_bundle(slug, need_confirmation="no", mark_ready=False)
+        self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        self.assertTrue(status["implementation_ready"])
+
+    def test_content_file_utf8_bom_does_not_hide_gate_status(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        implementation = """Gate Status: READY
+
+### TASK-1: Verify sample bundle flow
+
+Status: pending
+
+Files:
+- state.json
+
+Execution Details:
+- Record one requirement and all role evidence.
+
+Done Criteria:
+- finalize and verify succeed.
+
+Planned Verification:
+- source-only python idea_to_code_bundle.py verify exits zero.
+"""
+        impl_path = self.root / "implementation-bom.md"
+        impl_path.write_bytes(("\ufeff" + implementation).encode("utf-8"))
+        self.run_bundle("update", "--root", str(self.root), "--slug", slug, "--file", "implementation", "--content-file", str(impl_path))
         self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
         status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
         self.assertTrue(status["implementation_ready"])
@@ -1556,6 +1717,15 @@ Validation types: real-product-path, mock-only, fixture-only, source-only, dom-o
         self.assertIn("AGENTS.md", payload["project_governance_found"])
 
 
+class NonZeroTextTestResult(unittest.TextTestResult):
+    def wasSuccessful(self) -> bool:
+        return self.testsRun > 0 and super().wasSuccessful()
+
+
+class NonZeroTextTestRunner(unittest.TextTestRunner):
+    resultclass = NonZeroTextTestResult
+
+
 if __name__ == "__main__":
-    unittest.main()
+    unittest.main(testRunner=NonZeroTextTestRunner)
 

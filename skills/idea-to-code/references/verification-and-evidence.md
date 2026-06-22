@@ -41,6 +41,17 @@ Rollup:
 - `PARTIAL`: non-critical or explicitly deferred gaps remain.
 - `FAIL`: critical item failed, is missing, or lacks required validation.
 
+## Fact / Hypothesis / Decision / Verification
+
+Use these categories when diagnosing failures, explaining causes, choosing experiments, or closing a task:
+
+- `Fact`: observed evidence only.
+- `Hypothesis`: a possible explanation, candidate cause, or proposed approach that is not yet proven.
+- `Decision`: the next action chosen from facts or explicitly marked hypotheses.
+- `Verification`: evidence that proves, disproves, or narrows a hypothesis or acceptance claim.
+
+Brainstorming hypotheses is allowed and useful. The rule is separation: do not present a hypothesis as a conclusion, do not use it as accepted evidence, and do not hide unresolved hypotheses. If a hypothesis matters to acceptance, verify it first. If it remains unverified, record it under `Unverified Items`, `Residual Risks`, or next experiment plan.
+
 ## Evidence Capture
 
 For UI or runtime-visible work:
@@ -49,6 +60,8 @@ For UI or runtime-visible work:
 - Name the product path exercised.
 - Mention viewport, route, account/data fixture, or environment when relevant.
 - Do not substitute DOM/source checks for available product-path behavior.
+
+For automated tests, confirm the command actually ran at least one relevant test. A command that exits successfully with `Ran 0 tests`, `0 passed`, no collected tests, or an empty filtered selection is not validation evidence; treat it as `unverified` or fix the command/test runner before claiming coverage.
 
 ## Generated Test Evidence
 
@@ -67,6 +80,11 @@ Before accepted closeout, confirm:
 - implementation exists in the repository
 - intake gate is resolved with `Need Confirmation: no`
 - acceptance matrix is concrete
+- Role Execution Mode is recorded as `same-agent`, `hybrid-team`, or `independent-team`
+- same-agent fallback or independent Validator/Reviewer evidence is explained
+- the final behavior matches the restated user goal and observable user outcome
+- acceptance examples pass and counterexamples of wrong-but-working behavior are not accepted
+- non-goal boundaries and user-requested exclusions are respected
 - all open REQs are covered
 - role evidence is current for the current `plan_revision`
 - validation types are named
@@ -78,6 +96,33 @@ Before accepted closeout, confirm:
 - final `verify` passed after finalize
 
 Use `accepted-with-followup` or `not-accepted` when the evidence does not support full acceptance.
+
+## User-Intent Acceptance Check
+
+Treat user-intent fit as first-class evidence. Before `accepted` closeout, the final report and console response should answer:
+
+- What did the user ask for in implementation terms?
+- What observable outcome now proves that request is satisfied?
+- Which acceptance examples were exercised?
+- Which counterexamples or wrong-result cases were rejected?
+- Which non-goals or exclusions were preserved?
+- If the result is only partially aligned, why is it `Progress`, `Blocked`, `partial`, `accepted-with-followup`, `fail`, or `not-accepted`?
+
+If a result is technically working but solves a different problem than the user asked for, it is not accepted.
+
+## Role Independence Check
+
+Before accepted closeout, disclose the role execution mode:
+
+- `same-agent`: explain why subagents were unavailable, unnecessary, or riskier than sequential same-agent gates; Reviewer evidence must say `same-agent review`.
+- `hybrid-team`: name the independent Validator or Reviewer role and summarize that subagent's evidence.
+- `independent-team`: name the independent role/slice ownership and summarize each independent result.
+
+Independent review is stronger because it reduces implementation-confirmation bias, but it must be real. Do not claim an independent agent ran unless the tool call or returned result exists.
+
+For subagent evidence, include the delegation health check or recent successful subagent result, the delegated scope, the agent id/name when available, and whether the result returned before timeout. A timed-out or closed-without-result subagent is a risk record, not validation or review evidence.
+
+Do not turn fallback into root-cause proof. If a broad delegation times out but a ping or scoped review succeeds, the only proven facts are those outcomes. The broad timeout cause remains `unverified` until comparison tests isolate it. Record unknown causes explicitly instead of saying the issue was prompt size, queue latency, tool health, or model behavior without evidence.
 
 ## Console Handoff Check
 
@@ -93,3 +138,15 @@ The final user-visible console/chat response is a closeout artifact. For tracked
 - `Key Technical Details`
 
 Allowed status labels are `Completed`, `Progress`, and `Blocked`. Use `Completed` only when accepted closeout is supported by current role evidence, pre-close verify, finalize, and final verify. If there are no incomplete items, unverified items, or residual risks, write `none` under those fields instead of omitting them.
+
+## Confirmation Handoff Check
+
+When `Need Confirmation: yes`, the user-visible response is also a gate artifact. It must not look like a normal progress update. Check that it includes:
+
+- `[idea-to-code] Confirmation Required`
+- why implementation is paused
+- the proposed scope after approval
+- exact accepted replies such as `yes`, `approved`, `change: <correction>`, `pause`, and `cancel`
+- what happens next after approval
+
+If the user cannot tell how to answer from the message itself, the handoff is incomplete.

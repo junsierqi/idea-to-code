@@ -350,7 +350,14 @@ def state_exists(target: Path) -> bool:
 
 def read_status(target: Path) -> dict:
     status_path = state_path(target)
-    status = json.loads(status_path.read_text(encoding="utf-8"))
+    for attempt in range(8):
+        try:
+            status = json.loads(status_path.read_text(encoding="utf-8"))
+            break
+        except PermissionError:
+            if attempt == 7:
+                raise
+            time.sleep(0.025 * (attempt + 1))
     status.setdefault("schema_version", 1)
     status.setdefault("artifact_contract", COMPACT_CONTRACT)
     status.setdefault("milestones", [])
@@ -541,10 +548,10 @@ def read_content_arg(content: str | None, content_file: str | None) -> str:
     if content is not None and content_file is not None:
         raise SystemExit("Pass either --content or --content-file, not both.")
     if content_file is not None:
-        return Path(content_file).read_text(encoding="utf-8")
+        return Path(content_file).read_text(encoding="utf-8").lstrip("\ufeff")
     if content is None:
         raise SystemExit("Provide --content or --content-file.")
-    return content
+    return content.lstrip("\ufeff")
 
 
 # ---------- subcommands ----------

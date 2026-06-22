@@ -36,6 +36,29 @@ Tool-owned gates are not optional and should not be inferred from chat: Intake G
 
 This section orients the agent; it does not narrow ordinary coding capability. Use normal engineering judgment inside the confirmed plan, while respecting the gates that keep the idea from drifting.
 
+Accepted delivery means the result fits the user's intended outcome, not merely that code changed or tests passed. For every tracked task, keep a user-intent acceptance thread: restated user goal, observable user outcome, in-scope boundaries, non-goals, acceptance examples, counterexamples of wrong-but-working results, and final decision rationale. If the implemented result is technically valid but does not satisfy that intent thread, close as `Progress`, `Blocked`, `partial`, `accepted-with-followup`, `fail`, or `not-accepted` instead of `Completed` / `accepted`.
+
+Role gates are mandatory; separate agents are preferred when real orchestration is available and useful. At planning time, choose and record one Role Execution Mode:
+
+- `same-agent`: one agent performs Planner, Implementer, Validator, Reviewer, and Closer sequentially.
+- `hybrid-team`: the main agent implements, while at least Validator or Reviewer runs as a real independent subagent.
+- `independent-team`: multiple real agents own separate role gates or disjoint implementation slices.
+
+Check visible tool availability before choosing team mode. If subagent/team tools are available, prefer an independent Validator or Reviewer for complex, high-risk, user-intent-sensitive, or cross-module work. If subagents are unavailable, the task is small/low-risk, or delegation would create more coordination risk than value, use `same-agent` and record the fallback reason. Never claim that a separate agent planned, validated, reviewed, or closed unless that agent actually ran and its evidence is available.
+
+Before relying on subagent evidence in a session, run a bounded delegation health check or use a recent successful subagent result from the same session. Delegate narrow tasks: one role, one question, one file set, clear output shape, and no broad repo exploration unless that exploration is the assigned job. If a subagent times out, close it, record the timeout, do not claim independent evidence, and either split the task smaller or fall back to `same-agent` with the stricter review checklist.
+
+Do not guess delegation failure causes. If a subagent attempt fails, times out, or returns unusable evidence, classify the cause only from observed data. Run bounded comparison tests when practical, such as ping, scoped file review, and a deliberately broader review, then record what passed, what failed, and what remains unknown. If the failing condition cannot be reproduced or isolated, keep the cause `unverified` and do not present the fallback as proof that the original failure was due to prompt size, tool health, or model behavior.
+
+Keep Fact / Hypothesis / Decision / Verification separate:
+
+- `Fact`: observed evidence only, such as command output, tool result, file diff, runtime behavior, or user-confirmed statement.
+- `Hypothesis`: possible explanation or option for brainstorming. Hypotheses are allowed, but must be labeled as unverified until tested.
+- `Decision`: the next action chosen from facts or explicit hypotheses, such as the experiment, implementation change, or fallback path to try.
+- `Verification`: evidence that proves, disproves, or narrows a hypothesis or acceptance claim.
+
+Accepted evidence can use Facts and Verification. It cannot use an unverified Hypothesis as if it were a Fact. Unresolved hypotheses belong in `Unverified Items`, `Residual Risks`, or the next experiment plan.
+
 ## When Is This Skill The Right One
 
 Use it when **at least one** is true:
@@ -112,6 +135,28 @@ Opening a bundle is allowed as task capture. Product-code edits are not allowed 
 Use `Need Confirmation: yes` when the idea is ambiguous, risky, architecture-shaping, security-sensitive, destructive, expensive, changes user-visible behavior in multiple plausible ways, or contradicts project governance. Ask the user to confirm or correct the intake before marking implementation ready.
 
 Use `Need Confirmation: no` when the task is clear, low-risk, reversible, and the acceptance criteria can be stated concretely. In that case, restate the intake and proceed autonomously without asking a routine confirmation question.
+
+When `Need Confirmation: yes`, the user-visible response must be an explicit decision request, not a status paragraph that hides the ask. Use this confirmation handoff shape:
+
+```text
+[idea-to-code] Confirmation Required
+
+I have paused before implementation because: <risk or ambiguity>.
+
+Proposed scope after approval:
+- <specific work I will do>
+- <specific verification I will run>
+
+Please reply with one of:
+- "yes" or "approved" to proceed with this scope.
+- "change: <correction>" to adjust the scope before implementation.
+- "pause" to leave the bundle open without coding.
+- "cancel" to archive or close this idea without implementation.
+
+If approved, next step: I will update Intake Gate to `Need Confirmation: no`, rerun `implementation ready`, then start TASK-1.
+```
+
+The response must make the required user action obvious in the first screen: why work is paused, what will be done, how the user can approve or correct it, and what happens next. Do not rely on phrases like "confirm this" without examples.
 
 If the user says the original idea was wrong:
 
@@ -454,6 +499,7 @@ Do not claim done until:
 - intake gate is resolved with `Need Confirmation: no`
 - open REQs are covered
 - acceptance matrix is concrete
+- user-intent acceptance evidence shows the result matches the restated user goal and observable outcome
 - role evidence is current and ordered
 - validation evidence names validation types
 - known gaps and risks are explicit

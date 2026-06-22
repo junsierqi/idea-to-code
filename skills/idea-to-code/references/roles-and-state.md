@@ -16,6 +16,30 @@ Record roles in this order for the current `plan_revision`:
 
 The same agent may perform all roles, but each role requires separate evidence. Do not claim another person or subagent performed a role unless that actually happened and evidence was recorded.
 
+## Role Execution Mode
+
+Before implementation, choose a mode and record it in Planner evidence:
+
+- `same-agent`: one agent performs all role gates sequentially.
+- `hybrid-team`: the main agent performs some roles and at least one real subagent performs Validator or Reviewer work.
+- `independent-team`: multiple real agents perform separate role gates or disjoint implementation slices.
+
+Selection rules:
+
+- Check real tool availability first. Use visible subagent/team tools when they are available and materially improve independence.
+- Confirm delegation health with a bounded ping or recent successful subagent result before treating subagent availability as usable for evidence.
+- Keep delegated tasks narrow: one role, one question, one file set, clear output shape, and no broad repository exploration unless explicitly required.
+- Prefer `hybrid-team` for complex, high-risk, user-intent-sensitive, cross-module, or closeout-sensitive work.
+- Prefer independent Validator or Reviewer over independent Planner when the main risk is biased acceptance of the implementer's own work.
+- Use `same-agent` for small low-risk work, unavailable subagent tools, unclear delegation boundaries, or when delegation would create write conflicts.
+- Do not fabricate independent work. If a subagent did not actually run, evidence must say `same-agent` or explain the fallback.
+- If a subagent times out or returns no usable evidence, close it, record the timeout, split the task smaller or fall back to `same-agent`, and do not count that attempt as independent evidence.
+- Do not infer the cause of a timeout from convenience. If cause matters, run comparison tests such as ping, scoped review, and broader review. Record only observed results; leave the root cause `unverified` when the evidence does not isolate it.
+
+When using `same-agent`, Reviewer evidence must explicitly say `same-agent review` and cover user-intent fit, REQ coverage, acceptance examples, counterexamples, non-goal boundaries, diff scope, validation strength, unverified items, and residual risks.
+
+When using `hybrid-team` or `independent-team`, evidence must name which role ran independently and include the subagent result or identifier when available.
+
 ## Role Responsibilities
 
 - Planner: produces `00-idea.md` content: goal, requirements, task classification, acceptance matrix, design, and implementation plan.
@@ -58,6 +82,10 @@ If semantic impact is unclear, treat the task as tracked.
 
 Every open `REQ-*` needs a row covering:
 
+- user-goal fit: how this requirement serves the restated user outcome
+- acceptance examples: concrete examples that should pass
+- counterexamples: wrong-but-working outputs that must not be accepted
+- non-goal boundaries: related outcomes that are intentionally out of scope
 - expected path
 - negative or invalid inputs
 - boundary cases
@@ -69,6 +97,8 @@ Every open `REQ-*` needs a row covering:
 - validation type
 
 Weak cells such as `none`, `todo`, or `n/a` cause `verify` to fail unless the task truly makes that dimension irrelevant and explains it concretely.
+
+Command success is not enough for acceptance. A row is weak if it only says the build, tests, or implementation ran but does not explain how the observed result matches the user's intended outcome. For small tasks, one compact example and one counterexample may be enough. For larger tasks, each major REQ needs its own examples and counterexamples.
 
 ## Trace Coverage
 
