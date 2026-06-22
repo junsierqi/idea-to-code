@@ -368,6 +368,7 @@ Project-level state:
    ```
    If this command fails, refine the plan only. Do not edit code. `checkpoint`, `verify`, and `finalize` are script-guarded against a non-ready implementation gate.
 9. **Record Planner evidence before implementation**:
+   Follow the Role Evidence Checklist in `references/roles-and-state.md` before recording any role evidence. Use `role explain --role <role>` as a read-only helper when you need the checklist in JSON form, or after `role record` rejects evidence. `role explain` does not change state and does not replace `role record`.
    ```bash
    python ".../idea_to_code_bundle.py" role record --root "$(pwd)" --slug <slug> \
      --role planner --evidence "REQ-1..REQ-N planned in 00-idea.md; TASK-1..TASK-N ready in 00-idea.md" \
@@ -433,6 +434,7 @@ Project-level state:
 - Never mutate a non-current, paused, completed, or closed bundle to make progress.
 - Keep TASK/IMP IDs tied to files, done criteria, and planned verification.
 - Record Planner, Implementer, Validator, Reviewer, and Closer evidence in order for the current `plan_revision`.
+- Before recording role evidence, follow `references/roles-and-state.md` Role Evidence Checklist; if `role record` rejects evidence, run `role explain --role <role>` and rewrite the evidence instead of weakening the gate.
 - Every validation claim must name a validation type; do not inflate mock/source/DOM evidence into real product-path proof.
 - When this skill creates test files, record `Test Ownership`: `persistent-product-test`, `project-native-test`, or `task-evidence-only`. Persistent/project-native tests must be visibly namespaced with `idea_to_code` or the task slug; evidence-only scripts and outputs belong under `.idea-to-code/<slug>/artifacts/`.
 - Run pre-close `verify` after Reviewer evidence and before Closer/finalize.

@@ -20,12 +20,38 @@ README_MD = REPO_ROOT / "README.md"
 INSTALL_SKILL = REPO_ROOT / "scripts" / "install_skill.py"
 REFERENCES_DIR = SKILL_DIR / "references"
 SKILL_MD = SKILL_DIR / "SKILL.md"
+ROLES_STATE_MD = REFERENCES_DIR / "roles-and-state.md"
 ALLOWED_REFERENCES = {
     "planning-patterns.md",
     "roles-and-state.md",
     "verification-and-evidence.md",
     "workflow.md",
 }
+TEST_SUBPROCESS_TIMEOUT_SECONDS = 30
+
+
+def run_test_subprocess(
+    command: list[str],
+    cwd: Path | None = None,
+) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            command,
+            cwd=cwd,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=TEST_SUBPROCESS_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout or ""
+        stderr = exc.stderr or ""
+        raise AssertionError(
+            "test subprocess timed out after "
+            f"{TEST_SUBPROCESS_TIMEOUT_SECONDS} seconds: {command}\n"
+            f"stdout:\n{stdout}\n"
+            f"stderr:\n{stderr}"
+        ) from exc
 
 
 class BundleTest(unittest.TestCase):
@@ -64,6 +90,36 @@ class BundleTest(unittest.TestCase):
         self.assertLessEqual(refs, ALLOWED_REFERENCES)
         for ref in refs:
             self.assertTrue((REFERENCES_DIR / ref).exists(), ref)
+
+    def test_role_evidence_checklist_covers_all_roles(self) -> None:
+        text = ROLES_STATE_MD.read_text(encoding="utf-8")
+        self.assertIn("## Role Evidence Checklist", text)
+        self.assertIn("role explain --role <planner|implementer|validator|reviewer|closer>", text)
+        self.assertIn("not a state transition", text)
+        self.assertIn("not a replacement for `role record`", text)
+        for role in ["Planner", "Implementer", "Validator", "Reviewer", "Closer"]:
+            self.assertIn(f"### {role} Evidence", text)
+            section = text.split(f"### {role} Evidence", 1)[1].split("\n### ", 1)[0]
+            self.assertIn("Must include:", section)
+            self.assertIn("Must not include:", section)
+
+    def test_role_explain_must_include_matches_checklist(self) -> None:
+        text = ROLES_STATE_MD.read_text(encoding="utf-8")
+        result = self.run_bundle("role", "explain")
+        payload = json.loads(result.stdout)
+        for entry in payload["roles"]:
+            heading = f"### {entry['role'].title()} Evidence"
+            section = text.split(heading, 1)[1].split("\n### ", 1)[0]
+            for item in entry["must_include"]:
+                self.assertIn(item, section)
+
+    def test_skill_points_role_record_flow_to_checklist_helper(self) -> None:
+        text = SKILL_MD.read_text(encoding="utf-8")
+        self.assertIn("Role Evidence Checklist", text)
+        self.assertIn("role explain --role <role>", text)
+        self.assertIn("does not change state", text)
+        self.assertIn("does not replace `role record`", text)
+        self.assertIn("if `role record` rejects evidence", text)
 
     def test_skill_text_does_not_embed_third_party_project_names(self) -> None:
         combined = "\n".join(
@@ -182,11 +238,8 @@ class BundleTest(unittest.TestCase):
             self.assertNotIn(overly_specific, description)
 
     def test_test_runner_rejects_zero_test_selection(self) -> None:
-        result = subprocess.run(
+        result = run_test_subprocess(
             [sys.executable, __file__, "-k", "definitely_no_idea_to_code_tests_match"],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Ran 0 tests", result.stderr)
@@ -714,6 +767,22 @@ Planned Verification:
         result = self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "reviewer", "--evidence", "reviewed", "--covers", "REQ-1", check=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("role evidence is too vague", result.stderr)
+
+    def test_role_explain_all_roles(self) -> None:
+        result = self.run_bundle("role", "explain")
+        payload = json.loads(result.stdout)
+        roles = {entry["role"]: entry for entry in payload["roles"]}
+        self.assertEqual(set(roles), {"planner", "implementer", "validator", "reviewer", "closer"})
+        self.assertIn("covered REQ IDs", roles["validator"]["must_include"])
+        self.assertIn("pre-close verify passed", roles["closer"]["must_include"])
+        self.assertIn("example", roles["planner"])
+
+    def test_role_explain_single_role(self) -> None:
+        result = self.run_bundle("role", "explain", "--role", "validator")
+        payload = json.loads(result.stdout)
+        self.assertEqual(len(payload["roles"]), 1)
+        self.assertEqual(payload["roles"][0]["role"], "validator")
+        self.assertIn("validation type", " ".join(payload["roles"][0]["must_include"]))
 
     def test_verify_rejects_weak_acceptance_matrix(self) -> None:
         slug = self.init_bundle()

@@ -48,6 +48,85 @@ When using `hybrid-team` or `independent-team`, evidence must name which role ra
 - Reviewer: reconciles requested scope, actual diff, acceptance matrix, verification strength, risks, and boundary cases.
 - Closer: runs after pre-close verify; records final decision, triggers finalize, and verifies the finalized bundle.
 
+## Role Evidence Checklist
+
+Use this checklist before recording role evidence. If `role record` rejects evidence, inspect this checklist or run the read-only helper:
+
+```bash
+python ".../idea_to_code_bundle.py" role explain --role <planner|implementer|validator|reviewer|closer>
+```
+
+`role explain` is not a state transition, not a role gate, and not a replacement for `role record`. It only prints the evidence expectations in a machine-readable shape.
+
+### Planner Evidence
+
+Must include:
+
+- planned REQ IDs
+- 00-idea.md, requirements, acceptance matrix, or implementation plan
+- TASK/IMP IDs or implementation-plan reference
+- planning work, not validation, review, or closeout work
+
+Must not include:
+
+- claims that implementation or validation already happened unless those role gates have actually run
+- vague phrases such as `planned`, `ready`, or `looks good` without REQ/TASK context
+
+### Implementer Evidence
+
+Must include:
+
+- implemented TASK/IMP IDs
+- changed files or modules
+- implementation verbs such as added, updated, changed, created, or refactored
+- implementation work, not planning, validation, review, or closeout work
+
+Must not include:
+
+- test-only evidence without naming the implemented change
+- broad claims such as `done` without file/module and TASK/IMP context
+
+### Validator Evidence
+
+Must include:
+
+- covered REQ IDs
+- one validation type from the approved validation taxonomy
+- validation action, command, or inspection path
+- validation work, not another role
+
+Must not include:
+
+- a passing command without explaining the validation type or covered requirement
+- `unverified` evidence without naming the missing dependency or reason
+
+### Reviewer Evidence
+
+Must include:
+
+- scope, coverage, boundary, architecture, acceptance matrix, or residual risk review
+- reviewed requirements, implementation, verification, or REQ/TASK/IMP IDs
+- review work, not another role
+- `same-agent review` when the reviewer is not a real independent subagent
+
+Must not include:
+
+- independent-review claims unless a real subagent/person actually ran and returned evidence
+- acceptance claims that ignore counterexamples, non-goals, unverified items, or residual risks
+
+### Closer Evidence
+
+Must include:
+
+- pre-close verify passed
+- final decision, gate alignment, or REQ coverage
+- closeout work, not another role
+
+Must not include:
+
+- closeout before Reviewer evidence and pre-close verify
+- accepted/completed claims when coverage, validation, role evidence, or final verify is still missing
+
 ## Task States
 
 Main states live in `state.json.state`:

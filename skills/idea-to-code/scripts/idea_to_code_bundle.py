@@ -209,6 +209,57 @@ ROLE_ARTIFACT_MAP = {
     },
 }
 
+ROLE_GUIDANCE = {
+    "planner": {
+        "purpose": "Plan requirements, acceptance matrix, design, and TASK/IMP implementation plan before code edits.",
+        "must_include": [
+            "planned REQ IDs",
+            "00-idea.md, requirements, acceptance matrix, or implementation plan",
+            "TASK/IMP IDs or implementation-plan reference",
+            "planning work, not validation, review, or closeout work",
+        ],
+        "example": "REQ-1 planned in 00-idea.md with acceptance matrix and TASK-1 ready in 00-idea.md",
+    },
+    "implementer": {
+        "purpose": "Record concrete implementation work after scoped files or modules are changed.",
+        "must_include": [
+            "implemented TASK/IMP IDs",
+            "changed files or modules",
+            "implementation verbs such as added, updated, changed, created, or refactored",
+            "implementation work, not planning, validation, review, or closeout work",
+        ],
+        "example": "TASK-1 implemented by updating skills/idea-to-code/scripts/idea_to_code_bundle.py",
+    },
+    "validator": {
+        "purpose": "Record validation evidence with the validation type, command, and covered requirements.",
+        "must_include": [
+            "covered REQ IDs",
+            "one validation type",
+            "validation action, command, or inspection path",
+            "validation work, not another role",
+        ],
+        "example": "REQ-1 source-only validation ran python skills/idea-to-code/scripts/test_idea_to_code_bundle.py BundleTest.test_example",
+    },
+    "reviewer": {
+        "purpose": "Review scope, diff, acceptance coverage, boundaries, validation strength, and residual risks.",
+        "must_include": [
+            "scope, coverage, boundary, architecture, acceptance matrix, or residual risk review",
+            "reviewed requirements, implementation, verification, or REQ/TASK/IMP IDs",
+            "review work, not another role",
+        ],
+        "example": "same-agent review checked REQ-1 scope, diff, acceptance matrix, validation strength, and residual risk",
+    },
+    "closer": {
+        "purpose": "Close the task after pre-close verify passes and final decision/gate alignment is known.",
+        "must_include": [
+            "pre-close verify passed",
+            "final decision, gate alignment, or REQ coverage",
+            "closeout work, not another role",
+        ],
+        "example": "Closeout work for REQ-1: pre-close source-only verify passed, milestone coverage is pass, and final decision is accepted",
+    },
+}
+
 IDEA_FILE = "00-idea.md"
 PROGRESS_FILE = "01-progress.md"
 REPORT_FILE = "02-report.md"
@@ -1282,6 +1333,21 @@ def role_record(root: Path, slug: str, role: str, evidence: str, covers: list[st
         append_ledger(target, f"role-{role_key}", evidence, covers)
         rewrite_role_gates(target / PROGRESS_FILE, status)
     return target
+
+
+def role_explain(role: str | None = None) -> int:
+    roles = [role] if role else list(ROLE_NAMES)
+    payload = {
+        "roles": [
+            {
+                "role": role_name,
+                **ROLE_GUIDANCE[role_name],
+            }
+            for role_name in roles
+        ]
+    }
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+    return 0
 
 
 def current_status(root: Path) -> int:
@@ -2593,6 +2659,8 @@ def build_parser() -> argparse.ArgumentParser:
     rr.add_argument("--role", required=True, choices=ROLE_NAMES)
     rr.add_argument("--evidence", required=True)
     rr.add_argument("--covers", default="", help="Comma-separated requirement IDs this role evidence covers.")
+    rexp = role_sub.add_parser("explain", help="Print read-only role evidence guidance as JSON.")
+    rexp.add_argument("--role", choices=ROLE_NAMES, help="Limit guidance to one role.")
 
     p = sub.add_parser("implementation", help="Check or mark the implementation gate.")
     impl_sub = p.add_subparsers(dest="implementation_command", required=True)
@@ -2690,6 +2758,9 @@ def main(argv: Iterable[str] | None = None) -> int:
 
     if args.command == "contract":
         return contract()
+
+    if args.command == "role" and args.role_command == "explain":
+        return role_explain(args.role)
 
     root = Path(args.root).resolve()
 

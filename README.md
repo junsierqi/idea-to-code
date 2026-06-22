@@ -48,3 +48,17 @@ The bundled script can also be used directly from this repository:
 ```bash
 python skills/idea-to-code/scripts/idea_to_code_bundle.py --help
 ```
+
+## Maintain
+
+Run the regression suite before publishing:
+
+```bash
+python skills/idea-to-code/scripts/test_idea_to_code_bundle.py
+```
+
+Inspect role evidence requirements before recording a role gate:
+
+```bash
+python skills/idea-to-code/scripts/idea_to_code_bundle.py role explain --role validator
+```
