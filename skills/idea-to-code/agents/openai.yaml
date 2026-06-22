@@ -1,4 +1,4 @@
 interface:
   display_name: "Idea To Code"
-  short_description: "Turn ideas into delivered software"
-  default_prompt: "Use $idea-to-code to turn my idea into implemented, tested, and iteratively refined code."
+  short_description: "Deliver ideas through compact stateful bundles"
+  default_prompt: "When an idea-to-delivery task is triggered, create or resume the compact bundle, resolve the intake confirmation gate, define requirements and acceptance in 00-idea.md, keep progress and role evidence in 01-progress.md/state.json, verify coverage, finalize through Planner, Implementer, Validator, Reviewer, and Closer gates, and close with a structured [idea-to-code] closeout response."
