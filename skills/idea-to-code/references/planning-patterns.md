@@ -60,29 +60,35 @@ Large ideas usually split by:
 
 ## Implementation Plan Shape
 
-Use `TASK-*` or `IMP-*` entries in `00-idea.md`:
+Use `TASK-*` or `IMP-*` entries in `00-idea.md`. During intake and discovery,
+the same entries are also the visible task list. It is acceptable for DRAFT
+plans to use placeholder values such as `...` when concrete files, execution
+details, done criteria, or verification commands are not known yet.
 
 ```text
-Gate Status: READY
+Gate Status: DRAFT
 
 ### TASK-1: <change point>
 
 Status: pending
 
 Files:
-- <files/modules>
+- ...
 
 Execution Details:
-- <behavior/data/UI/test change to make>
+- ...
 
 Done Criteria:
-- <how this item is complete>
+- ...
 
 Planned Verification:
-- <command/runtime check/evidence target>
+- ...
 ```
 
-Do not mark READY until every task has concrete Files, Execution Details, Done Criteria, and Planned Verification.
+Use this shape even when there is only one task.
+
+Do not mark READY until every placeholder has been replaced and every task has
+concrete Files, Execution Details, Done Criteria, and Planned Verification.
 
 ## Final Report Shape
 
@@ -97,4 +103,4 @@ Do not mark READY until every task has concrete Files, Execution Details, Done C
 - visual evidence when relevant
 - risks and follow-up
 
-Keep the final user response shorter than the report. The report is the durable detail; the response is the handoff summary.
+Keep the final user response shorter than the report. The report is the durable detail; the response is the closeout summary.

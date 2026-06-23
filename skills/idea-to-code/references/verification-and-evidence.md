@@ -124,7 +124,7 @@ For subagent evidence, include the delegation health check or recent successful 
 
 Do not turn fallback into root-cause proof. If a broad delegation times out but a ping or scoped review succeeds, the only proven facts are those outcomes. The broad timeout cause remains `unverified` until comparison tests isolate it. Record unknown causes explicitly instead of saying the issue was prompt size, queue latency, tool health, or model behavior without evidence.
 
-## Console Handoff Check
+## Console Response Check
 
 The final user-visible console/chat response is a closeout artifact. For tracked work, it must start with `[idea-to-code]` and use these field names:
 
@@ -149,4 +149,4 @@ When `Need Confirmation: yes`, the user-visible response is also a gate artifact
 - exact accepted replies such as `yes`, `approved`, `change: <correction>`, `pause`, and `cancel`
 - what happens next after approval
 
-If the user cannot tell how to answer from the message itself, the handoff is incomplete.
+If the user cannot tell how to answer from the message itself, the confirmation request is incomplete.

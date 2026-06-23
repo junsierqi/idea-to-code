@@ -121,11 +121,13 @@ Must include:
 - pre-close verify passed
 - final decision, gate alignment, or REQ coverage
 - closeout work, not another role
+- accepted closeout-status wording such as `prior role evidence is current` when referring to earlier role gates
 
 Must not include:
 
 - closeout before Reviewer evidence and pre-close verify
 - accepted/completed claims when coverage, validation, role evidence, or final verify is still missing
+- claims that the closer performed planning, implementation, validation, or review work
 
 ## Task States
 

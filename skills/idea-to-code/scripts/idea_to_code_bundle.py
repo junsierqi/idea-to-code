@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Iterable
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 REQUIREMENT_TYPES = ("functional", "nonfunctional", "constraint")
 ROLE_NAMES = ("planner", "implementer", "validator", "reviewer", "closer")
@@ -47,6 +47,14 @@ VALIDATION_TYPES = (
     "dom-only",
     "manual-inspection",
     "unverified",
+)
+TASK_REQUIRED_SECTIONS = ("Files:", "Execution Details:", "Done Criteria:", "Planned Verification:")
+READY_TASK_OUTPUT_ID_LABEL = "READY_TASK_OUTPUT_ID"
+READY_OUTPUT_FIELDS = (
+    "ready_task_output_required",
+    "ready_task_output_id",
+    "ready_task_output_plan_revision",
+    "ready_task_output_at_utc",
 )
 LOCAL_RECORD_KINDS = {
     "A": "acceptance",
@@ -93,16 +101,19 @@ FILES = {
         "Gate Status: DRAFT\n\n"
         "Rule: Do not edit code until Gate Status is READY and every TASK has "
         "Execution Details, Files, Done Criteria, and Planned Verification.\n\n"
+        "During DRAFT, TASK blocks are the visible task list. Placeholder values "
+        "such as `...` are allowed until repository discovery and intake confirmation "
+        "make concrete implementation details available.\n\n"
         "### TASK-1: Define the first executable slice\n\n"
         "Status: pending\n\n"
         "Files:\n"
-        "-\n\n"
+        "- ...\n\n"
         "Execution Details:\n"
-        "-\n\n"
+        "- ...\n\n"
         "Done Criteria:\n"
-        "-\n\n"
+        "- ...\n\n"
         "Planned Verification:\n"
-        "-\n"
+        "- ...\n"
     ),
     "01-progress.md": (
         "# Progress\n\n"
@@ -272,12 +283,14 @@ ROLE_GUIDANCE = {
             "pre-close verify passed",
             "final decision, gate alignment, or REQ coverage",
             "closeout work, not another role",
+            "accepted closeout-status wording such as `prior role evidence is current` when referring to earlier role gates",
         ],
         "must_not_include": [
             "closeout before Reviewer evidence and pre-close verify",
             "accepted/completed claims when coverage, validation, role evidence, or final verify is still missing",
+            "claims that the closer performed planning, implementation, validation, or review work",
         ],
-        "example": "Closeout work for REQ-1: pre-close source-only verify passed, milestone coverage is pass, and final decision is accepted",
+        "example": "Pre-close verify passed; prior role evidence is current; REQ-1 covered by passing milestone evidence; final decision pass accepted",
     },
 }
 
@@ -441,15 +454,29 @@ def read_status(target: Path) -> dict:
     status.setdefault("last_verified_plan_revision", None)
     status.setdefault("user_input_decisions", [])
     status.setdefault("pending_plan_update", False)
+    _migrate_ready_output_fields(status)
     status.setdefault("role_evidence", {})
     for role in ROLE_NAMES:
         status["role_evidence"].setdefault(role, [])
     return status
 
 
+def _migrate_ready_output_fields(status: dict) -> None:
+    status.setdefault("ready_task_output_required", False)
+    status.setdefault("ready_task_output_id", None)
+    status.setdefault("ready_task_output_plan_revision", None)
+    status.setdefault("ready_task_output_at_utc", None)
+
+
+def _clear_ready_output(status: dict) -> None:
+    for field in READY_OUTPUT_FIELDS:
+        status[field] = False if field.endswith("_required") else None
+
+
 def write_status(target: Path, status: dict) -> None:
     status["updated_at_utc"] = utc_now()
     status["artifact_contract"] = COMPACT_CONTRACT
+    _migrate_ready_output_fields(status)
     status_path = state_path(target)
     tmp_path = target / f"{status_path.name}.{os.getpid()}.{time.monotonic_ns()}.tmp"
     tmp_path.write_text(json.dumps(status, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -674,6 +701,10 @@ def init_bundle(root: Path, slug: str, title: str, idea: str, unique: bool, set_
             "state": "in_progress",
             "phase": "planning",
             "implementation_ready": False,
+            "ready_task_output_required": False,
+            "ready_task_output_id": None,
+            "ready_task_output_plan_revision": None,
+            "ready_task_output_at_utc": None,
             "current_focus": "",
             "next_gate": "",
             "finalized_at_utc": None,
@@ -706,6 +737,136 @@ def init_bundle(root: Path, slug: str, title: str, idea: str, unique: bool, set_
     return target
 
 
+def _markdown_table_cell(value: str) -> str:
+    return " ".join(value.replace("|", "/").split())
+
+
+def quickstart_bundle(
+    root: Path,
+    slug: str,
+    title: str,
+    idea: str,
+    file_path: str,
+    task: str,
+    verification: str,
+    unique: bool,
+) -> tuple[Path, list[str]]:
+    if not all(_is_ascii(value) for value in [slug, title, idea, file_path, task, verification]):
+        raise SystemExit("quickstart arguments must be English-only ASCII text.")
+    for label, value in {
+        "title": title,
+        "idea": idea,
+        "file": file_path,
+        "task": task,
+        "verification": verification,
+    }.items():
+        if _weak_text_value(value, min_len=5):
+            raise SystemExit(f"quickstart --{label} is too vague.")
+    if not re.search(r"\b(real-product-path|mock-only|fixture-only|source-only|dom-only|manual-inspection|unverified)\b", verification, re.I):
+        verification = f"source-only {verification}"
+
+    target = init_bundle(root, slug, title, idea, unique, True)
+    actual_slug = target.name
+    created_at = utc_now()
+    matrix_task = _markdown_table_cell(task)
+    matrix_file_path = _markdown_table_cell(file_path)
+    content = f"""# Idea
+
+- Title: {title}
+- Slug: {actual_slug}
+- Created At (UTC): {created_at}
+
+## Original Idea
+
+{idea}
+
+## Requirements
+
+- REQ-1: {task}
+
+## Intake Gate
+
+- Understanding: {idea}
+- Assumptions: This is a clear, low-risk, single-slice task suitable for quickstart.
+- Acceptance Criteria: {task}
+- Need Confirmation: no
+- Confirmation Reason: Quickstart is limited to clear low-risk work with concrete acceptance.
+
+## Task Classification
+
+- File changes: yes
+- Semantic impact: yes
+- Tracking required: yes
+- Reason: Quickstart creates a tracked one-slice implementation path.
+
+## Acceptance Matrix
+
+| ID | Expected Path | Negative/Invalid Inputs | Boundary Cases | State/Persistence | Rollback/Cancellation | Error Reporting | Observability | Real Product Path | Validation Type |
+|---|---|---|---|---|---|---|---|---|---|
+| REQ-1 | {matrix_task} | Unrelated edits outside `{matrix_file_path}` are not accepted. | The change remains concise and scoped to the requested file. | Repository file content persists after edit. | User can revert the small file change if needed. | Validation reports whether the expected text/change is present. | The diff and verification output show the result. | `{matrix_file_path}` is the affected product path. | source-only |
+
+## Design
+
+Use the smallest direct edit to `{file_path}` that satisfies REQ-1. Do not refactor unrelated content.
+
+## Implementation Plan
+
+Gate Status: READY
+
+### TASK-1: {task}
+
+Status: pending
+
+Files:
+- {file_path}
+
+Execution Details:
+- {task}
+
+Done Criteria:
+- `{file_path}` contains the requested scoped update and no unrelated edits.
+
+Planned Verification:
+- {verification}
+"""
+    (target / IDEA_FILE).write_text(content, encoding="utf-8")
+    problems = implementation_gate_problems(target)
+    problems.extend(_acceptance_matrix_problems(content, [{"id": "REQ-1", "state": "open"}]))
+    if problems:
+        raise SystemExit("quickstart generated an invalid ready bundle:\n  - " + "\n  - ".join(problems))
+    with bundle_lock(target):
+        status = read_status(target)
+        status["requirements"] = [
+            {
+                "id": "REQ-1",
+                "description": task,
+                "type": "functional",
+                "created_at_utc": utc_now(),
+                "state": "open",
+            }
+        ]
+        status["plan_revision"] = int(status.get("plan_revision", 0)) + 1
+        status["pending_plan_update"] = False
+        status["implementation_ready"] = True
+        status["phase"] = "ready_to_implement"
+        output_id, ready_output_lines = _record_ready_output(target, actual_slug, status)
+        status["current_focus"] = f"quickstart ready; ready_output={output_id}"
+        status.setdefault("role_evidence", {role: [] for role in ROLE_NAMES})
+        status["role_evidence"].setdefault("planner", []).append(
+            {
+                "timestamp_utc": utc_now(),
+                "role": "planner",
+                "evidence": "REQ-1 planned in 00-idea.md with acceptance matrix and TASK-1 implementation plan ready through quickstart.",
+                "covers": ["REQ-1"],
+                "plan_revision": status["plan_revision"],
+            }
+        )
+        write_status(target, status)
+        append_ledger(target, "quickstart", f"Quickstart generated ready single-task bundle; ready_output={output_id}")
+    write_current(root, actual_slug, "ready_to_implement")
+    return target, ready_output_lines
+
+
 def _parse_ids(raw: str | None) -> list[str]:
     if not raw:
         return []
@@ -733,6 +894,9 @@ def checkpoint_bundle(
                 "checkpoint refused - implementation gate is not READY. "
                 f"Fill {IMPLEMENTATION_FILE} and run 'implementation ready' before recording executed work."
             )
+        ready_output_problem = _ready_output_problem(status)
+        if ready_output_problem:
+            raise SystemExit("checkpoint refused - " + ready_output_problem)
         known_ids = {r["id"] for r in status.get("requirements", [])}
         unknown = [c for c in covers if c not in known_ids]
         if unknown and known_ids:
@@ -873,6 +1037,7 @@ def update_section(
         status = read_status(target)
         if file_key in {"requirements", "design", "implementation"}:
             status["implementation_ready"] = False
+            _clear_ready_output(status)
             status["plan_revision"] = int(status.get("plan_revision", 0)) + 1
             status["last_verify_ok"] = False
             status["last_verified_plan_revision"] = None
@@ -930,6 +1095,7 @@ def user_input_record(
         if changes_plan_bool:
             status["pending_plan_update"] = True
             status["implementation_ready"] = False
+            _clear_ready_output(status)
             status["last_verify_ok"] = False
             status["last_verified_plan_revision"] = None
             status["phase"] = "planning"
@@ -937,6 +1103,36 @@ def user_input_record(
         write_status(target, status)
         append_ledger(target, "user-input", f"{classification}: {summary}; action: {action}", [])
     return target
+
+
+def _task_section_blocks(text: str) -> list[tuple[str, dict[str, str]]]:
+    task_matches = list(re.finditer(r"^#{2,3} ((?:TASK|IMP)-\d+:[^\n]*)", text, re.MULTILINE))
+    section_names = "|".join(re.escape(section) for section in TASK_REQUIRED_SECTIONS)
+    blocks: list[tuple[str, dict[str, str]]] = []
+    for index, match in enumerate(task_matches):
+        start = match.end()
+        end = task_matches[index + 1].start() if index + 1 < len(task_matches) else len(text)
+        block = text[start:end]
+        task_name = match.group(1).strip()
+        sections: dict[str, str] = {}
+        for required in TASK_REQUIRED_SECTIONS:
+            section_match = re.search(
+                rf"^{re.escape(required)}\s*(?P<inline>[^\n]*)\n(?P<body>.*?)(?=^(?:{section_names})|^#{{2,3}} (?:TASK|IMP)-\d+:|\Z)",
+                block,
+                re.MULTILINE | re.DOTALL,
+            )
+            if not section_match:
+                continue
+            candidate_lines = []
+            inline = section_match.group("inline").strip()
+            if inline:
+                candidate_lines.append(inline)
+            candidate_lines.extend(line.rstrip() for line in section_match.group("body").splitlines())
+            while candidate_lines and not candidate_lines[-1].strip():
+                candidate_lines.pop()
+            sections[required] = "\n".join(candidate_lines).strip()
+        blocks.append((task_name, sections))
+    return blocks
 
 
 def implementation_gate_problems(target: Path) -> list[str]:
@@ -947,31 +1143,19 @@ def implementation_gate_problems(target: Path) -> list[str]:
     problems: list[str] = _intake_gate_problems(target)
     if not re.search(r"^Gate Status:\s*READY\s*$", text, re.MULTILINE):
         problems.append(f"{IMPLEMENTATION_FILE}: Gate Status is not READY")
-    task_matches = list(re.finditer(r"^#{2,3} (?:TASK|IMP)-\d+:[^\n]*", text, re.MULTILINE))
-    if not task_matches:
+    task_blocks = _task_section_blocks(text)
+    if not task_blocks:
         problems.append(f"{IMPLEMENTATION_FILE}: no TASK or IMP items found")
         return problems
-    required_sections = ("Files:", "Execution Details:", "Done Criteria:", "Planned Verification:")
-    section_names = "|".join(re.escape(section) for section in required_sections)
-    for index, match in enumerate(task_matches):
-        start = match.end()
-        end = task_matches[index + 1].start() if index + 1 < len(task_matches) else len(text)
-        block = text[start:end]
-        task_name = re.sub(r"^#{2,3}\s+", "", match.group(0))
-        for required in required_sections:
-            section_match = re.search(
-                rf"^{re.escape(required)}\s*(?P<inline>[^\n]*)\n(?P<body>.*?)(?=^(?:{section_names})|^#{{2,3}} (?:TASK|IMP)-\d+:|\Z)",
-                block,
-                re.MULTILINE | re.DOTALL,
-            )
-            if not section_match:
+    for task_name, sections in task_blocks:
+        for required in TASK_REQUIRED_SECTIONS:
+            value = sections.get(required, "")
+            if not value:
                 problems.append(f"{IMPLEMENTATION_FILE}: {task_name} missing {required}")
                 continue
-            candidate_lines = [section_match.group("inline")]
-            candidate_lines.extend(section_match.group("body").splitlines())
             meaningful = [
                 line.strip()
-                for line in candidate_lines
+                for line in value.splitlines()
                 if line.strip() and not _weak_text_value(line.strip(), min_len=8)
             ]
             if not meaningful:
@@ -1017,12 +1201,90 @@ def mark_implementation_ready(root: Path, slug: str) -> Path:
         status = read_status(target)
         status["phase"] = "ready_to_implement"
         status["implementation_ready"] = True
+        output_id, lines = _record_ready_output(target, slug, status)
         write_status(target, status)
-        append_ledger(target, "implementation-ready", "Implementation gate marked READY")
+        append_ledger(target, "implementation-ready", f"Implementation gate marked READY; ready_output={output_id}")
     current = read_current(root)
     if current and current.get("slug") == slug:
         write_current(root, slug, "ready_to_implement")
+    print("\n".join(lines))
     return target
+
+
+def _ready_task_blocks(target: Path) -> list[tuple[str, str]]:
+    text = (target / IMPLEMENTATION_FILE).read_text(encoding="utf-8")
+    blocks: list[tuple[str, str]] = []
+    for task_name, sections in _task_section_blocks(text):
+        kept: list[str] = []
+        for section in TASK_REQUIRED_SECTIONS:
+            kept.append(section)
+            value = sections.get(section, "")
+            if value:
+                kept.extend(value.splitlines())
+            kept.append("")
+        blocks.append((task_name, "\n".join(kept).strip()))
+    return blocks
+
+
+def _ready_output_problem(status: dict) -> str | None:
+    if not status.get("ready_task_output_required"):
+        return None
+    plan_revision = int(status.get("plan_revision", 0))
+    output_id = status.get("ready_task_output_id")
+    output_revision = status.get("ready_task_output_plan_revision")
+    if not output_id or output_revision != plan_revision:
+        return (
+            "READY output refresh required: run implementation show-ready --root <root> --slug <slug> "
+            "and send its output to the user before implementation evidence."
+        )
+    return None
+
+
+def _format_ready_output(slug: str, title: str, output_id: str, blocks: list[tuple[str, str]]) -> list[str]:
+    lines = [
+        f"[idea-to-code] Implementation Gate: READY | Bundle: {slug}",
+        "",
+        f"Restated user goal: {title}",
+        f"{READY_TASK_OUTPUT_ID_LABEL}: {output_id}",
+        "",
+    ]
+    for task_name, block in blocks:
+        lines.append(task_name)
+        if block:
+            lines.append(block)
+        lines.append("")
+    lines.append("Send this READY TASK list to the user before product-file edits. Continue after sending it unless the user interrupts.")
+    return lines
+
+
+def _record_ready_output(target: Path, slug: str, status: dict) -> tuple[str, list[str]]:
+    plan_revision = int(status.get("plan_revision", 0))
+    timestamp = utc_now()
+    compact_time = re.sub(r"[^0-9]", "", timestamp)[:14]
+    output_id = f"{slug}-r{plan_revision}-{compact_time}"
+    status["ready_task_output_required"] = True
+    status["ready_task_output_id"] = output_id
+    status["ready_task_output_plan_revision"] = plan_revision
+    status["ready_task_output_at_utc"] = timestamp
+    lines = _format_ready_output(slug, status.get("title", slug), output_id, _ready_task_blocks(target))
+    return output_id, lines
+
+
+def implementation_show_ready(root: Path, slug: str) -> int:
+    target = ensure_active_bundle(root, slug)
+    with bundle_lock(target):
+        problems = implementation_gate_problems(target)
+        status = read_status(target)
+        if problems or not status.get("implementation_ready"):
+            raise SystemExit(
+                "implementation show-ready refused - implementation gate is not READY:\n  - "
+                + "\n  - ".join(problems or [f"{STATE_FILE}: implementation_ready is not true"])
+            )
+        output_id, lines = _record_ready_output(target, slug, status)
+        write_status(target, status)
+        append_ledger(target, "implementation-show-ready", f"READY task output generated/refreshed: {output_id}")
+    print("\n".join(lines))
+    return 0
 
 
 def implementation_status(root: Path, slug: str) -> int:
@@ -1035,6 +1297,9 @@ def implementation_status(root: Path, slug: str) -> int:
         "ready": not problems and bool(status.get("implementation_ready")),
         "status_flag": status.get("implementation_ready", False),
         "phase": status.get("phase"),
+        "ready_task_output_required": status.get("ready_task_output_required", False),
+        "ready_task_output_id": status.get("ready_task_output_id"),
+        "ready_task_output_plan_revision": status.get("ready_task_output_plan_revision"),
         "problems": problems,
     }
     print(json.dumps(result, indent=2, ensure_ascii=False))
@@ -1244,7 +1509,17 @@ def _role_specific_evidence_problems(role: str, evidence: str) -> list[str]:
                 "Reviewer evidence must disclose role independence with same-agent review, independent review, hybrid-team, or independent-team"
             )
     elif role == "closer":
-        if re.search(r"\bplanner|implementer|validator|reviewer\b", lowered):
+        closer_role_text = re.sub(
+            r"\b(prior|previous|earlier)?\s*role evidence (is|are)?\s*current\b",
+            " ",
+            lowered,
+        )
+        closer_role_text = re.sub(
+            r"\b(prior|previous|earlier)\s+(planner|implementer|validator|reviewer)\s+evidence (is|are)?\s*current\b",
+            " ",
+            closer_role_text,
+        )
+        if re.search(r"\bplanner|implementer|validator|reviewer\b", closer_role_text):
             problems.append("Closer evidence must describe closeout work, not another role")
         if not re.search(r"\bpre-close\b.*\bverify\b|\bverify\b.*\bpassed\b", lowered):
             problems.append("Closer evidence must state pre-close verify passed")
@@ -1337,6 +1612,16 @@ def role_record(root: Path, slug: str, role: str, evidence: str, covers: list[st
             if latest_reviewer_at and status.get("last_verified_at_utc", "") < latest_reviewer_at:
                 raise SystemExit(
                     "closer evidence refused: pre-close verify is older than the latest Reviewer evidence."
+                )
+        if role_key == "implementer":
+            ready_output_problem = _ready_output_problem(status)
+            if ready_output_problem:
+                raise SystemExit("implementer evidence refused - " + ready_output_problem)
+            output_id = status.get("ready_task_output_id")
+            if output_id and f"{READY_TASK_OUTPUT_ID_LABEL} {output_id}" not in evidence:
+                raise SystemExit(
+                    "implementer evidence refused - cite the latest READY output as "
+                    f"{READY_TASK_OUTPUT_ID_LABEL} {output_id}."
                 )
         known_ids = {r["id"] for r in status.get("requirements", [])}
         unknown = [c for c in covers if c not in known_ids]
@@ -1701,7 +1986,7 @@ def doctor(root: Path) -> int:
         "recommendations": [
             "Read project governance files found by doctor before planning or editing.",
             "Use direct-trigger delivery by default; stop at planning only when explicitly requested.",
-            "Run verify before accepted finalize or completed handoff.",
+            "Run verify before accepted finalize or completed closeout.",
         ],
     }
     print(json.dumps(payload, indent=2, ensure_ascii=False))
@@ -1786,17 +2071,35 @@ def current_pause(root: Path, reason: str) -> Path:
     return target
 
 
-def current_resume(root: Path, reason: str) -> Path:
+def current_resume(root: Path, reason: str, slug: str | None = None) -> Path:
     if not _is_ascii(reason):
         raise SystemExit("resume reason must be English-only ASCII text.")
-    current = read_current(root)
+    selected_by_slug = slug is not None
+    if selected_by_slug:
+        target = current_set(root, slug)
+        current = read_current(root)
+    else:
+        current = read_current(root)
+        if not current:
+            raise SystemExit("No .idea-to-code/current.json exists. Use current resume --slug <slug> when the active pointer was lost.")
+        target = ensure_bundle(root, current.get("slug"))
     if not current:
         raise SystemExit("No .idea-to-code/current.json exists.")
     slug = current.get("slug")
-    target = ensure_bundle(root, slug)
     with bundle_lock(target):
         status = read_status(target)
         if status.get("state") != "paused":
+            if selected_by_slug:
+                current["status"] = status.get("phase") or status.get("state", "in_progress")
+                current["updated_at_utc"] = utc_now()
+                current["resume_reason"] = reason
+                current.pop("pause_reason", None)
+                current_path(root).write_text(
+                    json.dumps(current, indent=2, ensure_ascii=False) + "\n",
+                    encoding="utf-8",
+                )
+                append_ledger(target, "resume", f"Selected unfinished slug for resume: {reason}")
+                return target
             raise SystemExit("Current bundle is not paused.")
         status["phase"] = "planning" if not status.get("implementation_ready") else "in_progress"
         status["state"] = "in_progress"
@@ -2022,6 +2325,9 @@ def _bundle_integrity_problems(target: Path, require_closer: bool) -> list[str]:
         problems.append(f"{STATE_FILE}: no milestones recorded")
     if not status.get("implementation_ready"):
         problems.append(f"{STATE_FILE}: implementation_ready is not true")
+    ready_output_problem = _ready_output_problem(status)
+    if ready_output_problem:
+        problems.append(ready_output_problem)
     if not status.get("user_input_decisions"):
         problems.append(f"{STATE_FILE}: no user input decision records")
     if status.get("pending_plan_update"):
@@ -2613,6 +2919,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--unique", action="store_true", help="Use YYYYMMDD-HHMM-<normalized-slug> and add -02/-03 on collision.")
     p.add_argument("--no-current", action="store_true", help="Do not write .idea-to-code/current.json.")
 
+    p = sub.add_parser("quickstart", help="Create a ready one-task bundle for clear low-risk work.")
+    p.add_argument("--root", required=True)
+    p.add_argument("--slug", required=True)
+    p.add_argument("--title", required=True)
+    p.add_argument("--idea", required=True)
+    p.add_argument("--file", required=True, help="Primary file or module to edit.")
+    p.add_argument("--task", required=True, help="Concrete TASK-1 description.")
+    p.add_argument("--verification", default="source-only inspect the changed file for the requested update")
+    p.add_argument("--unique", action="store_true", help="Use YYYYMMDD-HHMM-<normalized-slug> and add -02/-03 on collision.")
+    p.add_argument("--json", action="store_true", help="Print only machine-readable JSON instead of JSON plus READY TASK text.")
+
     p = sub.add_parser("doctor", help="Inspect project governance files and active bundle state.")
     p.add_argument("--root", required=True)
 
@@ -2692,6 +3009,9 @@ def build_parser() -> argparse.ArgumentParser:
     ir = impl_sub.add_parser("ready", help=f"Mark implementation gate ready after {IMPLEMENTATION_FILE} is complete.")
     ir.add_argument("--root", required=True)
     ir.add_argument("--slug", required=True)
+    isr = impl_sub.add_parser("show-ready", help="Reprint or refresh the READY TASK output.")
+    isr.add_argument("--root", required=True)
+    isr.add_argument("--slug", required=True)
     ist = impl_sub.add_parser("status", help="Print implementation gate status.")
     ist.add_argument("--root", required=True)
     ist.add_argument("--slug", required=True)
@@ -2711,9 +3031,10 @@ def build_parser() -> argparse.ArgumentParser:
     cp = cur_sub.add_parser("pause", help="Pause the active current bundle without archiving it.")
     cp.add_argument("--root", required=True)
     cp.add_argument("--reason", required=True)
-    cr = cur_sub.add_parser("resume", help="Resume the active paused bundle with a reason.")
+    cr = cur_sub.add_parser("resume", help="Resume the active paused bundle with a reason, optionally selecting a known unfinished slug first.")
     cr.add_argument("--root", required=True)
     cr.add_argument("--reason", required=True)
+    cr.add_argument("--slug", default=None, help="Known unfinished bundle slug to set as current before resuming.")
 
     p = sub.add_parser("link",
                        help="Retroactively attach requirement IDs to an already-recorded milestone.")
@@ -2794,6 +3115,20 @@ def main(argv: Iterable[str] | None = None) -> int:
         print(target)
         return 0
 
+    if args.command == "quickstart":
+        target, ready_output_lines = quickstart_bundle(root, args.slug, args.title, args.idea, args.file, args.task, args.verification, args.unique)
+        status = read_status(target)
+        print(json.dumps({
+            "path": str(target),
+            "slug": target.name,
+            "ready": True,
+            "ready_task_output_id": status.get("ready_task_output_id"),
+        }, indent=2, ensure_ascii=False))
+        if not args.json:
+            print()
+            print("\n".join(ready_output_lines))
+        return 0
+
     if args.command == "doctor":
         return doctor(root)
 
@@ -2846,8 +3181,10 @@ def main(argv: Iterable[str] | None = None) -> int:
 
     if args.command == "implementation":
         if args.implementation_command == "ready":
-            print(mark_implementation_ready(root, args.slug))
+            mark_implementation_ready(root, args.slug)
             return 0
+        if args.implementation_command == "show-ready":
+            return implementation_show_ready(root, args.slug)
         if args.implementation_command == "status":
             return implementation_status(root, args.slug)
 
@@ -2867,7 +3204,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             print(current_pause(root, args.reason))
             return 0
         if args.current_command == "resume":
-            print(current_resume(root, args.reason))
+            print(current_resume(root, args.reason, args.slug))
             return 0
 
     if args.command == "link":

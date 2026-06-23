@@ -144,6 +144,7 @@ python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" finaliz
 
 - Use `current pause` when the user pauses work.
 - Use `current resume` only after the user resumes.
+- Use `current resume --slug <known-unfinished-slug> --reason "<reason>"` when `.idea-to-code/current.json` is missing after interruption or reboot and the user knows the unfinished slug. The command safely restores that slug as current and resumes it if it was paused.
 - Use `block` for external dependencies and `unblock` when resolved.
 - Use `current archive` before starting an unrelated task while work is unfinished.
 - Do not use `current clear` to hide unfinished work.
