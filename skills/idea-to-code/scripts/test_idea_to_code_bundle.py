@@ -424,6 +424,20 @@ class BundleTest(unittest.TestCase):
         ]:
             self.assertIn(required, skill_text)
 
+    def test_execution_visibility_documents_profile_prefix(self) -> None:
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+
+        for required in [
+            "Direct idea-to-code use uses `[idea-to-code]`",
+            "use `[idea-to-code/<profile-name>]`",
+            "[idea-to-code/<profile-name>] Mode: delivery",
+            "caller-provided and display-only",
+            "does not change lifecycle gates, state files, ledger semantics, permissions, or closeout rules",
+            "Do not infer trust, ownership, permissions, or scope from a profile name",
+            "default or profile-aware idea-to-code prefix",
+        ]:
+            self.assertIn(required, skill_text)
+
     def test_user_intent_acceptance_contract_is_documented(self) -> None:
         skill_text = SKILL_MD.read_text(encoding="utf-8")
         roles_text = (REFERENCES_DIR / "roles-and-state.md").read_text(encoding="utf-8")
@@ -1079,6 +1093,37 @@ Planned Verification: x
         self.assertEqual(status["ready_task_output_plan_revision"], status["plan_revision"])
         self.assertTrue(status["ready_task_output_id"])
 
+    def test_implementation_ready_supports_profile_prefix(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, need_confirmation="no", mark_ready=False)
+        result = self.run_bundle(
+            "implementation", "ready",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--profile", "upper-layer",
+        )
+        self.assertIn("[idea-to-code/upper-layer] Implementation Gate: READY", result.stdout)
+        self.assertIn("READY_TASK_OUTPUT_ID:", result.stdout)
+        self.assertNotIn("[idea-to-code] Implementation Gate: READY", result.stdout)
+
+    def test_implementation_profile_is_display_only_not_persisted(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, need_confirmation="no", mark_ready=False)
+        self.run_bundle(
+            "implementation", "ready",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--profile", "upper-layer",
+        )
+
+        bundle_path = self.root / ".idea-to-code" / slug
+        status = json.loads((bundle_path / "state.json").read_text(encoding="utf-8"))
+        ledger = (bundle_path / "01-progress.md").read_text(encoding="utf-8")
+
+        self.assertNotIn("profile", status)
+        self.assertNotIn("upper-layer", json.dumps(status))
+        self.assertNotIn("upper-layer", ledger)
+
     def test_implementation_show_ready_prints_ready_task_list_and_records_id(self) -> None:
         slug = self.init_bundle()
         self.write_ready_bundle(slug)
@@ -1102,6 +1147,32 @@ Planned Verification: x
         self.assertIn("READY_TASK_OUTPUT_ID:", result.stdout)
         self.assertIn("TASK-1: Verify sample bundle flow", result.stdout)
         self.assertIn("Files:", result.stdout)
+
+    def test_implementation_show_ready_supports_profile_prefix(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        result = self.run_bundle(
+            "implementation", "show-ready",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--profile", "upper-layer",
+        )
+        self.assertIn("[idea-to-code/upper-layer] Implementation Gate: READY", result.stdout)
+        self.assertIn("READY_TASK_OUTPUT_ID:", result.stdout)
+        self.assertIn("TASK-1: Verify sample bundle flow", result.stdout)
+
+    def test_implementation_profile_rejects_unsafe_name(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        result = self.run_bundle(
+            "implementation", "show-ready",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--profile", "../bad",
+            check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--profile must use", result.stderr)
 
     def test_implementation_show_ready_rejects_non_ready_bundle(self) -> None:
         slug = self.init_bundle()

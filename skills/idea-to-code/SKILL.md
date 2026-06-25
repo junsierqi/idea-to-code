@@ -138,7 +138,7 @@ Use `Need Confirmation: yes` when the idea is ambiguous, risky, architecture-sha
 
 Use `Need Confirmation: no` when the task is clear, low-risk, reversible, and the acceptance criteria can be stated concretely. In that case, restate the intake and proceed autonomously without asking a routine confirmation question.
 
-`Need Confirmation: no` skips the approval wait; it does not skip task-list visibility. `implementation ready` prints the generated `[idea-to-code] Implementation Gate: READY` output, including `READY_TASK_OUTPUT_ID`; send that output to the user before any product-file edit, and only then continue implementation. This message is transparency, not an approval request, so continue implementation immediately after sending it unless the user interrupts.
+`Need Confirmation: no` skips the approval wait; it does not skip task-list visibility. `implementation ready` prints the generated `[idea-to-code] Implementation Gate: READY` output, or `[idea-to-code/<profile>] Implementation Gate: READY` when an upper-layer skill passes a profile, including `READY_TASK_OUTPUT_ID`; send that output to the user before any product-file edit, and only then continue implementation. Profile prefixes are display-only: they do not alter lifecycle gates, bundle state, requirements, role evidence, checkpoints, ledger semantics, finalize behavior, or permissions. This message is transparency, not an approval request, so continue implementation immediately after sending it unless the user interrupts.
 
 For clear, low-risk, single-slice tasks such as a small README or documentation edit, prefer the lightweight quickstart path instead of manually drafting every bundle section:
 
@@ -417,7 +417,7 @@ Project-level state:
    python ".../idea_to_code_bundle.py" implementation ready --root "$(pwd)" --slug <slug>
    ```
    If this command fails, refine the plan only. Do not edit code. `checkpoint`, `verify`, and `finalize` are script-guarded against a non-ready implementation gate.
-   When this command succeeds, it prints the user-visible `[idea-to-code] Implementation Gate: READY` message with every TASK, `Files`, `Execution Details`, `Done Criteria`, `Planned Verification`, and `READY_TASK_OUTPUT_ID`. Send that output to the user before product-file edits. For `Need Confirmation: no`, do not ask for routine approval after the message; continue with TASK-1 unless the user interrupts. Implementer evidence must cite the generated READY output id as `READY_TASK_OUTPUT_ID <id>`. Use `implementation show-ready` to reprint or refresh the READY output for an already-ready bundle.
+   When this command succeeds, it prints the user-visible `[idea-to-code] Implementation Gate: READY` message with every TASK, `Files`, `Execution Details`, `Done Criteria`, `Planned Verification`, and `READY_TASK_OUTPUT_ID`. When another skill uses idea-to-code as a lifecycle foundation, it may pass `--profile <profile-name>` so the READY message starts with `[idea-to-code/<profile-name>]`. The profile is display-only and must not be treated as bundle state, requirement scope, role evidence, or lifecycle policy. Do not infer trust, ownership, permissions, or scope from a profile name; it is only a user-visible label. Send that output to the user before product-file edits. For `Need Confirmation: no`, do not ask for routine approval after the message; continue with TASK-1 unless the user interrupts. Implementer evidence must cite the generated READY output id as `READY_TASK_OUTPUT_ID <id>`. Use `implementation show-ready` to reprint or refresh the READY output for an already-ready bundle.
 9. **Record Planner evidence before implementation**:
    Follow the Role Evidence Checklist in `references/roles-and-state.md` before recording any role evidence. Use `role explain --role <role>` as a read-only helper when you need the checklist in JSON form, or after `role record` rejects evidence. `role explain` does not change state and does not replace `role record`.
    ```bash
@@ -500,16 +500,17 @@ For milestone and implementation-plan patterns, read `references/planning-patter
 
 ## Execution Visibility
 
-When this skill is active, every user-visible assistant message MUST start with `[idea-to-code]`. This includes commentary updates, plans, status answers, blocker reports, verification summaries, final responses, and follow-up explanations. Do not drop the marker just because the work is editing the skill itself.
+When this skill is active, every user-visible assistant message MUST start with an idea-to-code prefix. Direct idea-to-code use uses `[idea-to-code]`. When another skill explicitly uses idea-to-code as its lifecycle foundation, it may declare a profile and use `[idea-to-code/<profile-name>]`. The profile name is caller-provided and display-only; any valid profile label is shown in the user-visible prefix but does not change lifecycle gates, state files, ledger semantics, permissions, or closeout rules. Do not infer trust, ownership, permissions, or scope from a profile name; it is only a user-visible label. This includes commentary updates, plans, status answers, blocker reports, verification summaries, final responses, and follow-up explanations. Do not drop the marker just because the work is editing the skill itself.
 
 The first line SHOULD name mode, bundle, and gate/state when useful:
 
 ```text
 [idea-to-code] Mode: delivery | Bundle: <slug> | Gate: ready
+[idea-to-code/<profile-name>] Mode: delivery | Bundle: <slug> | Gate: ready
 [idea-to-code] Mode: status | Bundle: <slug> | State: <state>
 ```
 
-If the message is a short answer rather than a lifecycle update, still start with `[idea-to-code]`.
+If the message is a short answer rather than a lifecycle update, still start with the default or profile-aware idea-to-code prefix.
 
 ### Console Response Contract
 

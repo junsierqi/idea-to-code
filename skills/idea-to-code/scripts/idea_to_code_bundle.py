@@ -1190,7 +1190,18 @@ def _intake_gate_problems(target: Path) -> list[str]:
     return problems
 
 
-def mark_implementation_ready(root: Path, slug: str) -> Path:
+def _profile_prefix(profile: str | None = None) -> str:
+    if not profile:
+        return "[idea-to-code]"
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", profile):
+        raise SystemExit(
+            "--profile must use 1-64 characters: letters, numbers, underscore, or hyphen; "
+            "it must start with a letter or number."
+        )
+    return f"[idea-to-code/{profile}]"
+
+
+def mark_implementation_ready(root: Path, slug: str, profile: str | None = None) -> Path:
     target = ensure_active_bundle(root, slug)
     with bundle_lock(target):
         problems = implementation_gate_problems(target)
@@ -1201,7 +1212,7 @@ def mark_implementation_ready(root: Path, slug: str) -> Path:
         status = read_status(target)
         status["phase"] = "ready_to_implement"
         status["implementation_ready"] = True
-        output_id, lines = _record_ready_output(target, slug, status)
+        output_id, lines = _record_ready_output(target, slug, status, profile)
         write_status(target, status)
         append_ledger(target, "implementation-ready", f"Implementation gate marked READY; ready_output={output_id}")
     current = read_current(root)
@@ -1240,9 +1251,15 @@ def _ready_output_problem(status: dict) -> str | None:
     return None
 
 
-def _format_ready_output(slug: str, title: str, output_id: str, blocks: list[tuple[str, str]]) -> list[str]:
+def _format_ready_output(
+    slug: str,
+    title: str,
+    output_id: str,
+    blocks: list[tuple[str, str]],
+    profile: str | None = None,
+) -> list[str]:
     lines = [
-        f"[idea-to-code] Implementation Gate: READY | Bundle: {slug}",
+        f"{_profile_prefix(profile)} Implementation Gate: READY | Bundle: {slug}",
         "",
         f"Restated user goal: {title}",
         f"{READY_TASK_OUTPUT_ID_LABEL}: {output_id}",
@@ -1257,7 +1274,7 @@ def _format_ready_output(slug: str, title: str, output_id: str, blocks: list[tup
     return lines
 
 
-def _record_ready_output(target: Path, slug: str, status: dict) -> tuple[str, list[str]]:
+def _record_ready_output(target: Path, slug: str, status: dict, profile: str | None = None) -> tuple[str, list[str]]:
     plan_revision = int(status.get("plan_revision", 0))
     timestamp = utc_now()
     compact_time = re.sub(r"[^0-9]", "", timestamp)[:14]
@@ -1266,11 +1283,11 @@ def _record_ready_output(target: Path, slug: str, status: dict) -> tuple[str, li
     status["ready_task_output_id"] = output_id
     status["ready_task_output_plan_revision"] = plan_revision
     status["ready_task_output_at_utc"] = timestamp
-    lines = _format_ready_output(slug, status.get("title", slug), output_id, _ready_task_blocks(target))
+    lines = _format_ready_output(slug, status.get("title", slug), output_id, _ready_task_blocks(target), profile)
     return output_id, lines
 
 
-def implementation_show_ready(root: Path, slug: str) -> int:
+def implementation_show_ready(root: Path, slug: str, profile: str | None = None) -> int:
     target = ensure_active_bundle(root, slug)
     with bundle_lock(target):
         problems = implementation_gate_problems(target)
@@ -1280,7 +1297,7 @@ def implementation_show_ready(root: Path, slug: str) -> int:
                 "implementation show-ready refused - implementation gate is not READY:\n  - "
                 + "\n  - ".join(problems or [f"{STATE_FILE}: implementation_ready is not true"])
             )
-        output_id, lines = _record_ready_output(target, slug, status)
+        output_id, lines = _record_ready_output(target, slug, status, profile)
         write_status(target, status)
         append_ledger(target, "implementation-show-ready", f"READY task output generated/refreshed: {output_id}")
     print("\n".join(lines))
@@ -3009,9 +3026,11 @@ def build_parser() -> argparse.ArgumentParser:
     ir = impl_sub.add_parser("ready", help=f"Mark implementation gate ready after {IMPLEMENTATION_FILE} is complete.")
     ir.add_argument("--root", required=True)
     ir.add_argument("--slug", required=True)
+    ir.add_argument("--profile", default=None, help="Optional upper-layer profile label for READY output.")
     isr = impl_sub.add_parser("show-ready", help="Reprint or refresh the READY TASK output.")
     isr.add_argument("--root", required=True)
     isr.add_argument("--slug", required=True)
+    isr.add_argument("--profile", default=None, help="Optional upper-layer profile label for READY output.")
     ist = impl_sub.add_parser("status", help="Print implementation gate status.")
     ist.add_argument("--root", required=True)
     ist.add_argument("--slug", required=True)
@@ -3181,10 +3200,10 @@ def main(argv: Iterable[str] | None = None) -> int:
 
     if args.command == "implementation":
         if args.implementation_command == "ready":
-            mark_implementation_ready(root, args.slug)
+            mark_implementation_ready(root, args.slug, args.profile)
             return 0
         if args.implementation_command == "show-ready":
-            return implementation_show_ready(root, args.slug)
+            return implementation_show_ready(root, args.slug, args.profile)
         if args.implementation_command == "status":
             return implementation_status(root, args.slug)
 
