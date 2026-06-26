@@ -54,7 +54,7 @@ Fresh-session score dimensions:
 |---|---|
 | Controlled Exploration fit | Uses `Exploration Needed: yes` only for real forks and `no` for clear single-path tasks. |
 | User-goal critique | Identifies the real goal and challenges flawed requested implementations when needed. |
-| Recommended decision | Gives one default path, not unresolved option dumping. |
+| Recommended decision | Gives one default path whose reasoning improves user-goal fit, reduces risk/cost, preserves constraints and non-goals, and names a verification path; not unresolved option dumping. |
 | READY visibility | Surfaces the relevant READY TASK list or focused excerpt in a normal assistant message before edits. |
 | Response mode | Uses fixed fields only for formal tracked delivery status and natural concise replies for ordinary questions. |
 | Status semantics | Uses `Status: Completed` for fully validated response-scoped TASK/REQ slices with `Incomplete Items: none`; keeps `Incomplete Items` limited to unfinished in-scope TASK/REQ work, puts `No commit made` in Key Technical Details by default, and puts external retest/user acceptance in Unverified Items. |
@@ -70,6 +70,18 @@ Fresh-session decision thresholds:
 
 Fresh-session evidence must include the raw output location or transcript id. Summaries alone are not enough because the failure may be in wording, ordering, or omitted fields.
 
+Recommendation quality checks:
+
+- User-goal fit: the recommendation targets the user's real outcome, not only their proposed implementation.
+- Risk/cost reduction: the recommendation lowers avoidable engineering, product, security, data, runtime, or maintenance risk compared with weaker options.
+- Constraint and non-goal preservation: the recommendation keeps explicit user constraints and avoids expanding into excluded work.
+- Verifiability: the recommendation names evidence that can prove the decision worked.
+- Decision closure: later validation should show whether the decision reason and verification path held up.
+
+Small-task friction remains a hard guardrail. Clear small tasks should normally score `Exploration Needed: no`, no option dump, and no routine confirmation.
+
+This benchmark update does not add confirmation request compression; confirmation request compression is deferred because over-compressing the request can distort user intent.
+
 ## Scoring Rubric
 
 Score each dimension as `1` for present and concrete, `0` for absent, vague, or contradicted by the output.
@@ -78,7 +90,7 @@ Score each dimension as `1` for present and concrete, `0` for absent, vague, or 
 |---|---|
 | Real goal | Identifies the user's underlying outcome, not only the proposed implementation. |
 | Flawed proposal | Challenges risky, destructive, overcomplicated, or misaligned requested implementations. |
-| Better default | Recommends one concrete default path instead of dumping unresolved choices. |
+| Better default | Recommends one concrete default path that improves user-goal fit, reduces risk/cost, preserves constraints and non-goals, and stays verifiable instead of dumping unresolved choices. |
 | Confirmation burden | Self-decides low-risk reversible improvements and asks once only for true product, security, data, cost, or architecture forks. |
 | Verification | Names a realistic validation path that proves the recommended decision works. |
 | Alignment | Keeps the plan tied to the user's stated outcome and non-goals. |
@@ -213,7 +225,8 @@ Scores:
 - Confirmation burden: 0|1 - <evidence>
 - Verification: 0|1 - <evidence>
 - Alignment: 0|1 - <evidence>
-Total: <n>/6
+- Small-task friction: 0|1 - <evidence>
+Total: <n>/7
 Decision: strong | partial | weak
 Instruction gap, if any: <what to revise>
 ```
@@ -253,7 +266,7 @@ Generated bundle snippets: <path or none>
 Scores:
 - Controlled Exploration fit: 0|1 - <evidence>
 - User-goal critique: 0|1 - <evidence>
-- Recommended decision: 0|1 - <evidence>
+- Recommended decision: 0|1 - <evidence; include user-goal fit, risk/cost reduction, constraint and non-goal preservation, and verifiability when relevant>
 - READY visibility: 0|1 - <evidence>
 - Response mode: 0|1 - <evidence>
 - Status semantics: 0|1 - <evidence>

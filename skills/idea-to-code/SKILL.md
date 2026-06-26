@@ -172,6 +172,12 @@ Controlled Exploration is not a second approval gate. When `Need Confirmation: n
 
 Default to `Exploration Needed: no`. Use `yes` only for a real fork or risk. The goal is better decisions with less user burden, not more process.
 
+Small-task friction remains a hard guardrail: clear README, typo, single-file config, or direct documentation updates should normally record `Exploration Needed: no` and proceed without option dumping or routine confirmation.
+
+For `Exploration Needed: yes`, the chosen option is not accepted just because it was selected. Later validation and review must check whether the selected option's `Decision reason` and `Verification path` held up. If an exploration hypothesis remains unverified, keep it in `Unverified Items`, `Residual Risks`, or a follow-up verification path instead of presenting it as fact.
+
+Judge recommendation quality by whether the selected path improves user-goal fit, reduces risk or cost, preserves user constraints and non-goal boundaries, and is verifiable.
+
 Opening a bundle is allowed as task capture. Product-code edits are not allowed until `Need Confirmation: no` and the implementation gate is READY.
 
 Use `Need Confirmation: yes` when the idea is ambiguous, risky, architecture-shaping, security-sensitive, destructive, expensive, changes user-visible behavior in multiple plausible ways, or contradicts project governance. Ask the user to confirm or correct the intake before marking implementation ready.
@@ -289,7 +295,8 @@ Do not read only `recommended_classification`. Respect these route flags:
 - `route_gate` is the current control gate. Treat anything except `execution-ready`, `skip-delivery`, or `read-only` as blocking product-code edits until resolved.
 - `can_edit_product_files: false` means no product-code edits yet.
 - `requires_resume: true` means run `current resume --reason "<reason>"` before any mutation.
-- `requires_unblock: true` means resolve the blocker and run `unblock` before mutation.
+- `requires_unblock: true` means resolve the blocker and run `unblock` before implementation or ordinary mutation.
+- A blocked bundle may still record another real blocker or be archived for an unrelated new task; it must not use pause/resume, status updates, or route output to hide unresolved blockers or make product edits eligible before unblock.
 - `must_update_plan_before_code: true` means update requirements/design/implementation and rerun `implementation ready` before product-code edits.
 - `required_next_commands` is the command checklist to satisfy the gate. Run or deliberately account for each command before proceeding.
 
@@ -411,6 +418,7 @@ Project-level state:
 - `.idea-to-code/history/index.jsonl` records closed bundles. Do not move old bundle directories; history is an index, not storage.
 - New bundle slugs must use `YYYYMMDD-HHMM-<normalized-task-title>` in local project time. Use `init --unique` to create this shape; collisions append `-02`, `-03`, etc.
 - Mutating commands must operate on the current bundle. `update`, `implementation ready`, `requirement add/remove`, `role record`, `checkpoint`, `link`, `block`, `unblock`, `rebuild-progress`, and `finalize` refuse non-current bundles.
+- While a bundle is blocked, ordinary implementation mutations remain refused until `unblock`; `block` may append additional real blockers, and new-task/archive bookkeeping may park the blocked bundle without pretending the blocker was resolved.
 - `verify` may inspect any bundle, including a finalized bundle, but writes `last_verify_*` only for the current bundle when it is not paused, completed, or closed.
 - `current set` refuses completed or closed bundles; closed work cannot be resumed into `in_progress`.
 - `current resume --slug <known-unfinished-slug> --reason "<reason>"` restores a known unfinished bundle as current after interruption; if it is paused, it resumes to `in_progress`, otherwise it preserves the existing unfinished state while restoring the pointer.

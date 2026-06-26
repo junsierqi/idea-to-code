@@ -539,6 +539,7 @@ class BundleTest(unittest.TestCase):
             "Alignment",
             "Small-task friction",
             "Scenario score: `0-7`",
+            "Total: <n>/7",
             "unnecessary exploration",
             "no option dump, no confirmation",
             "Scenario 1: Destructive Security Request",
@@ -562,6 +563,49 @@ class BundleTest(unittest.TestCase):
             "Instruction gap",
         ]:
             self.assertIn(required, benchmark_text)
+
+    def test_benchmark_reporting_rows_match_scoring_rubric_dimensions(self) -> None:
+        benchmark_text = (REFERENCES_DIR / "controlled-exploration-benchmark.md").read_text(encoding="utf-8")
+        rubric = re.search(r"## Scoring Rubric[\s\S]*?\n\n\| Dimension \| Passing behavior \|\n\|---\|---\|\n(?P<table>[\s\S]*?)\n\nScenario score", benchmark_text)
+        self.assertIsNotNone(rubric)
+        rubric_dimensions = [
+            line.split("|")[1].strip()
+            for line in rubric.group("table").splitlines()
+            if line.startswith("|")
+        ]
+
+        reporting = re.search(r"## Reporting Format[\s\S]*?Scores:\n(?P<scores>[\s\S]*?)Total: <n>/7", benchmark_text)
+        self.assertIsNotNone(reporting)
+        reporting_dimensions = [
+            line[2:].split(":", 1)[0].strip()
+            for line in reporting.group("scores").splitlines()
+            if line.startswith("- ")
+        ]
+
+        self.assertEqual(reporting_dimensions, rubric_dimensions)
+        self.assertIn("Small-task friction", reporting_dimensions)
+
+    def test_controlled_exploration_quality_closure_is_documented(self) -> None:
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        verification_text = (REFERENCES_DIR / "verification-and-evidence.md").read_text(encoding="utf-8")
+        benchmark_text = (REFERENCES_DIR / "controlled-exploration-benchmark.md").read_text(encoding="utf-8")
+        combined = "\n".join([skill_text, verification_text, benchmark_text])
+
+        for required in [
+            "Small-task friction remains a hard guardrail",
+            "the selected option's `Decision reason` and `Verification path` held up",
+            "decision reason and verification path held up",
+            "Recommendation quality checks",
+            "user-goal fit",
+            "risk/cost reduction",
+            "Constraint and non-goal preservation",
+            "Verifiability",
+            "Decision closure",
+            "recommendation quality was better than the rejected options",
+            "confirmation request compression is deferred",
+            "over-compressing the request can distort user intent",
+        ]:
+            self.assertIn(required, combined)
 
     def test_fresh_session_live_benchmark_protocol_is_documented(self) -> None:
         benchmark_text = (REFERENCES_DIR / "controlled-exploration-benchmark.md").read_text(encoding="utf-8")
@@ -926,6 +970,7 @@ class BundleTest(unittest.TestCase):
         self.assertIn("01-progress.md", payload["role_artifact_map"]["validator"]["evidence"])
         self.assertEqual(payload["local_record_kinds"]["A"], "acceptance")
         self.assertEqual(payload["local_record_kinds"]["V"], "validation")
+        self.assertIn("implementation-ready-required", payload["route_gates"])
 
     def write_ready_bundle(
         self,
@@ -1632,7 +1677,7 @@ Planned Verification: x
         self.assertIn("READY_TASK_OUTPUT_ID:", result.stdout)
         self.assertNotIn("[idea-to-code][Planner/agent] Implementation Gate: READY", result.stdout)
 
-    def test_implementation_ready_supports_role_source_prefix(self) -> None:
+    def test_implementation_ready_rejects_role_source_override(self) -> None:
         slug = self.init_bundle()
         self.write_ready_bundle(slug, need_confirmation="no", mark_ready=False)
         result = self.run_bundle(
@@ -1641,10 +1686,10 @@ Planned Verification: x
             "--slug", slug,
             "--role", "validator",
             "--source", "subagent",
+            check=False,
         )
-        self.assertIn("[idea-to-code][Validator/subagent] Implementation Gate: READY", result.stdout)
-        self.assertIn("READY_TASK_OUTPUT_ID:", result.stdout)
-        self.assertIn("TASK-1: Verify sample bundle flow", result.stdout)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("implementation READY output is always a Planner/agent gate", result.stderr)
 
     def test_implementation_ready_normalizes_role_case(self) -> None:
         slug = self.init_bundle()
@@ -1703,6 +1748,7 @@ Planned Verification: x
     def test_implementation_show_ready_supports_focused_task_output(self) -> None:
         slug = self.init_bundle()
         self.write_ready_bundle(slug)
+        before = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
         result = self.run_bundle(
             "implementation", "show-ready",
             "--root", str(self.root),
@@ -1721,6 +1767,66 @@ Planned Verification: x
             "READY_TASK_OUTPUT_ID:",
         ]:
             self.assertIn(required, result.stdout)
+        after = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(after["ready_task_output_id"], before["ready_task_output_id"])
+        self.assertEqual(after["ready_task_output_event_sequence"], before["ready_task_output_event_sequence"])
+        self.assertEqual(after["ready_task_output_scope"], "full-plan")
+
+    def test_implementation_ready_task_keeps_full_plan_ready_anchor(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        implementation = """# Implementation
+
+Gate Status: READY
+
+## TASK-1: Verify sample bundle flow
+
+Status: pending
+
+Files:
+- state.json
+
+Execution Details:
+- Record one requirement and all role evidence.
+
+Done Criteria:
+- finalize and verify succeed.
+
+Planned Verification:
+- source-only python idea_to_code_bundle.py verify exits zero.
+
+### TASK-2: Verify second task visibility
+
+Status: pending
+
+Files:
+- state.json
+
+Execution Details:
+- Confirm focused READY can show a later task.
+
+Done Criteria:
+- TASK-2 focused READY output is available.
+
+Planned Verification:
+- source-only implementation show-ready --task TASK-2 exits zero.
+"""
+        impl_path = self.root / "implementation-two-tasks.md"
+        impl_path.write_text(implementation, encoding="utf-8")
+        self.run_bundle("update", "--root", str(self.root), "--slug", slug, "--file", "implementation", "--content-file", str(impl_path))
+
+        ready = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug, "--task", "TASK-1")
+        self.assertIn("Focused READY TASK excerpt: yes", ready.stdout)
+        self.assertIn("TASK-1: Verify sample bundle flow", ready.stdout)
+        self.assertNotIn("TASK-2: Verify second task visibility", ready.stdout)
+        status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(status["ready_task_output_scope"], "full-plan")
+
+        focused_second = self.run_bundle("implementation", "show-ready", "--root", str(self.root), "--slug", slug, "--task", "TASK-2")
+        self.assertIn("TASK-2: Verify second task visibility", focused_second.stdout)
+        status_after = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(status_after["ready_task_output_id"], status["ready_task_output_id"])
+        self.assertEqual(status_after["ready_task_output_scope"], "full-plan")
 
     def test_ready_output_contract_accepts_complete_focused_output(self) -> None:
         module = load_bundle_module()
@@ -1819,7 +1925,7 @@ Planned Verification: x
         self.assertIn("READY_TASK_OUTPUT_ID:", result.stdout)
         self.assertIn("TASK-1: Verify sample bundle flow", result.stdout)
 
-    def test_implementation_show_ready_rejects_invalid_role_source(self) -> None:
+    def test_implementation_show_ready_rejects_role_source_override(self) -> None:
         slug = self.init_bundle()
         self.write_ready_bundle(slug)
         bad_role = self.run_bundle(
@@ -1830,7 +1936,7 @@ Planned Verification: x
             check=False,
         )
         self.assertNotEqual(bad_role.returncode, 0)
-        self.assertIn("--role must be one of", bad_role.stderr)
+        self.assertIn("implementation READY output is always a Planner/agent gate", bad_role.stderr)
 
         bad_source = self.run_bundle(
             "implementation", "show-ready",
@@ -1840,7 +1946,7 @@ Planned Verification: x
             check=False,
         )
         self.assertNotEqual(bad_source.returncode, 0)
-        self.assertIn("--source must be one of", bad_source.stderr)
+        self.assertIn("implementation READY output is always a Planner/agent gate", bad_source.stderr)
 
     def test_implementation_profile_rejects_unsafe_name(self) -> None:
         slug = self.init_bundle()
@@ -1973,6 +2079,106 @@ Planned Verification: x
             "--evidence", f"TASK-1 implemented through state.json bundle records for REQ-1 after READY_TASK_OUTPUT_ID {output_id}",
             "--covers", "REQ-1",
         )
+
+    def test_implementer_evidence_rejects_before_ready(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        self.run_bundle(
+            "role", "record", "--root", str(self.root), "--slug", slug,
+            "--role", "planner",
+            "--evidence", "REQ-1 planned in 00-idea.md with TASK-1 in 00-idea.md",
+            "--covers", "REQ-1",
+        )
+        result = self.run_bundle(
+            "role", "record", "--root", str(self.root), "--slug", slug,
+            "--role", "implementer",
+            "--evidence", "TASK-1 implemented through state.json bundle records for REQ-1",
+            "--covers", "REQ-1",
+            check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("implementation gate is not READY", result.stderr)
+
+    def test_verify_rejects_implementer_evidence_older_than_latest_ready_output(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        old_output_id = status["ready_task_output_id"]
+        self.run_bundle(
+            "role", "record", "--root", str(self.root), "--slug", slug,
+            "--role", "planner",
+            "--evidence", "REQ-1 planned in 00-idea.md with TASK-1 in 00-idea.md",
+            "--covers", "REQ-1",
+        )
+        self.run_bundle(
+            "role", "record", "--root", str(self.root), "--slug", slug,
+            "--role", "implementer",
+            "--evidence", f"TASK-1 implemented through state.json bundle records for REQ-1 after READY_TASK_OUTPUT_ID {old_output_id}",
+            "--covers", "REQ-1",
+        )
+        self.run_bundle("implementation", "show-ready", "--root", str(self.root), "--slug", slug)
+        self.run_bundle(
+            "role", "record", "--root", str(self.root), "--slug", slug,
+            "--role", "validator",
+            "--evidence", "REQ-1 source-only validation ran python idea_to_code_bundle.py verify command",
+            "--covers", "REQ-1",
+        )
+        self.run_bundle(
+            "role", "record", "--root", str(self.root), "--slug", slug,
+            "--role", "reviewer",
+            "--evidence", "same-agent review checked REQ-1 scope, READY output, and 01-progress.md coverage",
+            "--covers", "REQ-1",
+        )
+        verify = self.run_bundle("verify", "--root", str(self.root), "--slug", slug, check=False)
+        self.assertNotEqual(verify.returncode, 0)
+        self.assertIn("Implementer evidence READY output check failed", verify.stdout)
+        self.assertIn("Implementer evidence must be recorded after the latest READY output", verify.stdout)
+
+    def test_focused_ready_output_does_not_stale_implementer_evidence(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        output_id = status["ready_task_output_id"]
+        self.run_bundle(
+            "role", "record", "--root", str(self.root), "--slug", slug,
+            "--role", "planner",
+            "--evidence", "REQ-1 planned in 00-idea.md with TASK-1 in 00-idea.md",
+            "--covers", "REQ-1",
+        )
+        self.run_bundle(
+            "role", "record", "--root", str(self.root), "--slug", slug,
+            "--role", "implementer",
+            "--evidence", f"TASK-1 implemented through state.json bundle records for REQ-1 after READY_TASK_OUTPUT_ID {output_id}",
+            "--covers", "REQ-1",
+        )
+        self.run_bundle("implementation", "show-ready", "--root", str(self.root), "--slug", slug, "--task", "TASK-1")
+        status_after_focused = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(status_after_focused["ready_task_output_id"], output_id)
+        self.run_bundle(
+            "role", "record", "--root", str(self.root), "--slug", slug,
+            "--role", "validator",
+            "--evidence", "REQ-1 source-only validation ran python idea_to_code_bundle.py verify command",
+            "--covers", "REQ-1",
+        )
+        self.run_bundle(
+            "role", "record", "--root", str(self.root), "--slug", slug,
+            "--role", "reviewer",
+            "--evidence", "same-agent review checked REQ-1 scope, READY output, and 01-progress.md coverage",
+            "--covers", "REQ-1",
+        )
+        self.run_bundle(
+            "checkpoint", "--root", str(self.root), "--slug", slug,
+            "--milestone", "Focused ready remains visibility only",
+            "--delivered", "Focused READY output did not rotate global READY output id",
+            "--verified", "source-only focused READY output preserved implementation evidence",
+            "--next", "verify",
+            "--focus", "REQ-1",
+            "--gate", "verify",
+            "--gate-status", "pass",
+            "--covers", "REQ-1",
+        )
+        verify = self.run_bundle("verify", "--root", str(self.root), "--slug", slug)
+        self.assertIn('"ok": true', verify.stdout)
 
     def test_missing_ready_output_blocks_evidence_checkpoint_and_verify(self) -> None:
         slug = self.init_bundle()
@@ -2744,6 +2950,45 @@ Planned Verification:
         self.assertTrue(any("update --root" in command for command in payload["required_next_commands"]))
         self.assertIn("pending plan update", payload["next_action"])
 
+    def test_route_blocks_product_edits_when_implementation_ready_is_false(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        replacement = (self.root / ".idea-to-code" / slug / "00-idea.md").read_text(encoding="utf-8") + "\n"
+        self.run_bundle(
+            "update",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--file", "requirements",
+            "--content", replacement,
+        )
+        status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        self.assertFalse(status["implementation_ready"])
+        self.assertFalse(status["pending_plan_update"])
+
+        result = self.run_bundle("route", "--root", str(self.root), "--input", "Continue implementation")
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["route_gate"], "implementation-ready-required")
+        self.assertFalse(payload["can_edit_product_files"])
+        self.assertFalse(payload["must_update_plan_before_code"])
+        self.assertTrue(any("implementation ready" in command for command in payload["required_next_commands"]))
+        self.assertIn("Implementation gate is not READY", payload["next_action"])
+
+    def test_route_blocks_product_edits_when_gate_problems_exist_despite_ready_flag(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        idea_path = self.root / ".idea-to-code" / slug / "00-idea.md"
+        broken = idea_path.read_text(encoding="utf-8").replace("## Controlled Exploration", "## Removed Exploration", 1)
+        idea_path.write_text(broken, encoding="utf-8")
+        status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        self.assertTrue(status["implementation_ready"])
+
+        result = self.run_bundle("route", "--root", str(self.root), "--input", "Continue implementation")
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["route_gate"], "implementation-ready-required")
+        self.assertFalse(payload["can_edit_product_files"])
+        self.assertTrue(payload["active_bundle"]["implementation_gate_problems"])
+        self.assertIn("Implementation gate is not READY", payload["next_action"])
+
     def test_route_blocked_bundle_requires_unblock_before_code(self) -> None:
         slug = self.init_bundle()
         self.run_bundle(
@@ -2773,6 +3018,51 @@ Planned Verification:
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("no unresolved blocker", result.stderr)
 
+    def test_blocked_bundle_rejects_mutating_commands_until_unblock(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        self.run_bundle(
+            "block",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--reason", "Missing API key",
+            "--need", "Provide API key",
+        )
+
+        blocked_again = self.run_bundle(
+            "block",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--reason", "Missing fixture",
+            "--need", "Provide fixture",
+        )
+        self.assertEqual(blocked_again.returncode, 0)
+        blocked_status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(len([block for block in blocked_status["blocks"] if "resolved_at_utc" not in block]), 2)
+
+        for command in [
+            ("requirement", "add", "--id", "REQ-2", "--description", "Blocked mutation", "--type", "constraint"),
+            ("update", "--file", "idea", "--content", "Blocked mutation"),
+            ("checkpoint", "--milestone", "Blocked", "--delivered", "blocked", "--verified", "source-only blocked", "--next", "unblock", "--focus", "blocked", "--gate", "blocked", "--gate-status", "pass", "--covers", "REQ-1"),
+            ("role", "record", "--role", "planner", "--evidence", "REQ-1 planned while blocked", "--covers", "REQ-1"),
+            ("finalize", "--summary", "Blocked", "--verification", "source-only blocked", "--risks", "blocked", "--acceptance", "REQ-1 blocked", "--gate-status", "pass", "--decision", "accepted"),
+        ]:
+            result = self.run_bundle(
+                *command,
+                "--root", str(self.root),
+                "--slug", slug,
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0, command)
+            self.assertIn("Bundle is blocked", result.stderr, command)
+
+        before = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        verify = self.run_bundle("verify", "--root", str(self.root), "--slug", slug, check=False)
+        self.assertNotEqual(verify.returncode, 0)
+        after = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(before.get("last_verify_ok"), after.get("last_verify_ok"))
+        self.assertEqual(before.get("last_verified_event_sequence"), after.get("last_verified_event_sequence"))
+
     def test_unblock_keeps_bundle_blocked_until_all_blockers_resolve(self) -> None:
         slug = self.init_bundle()
         self.run_bundle(
@@ -2789,6 +3079,11 @@ Planned Verification:
             "--reason", "Missing fixture",
             "--need", "Provide fixture",
         )
+        status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(status["state"], "blocked")
+        route = json.loads(self.run_bundle("route", "--root", str(self.root), "--input", "Continue implementation").stdout)
+        self.assertEqual(route["route_gate"], "unblock-required")
+        self.assertFalse(route["can_edit_product_files"])
 
         self.run_bundle(
             "unblock",
@@ -2802,8 +3097,17 @@ Planned Verification:
         self.assertIn("resolved_at_utc", status["blocks"][1])
         route = json.loads(self.run_bundle("route", "--root", str(self.root), "--input", "Continue implementation").stdout)
         self.assertEqual(route["route_gate"], "unblock-required")
-        self.assertFalse(route["can_edit_product_files"])
+        self.assertTrue(route["requires_unblock"])
 
+    def test_unblock_clears_single_blocker_and_restores_route(self) -> None:
+        slug = self.init_bundle()
+        self.run_bundle(
+            "block",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--reason", "Missing API key",
+            "--need", "Provide API key",
+        )
         self.run_bundle(
             "unblock",
             "--root", str(self.root),
@@ -2816,6 +3120,49 @@ Planned Verification:
         route = json.loads(self.run_bundle("route", "--root", str(self.root), "--input", "Continue implementation").stdout)
         self.assertNotEqual(route["route_gate"], "unblock-required")
         self.assertFalse(route["requires_unblock"])
+
+    def test_resume_paused_blocked_bundle_preserves_unblock_gate(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        self.run_bundle(
+            "block",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--reason", "Missing API key",
+            "--need", "Provide API key",
+        )
+        self.run_bundle("current", "pause", "--root", str(self.root), "--reason", "Pause while waiting")
+        self.run_bundle("current", "resume", "--root", str(self.root), "--reason", "Resume review")
+        status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(status["state"], "blocked")
+        route = json.loads(self.run_bundle("route", "--root", str(self.root), "--input", "Continue implementation").stdout)
+        self.assertEqual(route["route_gate"], "unblock-required")
+        self.assertTrue(route["requires_unblock"])
+        self.assertFalse(route["can_edit_product_files"])
+
+    def test_blocked_new_task_route_required_commands_are_executable(self) -> None:
+        slug = self.init_bundle()
+        self.run_bundle(
+            "block",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--reason", "Missing API key",
+            "--need", "Provide API key",
+        )
+        route = json.loads(self.run_bundle("route", "--root", str(self.root), "--input", "Start a new unrelated task instead").stdout)
+        self.assertEqual(route["route_gate"], "archive-current-first")
+        self.assertFalse(route["requires_unblock"])
+        self.run_bundle(
+            "user-input", "record",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--summary", "User chose to start a new unrelated task instead.",
+            "--classification", "new-task",
+            "--rationale", "The requested work is unrelated to the blocked bundle.",
+            "--action", "Archive the blocked bundle and initialize the new task.",
+            "--changes-plan", "no",
+        )
+        self.run_bundle("current", "archive", "--root", str(self.root), "--reason", "Park blocked bundle for new task")
 
     def test_route_non_ascii_fails_without_traceback(self) -> None:
         result = self.run_bundle("route", "--root", str(self.root), "--input", "优化这个任务", check=False)

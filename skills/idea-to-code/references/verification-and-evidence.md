@@ -82,6 +82,9 @@ Before accepted closeout, confirm:
 - Controlled Exploration is either skipped with a concrete Trigger or resolved with options and one decision
 - the chosen decision fits the user's real goal and does not blindly follow a flawed requested implementation
 - the plan recommends one default path instead of dumping unresolved options on the user
+- when Controlled Exploration selected an option, validation and review checked whether the decision reason and verification path held up
+- recommendation quality is evidenced by user-goal fit, risk/cost reduction, constraint and non-goal preservation, and verifiability
+- small-task friction remains a hard guardrail: clear single-path tasks do not gain unnecessary exploration, option dumping, or routine confirmation
 - the workflow used no extra confirmation layer beyond the existing Intake Gate confirmation
 - acceptance matrix is concrete
 - Role Execution Mode is recorded as `same-agent`, `hybrid-team`, or `independent-team`
@@ -110,6 +113,8 @@ Treat user-intent fit as first-class evidence. Before `accepted` closeout, the f
 - Which acceptance examples were exercised?
 - Which counterexamples or wrong-result cases were rejected?
 - Which non-goals or exclusions were preserved?
+- If Controlled Exploration selected a path, what evidence showed the recommendation quality was better than the rejected options?
+- Did validation cover the chosen option's decision reason and verification path?
 - If the result is only partially aligned, why is it `Progress`, `Blocked`, `partial`, `accepted-with-followup`, `fail`, or `not-accepted`?
 - If the user proposed an implementation, did the final decision follow it for good reasons or replace it with a better recommendation?
 - Did the agent ask for confirmation only where a true product, security, data, cost, or architecture fork existed?

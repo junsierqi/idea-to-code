@@ -71,6 +71,8 @@ READY_OUTPUT_FIELDS = (
     "ready_task_output_id",
     "ready_task_output_plan_revision",
     "ready_task_output_at_utc",
+    "ready_task_output_event_sequence",
+    "ready_task_output_scope",
 )
 LOCAL_RECORD_KINDS = {
     "A": "acceptance",
@@ -505,6 +507,8 @@ def _migrate_ready_output_fields(status: dict) -> None:
     status.setdefault("ready_task_output_id", None)
     status.setdefault("ready_task_output_plan_revision", None)
     status.setdefault("ready_task_output_at_utc", None)
+    status.setdefault("ready_task_output_event_sequence", None)
+    status.setdefault("ready_task_output_scope", None)
     status.setdefault("event_sequence", 0)
     status.setdefault("last_verified_event_sequence", None)
 
@@ -1067,7 +1071,12 @@ def checkpoint_bundle(
     return target
 
 
-def ensure_active_bundle(root: Path, slug: str, allow_paused: bool = False) -> Path:
+def ensure_active_bundle(
+    root: Path,
+    slug: str,
+    allow_paused: bool = False,
+    allow_blocked: bool = False,
+) -> Path:
     target = ensure_bundle(root, slug)
     current = read_current(root)
     if not current:
@@ -1078,15 +1087,25 @@ def ensure_active_bundle(root: Path, slug: str, allow_paused: bool = False) -> P
     status = read_status(target)
     if status.get("state") == "paused" and not allow_paused:
         raise SystemExit("Bundle is paused. Use current resume with a reason before mutating it.")
+    if status.get("state") == "blocked" and not allow_blocked:
+        raise SystemExit("Bundle is blocked. Resolve the dependency and run unblock before mutating it.")
     if status.get("state") in {"completed", "closed"}:
         raise SystemExit(f"Bundle is already {status.get('state')}; start or set a new active bundle before mutating.")
     return target
 
 
+def _unresolved_block_indexes(status: dict) -> list[int]:
+    return [
+        index
+        for index, block in enumerate(status.get("blocks", []))
+        if "resolved_at_utc" not in block
+    ]
+
+
 def block_bundle(root: Path, slug: str, reason: str, need: str) -> Path:
     if not _is_ascii(reason) or not _is_ascii(need):
         raise SystemExit("block reason and need must be English-only ASCII text.")
-    target = ensure_active_bundle(root, slug)
+    target = ensure_active_bundle(root, slug, allow_blocked=True)
     with bundle_lock(target):
         timestamp = utc_now()
         status = read_status(target)
@@ -1112,15 +1131,11 @@ def block_bundle(root: Path, slug: str, reason: str, need: str) -> Path:
 def unblock_bundle(root: Path, slug: str, note: str) -> Path:
     if not _is_ascii(note):
         raise SystemExit("unblock note must be English-only ASCII text.")
-    target = ensure_active_bundle(root, slug)
+    target = ensure_active_bundle(root, slug, allow_blocked=True)
     with bundle_lock(target):
         timestamp = utc_now()
         status = read_status(target)
-        unresolved_indexes = [
-            index
-            for index, block in enumerate(status.get("blocks", []))
-            if "resolved_at_utc" not in block
-        ]
+        unresolved_indexes = _unresolved_block_indexes(status)
         if status.get("state") != "blocked" or not unresolved_indexes:
             raise SystemExit("unblock refused: current bundle has no unresolved blocker.")
         status["blocks"][unresolved_indexes[-1]]["resolved_at_utc"] = timestamp
@@ -1222,7 +1237,7 @@ def user_input_record(
     if classification in {"new-task", "status", "pause", "no-op"} and changes_plan_bool:
         raise SystemExit(f"{classification} user input must not use --changes-plan yes")
 
-    target = ensure_active_bundle(root, slug)
+    target = ensure_active_bundle(root, slug, allow_blocked=classification in {"new-task", "status", "pause", "no-op"})
     with bundle_lock(target):
         status = read_status(target)
         entry = {
@@ -1417,6 +1432,11 @@ def _visibility_prefix(profile: str | None = None, role: str = "planner", source
     return f"{base}[{normalized_role.title()}/{normalized_source}]"
 
 
+def _reject_ready_role_source_override(role: str, source: str) -> None:
+    if role.strip().lower() != "planner" or source.strip().lower() != "agent":
+        raise SystemExit("implementation READY output is always a Planner/agent gate; use --profile only for display labels.")
+
+
 def _profile_prefix(profile: str | None = None) -> str:
     if not profile:
         return "[idea-to-code]"
@@ -1436,6 +1456,7 @@ def mark_implementation_ready(
     source: str = "agent",
     task_filters: list[str] | None = None,
 ) -> Path:
+    _reject_ready_role_source_override(role, source)
     target = ensure_active_bundle(root, slug)
     with bundle_lock(target):
         problems = implementation_gate_problems(target)
@@ -1447,7 +1468,13 @@ def mark_implementation_ready(
         status["phase"] = "ready_to_implement"
         status["pending_plan_update"] = False
         status["implementation_ready"] = True
-        output_id, lines = _record_ready_output(target, slug, status, profile, role, source, task_filters)
+        output_id, lines = _record_ready_output(target, slug, status, profile, role, source, None)
+        if task_filters:
+            blocks = _filter_ready_task_blocks(_ready_task_blocks(target), task_filters)
+            lines = _format_ready_output(slug, status.get("title", slug), output_id, blocks, profile, "planner", "agent", focused=True)
+            output_problems = _ready_output_contract_problems(lines, blocks)
+            if output_problems:
+                raise SystemExit("READY output contract failed:\n  - " + "\n  - ".join(output_problems))
         write_status(target, status)
         append_ledger(target, "implementation-ready", f"Implementation gate marked READY; ready_output={output_id}")
     current = read_current(root)
@@ -1508,6 +1535,22 @@ def _ready_output_problem(status: dict) -> str | None:
     return None
 
 
+def _implementer_ready_output_problem(status: dict, evidence: str | None = None) -> str | None:
+    plan_revision = int(status.get("plan_revision", 0))
+    output_id = status.get("ready_task_output_id")
+    output_revision = status.get("ready_task_output_plan_revision")
+    if not status.get("implementation_ready"):
+        return "implementation gate is not READY; run implementation ready before recording Implementer evidence."
+    if not status.get("ready_task_output_required") or not output_id or output_revision != plan_revision:
+        return (
+            "READY output refresh required: run implementation show-ready --root <root> --slug <slug> "
+            "and send its output to the user before implementation evidence."
+        )
+    if evidence is not None and f"{READY_TASK_OUTPUT_ID_LABEL} {output_id}" not in evidence:
+        return f"cite the latest READY output as {READY_TASK_OUTPUT_ID_LABEL} {output_id}."
+    return None
+
+
 def _format_ready_output(
     slug: str,
     title: str,
@@ -1519,7 +1562,7 @@ def _format_ready_output(
     focused: bool = False,
 ) -> list[str]:
     lines = [
-        f"{_visibility_prefix(profile, role, source)} Implementation Gate: READY | Bundle: {slug}",
+        f"{_visibility_prefix(profile, 'planner', 'agent')} Implementation Gate: READY | Bundle: {slug}",
         "",
         f"Restated user goal: {title}",
         f"{READY_TASK_OUTPUT_ID_LABEL}: {output_id}",
@@ -1595,8 +1638,10 @@ def _record_ready_output(
     status["ready_task_output_id"] = output_id
     status["ready_task_output_plan_revision"] = plan_revision
     status["ready_task_output_at_utc"] = timestamp
+    status["ready_task_output_event_sequence"] = _next_event_sequence(status)
+    status["ready_task_output_scope"] = "focused" if task_filters else "full-plan"
     blocks = _filter_ready_task_blocks(_ready_task_blocks(target), task_filters)
-    lines = _format_ready_output(slug, status.get("title", slug), output_id, blocks, profile, role, source, focused=bool(task_filters))
+    lines = _format_ready_output(slug, status.get("title", slug), output_id, blocks, profile, "planner", "agent", focused=bool(task_filters))
     output_problems = _ready_output_contract_problems(lines, blocks)
     if output_problems:
         raise SystemExit("READY output contract failed:\n  - " + "\n  - ".join(output_problems))
@@ -1611,6 +1656,7 @@ def implementation_show_ready(
     source: str = "agent",
     task_filters: list[str] | None = None,
 ) -> int:
+    _reject_ready_role_source_override(role, source)
     target = ensure_active_bundle(root, slug)
     with bundle_lock(target):
         problems = implementation_gate_problems(target)
@@ -1620,9 +1666,20 @@ def implementation_show_ready(
                 "implementation show-ready refused - implementation gate is not READY:\n  - "
                 + "\n  - ".join(problems or [f"{STATE_FILE}: implementation_ready is not true"])
             )
-        output_id, lines = _record_ready_output(target, slug, status, profile, role, source, task_filters)
-        write_status(target, status)
-        append_ledger(target, "implementation-show-ready", f"READY task output generated/refreshed: {output_id}")
+        if task_filters:
+            ready_output_problem = _ready_output_problem(status)
+            if ready_output_problem:
+                raise SystemExit("implementation show-ready refused - " + ready_output_problem)
+            output_id = status["ready_task_output_id"]
+            blocks = _filter_ready_task_blocks(_ready_task_blocks(target), task_filters)
+            lines = _format_ready_output(slug, status.get("title", slug), output_id, blocks, profile, "planner", "agent", focused=True)
+            output_problems = _ready_output_contract_problems(lines, blocks)
+            if output_problems:
+                raise SystemExit("READY output contract failed:\n  - " + "\n  - ".join(output_problems))
+        else:
+            output_id, lines = _record_ready_output(target, slug, status, profile, "planner", "agent", task_filters)
+            write_status(target, status)
+            append_ledger(target, "implementation-show-ready", f"READY task output generated/refreshed: {output_id}")
     print("\n".join(lines))
     return 0
 
@@ -1954,15 +2011,9 @@ def role_record(root: Path, slug: str, role: str, evidence: str, covers: list[st
                     "closer evidence refused: pre-close verify is older than the latest Reviewer evidence."
                 )
         if role_key == "implementer":
-            ready_output_problem = _ready_output_problem(status)
+            ready_output_problem = _implementer_ready_output_problem(status, evidence)
             if ready_output_problem:
                 raise SystemExit("implementer evidence refused - " + ready_output_problem)
-            output_id = status.get("ready_task_output_id")
-            if output_id and f"{READY_TASK_OUTPUT_ID_LABEL} {output_id}" not in evidence:
-                raise SystemExit(
-                    "implementer evidence refused - cite the latest READY output as "
-                    f"{READY_TASK_OUTPUT_ID_LABEL} {output_id}."
-                )
         known_ids = {r["id"] for r in status.get("requirements", [])}
         unknown = [c for c in covers if c not in known_ids]
         if unknown and known_ids:
@@ -2036,6 +2087,7 @@ def contract() -> int:
             "init-required",
             "archive-current-first",
             "plan-update-required",
+            "implementation-ready-required",
             "resume-required",
             "unblock-required",
             "pause",
@@ -2087,17 +2139,17 @@ def _route_classification(user_input: str, has_active_current: bool) -> tuple[st
             False,
             "Record a blocker on the active bundle with the concrete dependency needed.",
         )
-    if re.search(r"\b(replace|instead|switch to|change goal|different direction)\b", text):
-        return (
-            "switch",
-            True,
-            "Record a plan-changing switch, update requirements/design/implementation, then continue in the same bundle.",
-        )
     if re.search(r"\b(new task|unrelated|separate task|another task|different task)\b", text):
         return (
             "new-task",
             False,
             "Record the new-task decision on the active bundle, archive it with a reason, then initialize the new bundle.",
+        )
+    if re.search(r"\b(replace|instead|switch to|change goal|different direction)\b", text):
+        return (
+            "switch",
+            True,
+            "Record a plan-changing switch, update requirements/design/implementation, then continue in the same bundle.",
         )
     if re.search(r"\b(add|also|include|support|extend|expand|another case|edge case)\b", text):
         return (
@@ -2145,6 +2197,9 @@ def route_task(root: Path, user_input: str) -> int:
     has_active_current = False
     active_state = None
     pending_plan_update = False
+    active_implementation_ready = False
+    active_gate_problems: list[str] = []
+    active_unresolved_blockers = 0
     if current:
         slug = current.get("slug", "")
         target = bundle_dir(root, slug)
@@ -2158,11 +2213,16 @@ def route_task(root: Path, user_input: str) -> int:
             status = read_status(target)
             active_state = status.get("state")
             pending_plan_update = bool(status.get("pending_plan_update"))
+            active_implementation_ready = bool(status.get("implementation_ready"))
+            active_gate_problems = implementation_gate_problems(target) if active_state not in {"completed", "closed"} else []
+            active_unresolved_blockers = len(_unresolved_block_indexes(status))
             active.update(
                 {
                     "state": active_state,
                     "phase": status.get("phase"),
-                    "implementation_ready": bool(status.get("implementation_ready")),
+                    "implementation_ready": active_implementation_ready,
+                    "implementation_gate_problems": active_gate_problems,
+                    "unresolved_blockers": active_unresolved_blockers,
                     "pending_plan_update": pending_plan_update,
                     "plan_revision": status.get("plan_revision"),
                     "open_requirements": [
@@ -2176,7 +2236,11 @@ def route_task(root: Path, user_input: str) -> int:
     classification, changes_plan, action = _route_classification(user_input, has_active_current)
     need_confirmation, confirmation_reason = _route_need_confirmation(user_input, classification, has_active_current)
     requires_resume = active_state == "paused" and classification not in {"status", "pause", "new-task"}
-    requires_unblock = active_state == "blocked" and classification not in {"status", "new-task"}
+    requires_unblock = (
+        active_state != "paused"
+        and active_unresolved_blockers > 0
+        and classification not in {"status", "new-task", "pause"}
+    )
     plan_update_applies = classification not in {"status", "pause", "new-task", "no-op", "blocked"}
     must_update_plan = (pending_plan_update and plan_update_applies) or changes_plan
     can_edit_product_files = bool(
@@ -2184,6 +2248,8 @@ def route_task(root: Path, user_input: str) -> int:
         and not requires_resume
         and not requires_unblock
         and not must_update_plan
+        and active_implementation_ready
+        and not active_gate_problems
         and classification not in {"status", "pause", "blocked", "new-task"}
     )
     state_actions = []
@@ -2193,6 +2259,13 @@ def route_task(root: Path, user_input: str) -> int:
         state_actions.append("Current bundle is blocked. Resolve the dependency and run unblock before mutating it.")
     if pending_plan_update:
         state_actions.append("A pending plan update already exists. Update requirements/design/implementation and rerun implementation ready before editing product files.")
+    if (
+        has_active_current
+        and classification not in {"status", "pause", "blocked", "new-task", "no-op"}
+        and not must_update_plan
+        and (not active_implementation_ready or active_gate_problems)
+    ):
+        state_actions.append("Implementation gate is not READY. Update requirements/design/implementation and rerun implementation ready before editing product files.")
     if state_actions:
         action = " ".join(state_actions + [action])
     required_next_commands: list[str] = []
@@ -2230,6 +2303,20 @@ def route_task(root: Path, user_input: str) -> int:
             required_next_commands.append(
                 f'user-input record --root <root> --slug {active_slug} --classification {classification} --changes-plan yes ...'
             )
+        required_next_commands.extend(
+            [
+                f'update --root <root> --slug {active_slug} --file requirements --content-file <requirements.md>',
+                f'update --root <root> --slug {active_slug} --file implementation --content-file <implementation.md>',
+                f'implementation ready --root <root> --slug {active_slug}',
+                f'role record --root <root> --slug {active_slug} --role planner --covers <REQ-IDs> --evidence "<planning evidence>"',
+            ]
+        )
+    elif (
+        has_active_current
+        and classification not in {"status", "pause", "blocked", "new-task", "no-op"}
+        and (not active_implementation_ready or active_gate_problems)
+    ):
+        route_gate = "implementation-ready-required"
         required_next_commands.extend(
             [
                 f'update --root <root> --slug {active_slug} --file requirements --content-file <requirements.md>',
@@ -2446,9 +2533,17 @@ def current_resume(root: Path, reason: str, slug: str | None = None) -> Path:
                 append_ledger(target, "resume", f"Selected unfinished slug for resume: {reason}")
                 return target
             raise SystemExit("Current bundle is not paused.")
-        status["phase"] = "planning" if not status.get("implementation_ready") else "in_progress"
-        status["state"] = "in_progress"
-        status["current_focus"] = f"RESUMED: {reason}"
+        unresolved_indexes = _unresolved_block_indexes(status)
+        if unresolved_indexes:
+            latest = status.get("blocks", [])[unresolved_indexes[-1]]
+            status["phase"] = "blocked"
+            status["state"] = "blocked"
+            status["current_focus"] = f"BLOCKED: {latest.get('reason', '')}"
+            status["next_gate"] = f"unblock: {latest.get('need', '')}"
+        else:
+            status["phase"] = "planning" if not status.get("implementation_ready") else "in_progress"
+            status["state"] = "in_progress"
+            status["current_focus"] = f"RESUMED: {reason}"
         write_status(target, status)
         current["status"] = status["phase"]
         current["updated_at_utc"] = utc_now()
@@ -2569,6 +2664,15 @@ def _role_gate_problems(status: dict, require_closer: bool = True) -> list[str]:
         if earlier in latest_entries and later in latest_entries:
             if _entry_order_value(latest_entries[earlier]) > _entry_order_value(latest_entries[later]):
                 problems.append(f"role evidence order is stale: {earlier} is newer than {later}")
+    implementer_entry = latest_entries.get("implementer")
+    if implementer_entry:
+        evidence = str(implementer_entry.get("evidence", ""))
+        ready_problem = _implementer_ready_output_problem(status, evidence)
+        if ready_problem:
+            problems.append("Implementer evidence READY output check failed: " + ready_problem)
+        ready_event_sequence = status.get("ready_task_output_event_sequence")
+        if ready_event_sequence is not None and _entry_order_value(implementer_entry) <= (1, int(ready_event_sequence)):
+            problems.append("Implementer evidence must be recorded after the latest READY output")
     validator_entry = latest_entries.get("validator")
     if validator_entry:
         evidence = validator_entry.get("evidence", "")
@@ -3153,7 +3257,7 @@ def verify_bundle(root: Path, slug: str) -> int:
         active_writable = (
             current is not None
             and current.get("slug") == slug
-            and status.get("state") not in {"paused", "completed", "closed"}
+            and status.get("state") not in {"blocked", "paused", "completed", "closed"}
         )
         if target.exists() and state_exists(target) and active_writable:
             status["last_verify_ok"] = not problems
