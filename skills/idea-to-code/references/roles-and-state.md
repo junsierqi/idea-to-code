@@ -16,6 +16,20 @@ Record roles in this order for the current `plan_revision`:
 
 The same agent may perform all roles, but each role requires separate evidence. Do not claim another person or subagent performed a role unless that actually happened and evidence was recorded.
 
+## User-Visible Role Display
+
+Every user-visible idea-to-code message must identify the active role and execution source in its prefix:
+
+```text
+[idea-to-code][Planner/agent]
+[idea-to-code][Implementer/agent]
+[idea-to-code][Validator/agent]
+[idea-to-code][Reviewer/subagent]
+[idea-to-code][Closer/agent]
+```
+
+Use `/agent` when the current assistant is performing that role. Use `/subagent` only when a real delegated subagent actually ran the role and returned usable evidence. If a subagent was planned, unavailable, timed out, or produced unusable evidence, keep the visible source as `/agent` and record the fallback or timeout in role evidence.
+
 ## Role Execution Mode
 
 Before implementation, choose a mode and record it in Planner evidence:
@@ -36,13 +50,34 @@ Selection rules:
 - If a subagent times out or returns no usable evidence, close it, record the timeout, split the task smaller or fall back to `same-agent`, and do not count that attempt as independent evidence.
 - Do not infer the cause of a timeout from convenience. If cause matters, run comparison tests such as ping, scoped review, and broader review. Record only observed results; leave the root cause `unverified` when the evidence does not isolate it.
 
+## Delegation Healthcheck Protocol
+
+Use this protocol before claiming `/subagent` in a user-visible role/source prefix or recording independent Validator/Reviewer evidence. Skip it only when the current session already has a recent successful subagent result for the same tool path and similar scope.
+
+Healthcheck steps:
+
+1. `Ping`: delegate a tiny bounded request such as "reply with READY" to confirm the subagent can start and return.
+2. `Scoped review`: delegate one narrow file set, one role, and one question with a concrete output shape.
+3. `Broader review`: for complex work only, delegate a wider but still bounded review after the scoped review succeeds.
+4. `Timeout/fallback record`: if any step times out or returns unusable output, record the observed failure and fall back to `same-agent` or split the delegated task smaller.
+
+Usable subagent evidence must include:
+
+- role delegated: `Validator` or `Reviewer`
+- scope delegated: files, TASK/REQ IDs, or question
+- result returned before timeout
+- concrete findings or validation evidence
+- whether the result is used as independent evidence or rejected as unusable
+
+Do not display `/subagent` for planned, timed-out, unavailable, or unusable delegation. Use `/agent` and record the fallback reason instead.
+
 When using `same-agent`, Reviewer evidence must explicitly say `same-agent review` and cover user-intent fit, REQ coverage, acceptance examples, counterexamples, non-goal boundaries, diff scope, validation strength, unverified items, and residual risks.
 
 When using `hybrid-team` or `independent-team`, evidence must name which role ran independently and include the subagent result or identifier when available.
 
 ## Role Responsibilities
 
-- Planner: produces `00-idea.md` content: goal, requirements, task classification, acceptance matrix, design, and implementation plan.
+- Planner: produces `00-idea.md` content: goal, Controlled Exploration, requirements, task classification, acceptance matrix, design, and implementation plan.
 - Implementer: makes scoped changes and records TASK/IMP evidence tied to files or modules.
 - Validator: records validation type, command/runtime/manual evidence, and covered REQ IDs.
 - Reviewer: reconciles requested scope, actual diff, acceptance matrix, verification strength, risks, and boundary cases.
@@ -63,7 +98,7 @@ python ".../idea_to_code_bundle.py" role explain --role <planner|implementer|val
 Must include:
 
 - planned REQ IDs
-- 00-idea.md, requirements, acceptance matrix, or implementation plan
+- 00-idea.md, Controlled Exploration, requirements, acceptance matrix, or implementation plan
 - TASK/IMP IDs or implementation-plan reference
 - planning work, not validation, review, or closeout work
 
@@ -163,10 +198,10 @@ If semantic impact is unclear, treat the task as tracked.
 
 Every open `REQ-*` needs a row covering:
 
-- user-goal fit: how this requirement serves the restated user outcome
-- acceptance examples: concrete examples that should pass
-- counterexamples: wrong-but-working outputs that must not be accepted
-- non-goal boundaries: related outcomes that are intentionally out of scope
+- `User Goal Fit`: how this requirement serves the restated user outcome
+- `Acceptance Examples`: concrete examples that should pass
+- `Counterexamples`: wrong-but-working outputs that must not be accepted
+- `Non-Goal Boundaries`: related outcomes that are intentionally out of scope
 - expected path
 - negative or invalid inputs
 - boundary cases

@@ -38,6 +38,42 @@ Use `Need Confirmation: no` when the idea is clear, low-risk, reversible, and ac
 
 If the user corrects the idea, update the same bundle when it is the same task (`clarification`, `expand`, or `switch`). Archive and start a new bundle only for unrelated work.
 
+## Controlled Exploration Pattern
+
+Controlled Exploration is the bounded brainstorming step after Intake Gate and before Task Classification. It is not a separate user approval gate. It records whether exploration is needed, compares a small set of options only when needed, and chooses one decision before implementation planning.
+
+Use this shape in `00-idea.md`:
+
+```text
+## Controlled Exploration
+
+- Exploration Needed: yes|no
+- Trigger: <why exploration is needed or safely skipped>
+- Constraints:
+  - <hard constraint from user, repository, governance, or runtime>
+- Options Considered:
+  - Option A: <approach>
+    - Hypothesis:
+    - Fit to user goal:
+    - Cost:
+    - Risk:
+    - Verification path:
+    - Rejection condition:
+- Decision:
+  - Chosen option:
+  - Decision reason:
+  - Rejected options:
+  - Unverified items:
+```
+
+Default to `Exploration Needed: no`. Use `Exploration Needed: yes` only for real user-visible, architecture, API, cross-module, security, data, cost, migration, destructive-action, ambiguity, failure-cause, verification, or meaningful risk forks. Keep it to 2-4 options, then pick exactly one option before `implementation ready`.
+
+When the user's requested implementation is flawed, treat it as a candidate path, explain the issue, and recommend a better default path. Do not dump low-level engineering choices on the user.
+
+When `Need Confirmation: yes`, include the recommended decision in the existing confirmation request. The user still replies once with `yes`, `approved`, `change: <correction>`, `pause`, or `cancel`.
+
+For optional prompt-level evaluation, use `controlled-exploration-benchmark.md`. The benchmark is a reference for maintainers, not part of the normal delivery flow.
+
 ## Milestone Sizing
 
 A useful milestone should:

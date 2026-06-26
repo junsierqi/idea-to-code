@@ -1,14 +1,15 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Regression tests for idea_to_code_bundle.py governance controls."""
 
 from __future__ import annotations
 
+import importlib.util
 import json
+import os
 import re
 import subprocess
 import sys
 import tempfile
-import time
 import unittest
 from pathlib import Path
 
@@ -23,12 +24,29 @@ REFERENCES_DIR = SKILL_DIR / "references"
 SKILL_MD = SKILL_DIR / "SKILL.md"
 ROLES_STATE_MD = REFERENCES_DIR / "roles-and-state.md"
 ALLOWED_REFERENCES = {
+    "controlled-exploration-benchmark.md",
+    "fresh-session-live-benchmark-template.md",
     "planning-patterns.md",
     "roles-and-state.md",
     "verification-and-evidence.md",
     "workflow.md",
 }
 TEST_SUBPROCESS_TIMEOUT_SECONDS = 30
+TEST_ACCEPTANCE_HEADER = (
+    "| ID | User Goal Fit | Acceptance Examples | Counterexamples | Non-Goal Boundaries | "
+    "Expected Path | Negative/Invalid Inputs | Boundary Cases | State/Persistence | "
+    "Rollback/Cancellation | Error Reporting | Observability | Real Product Path | Validation Type |\n"
+    "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"
+)
+
+
+def load_bundle_module():
+    spec = importlib.util.spec_from_file_location("idea_to_code_bundle_under_test", SCRIPT)
+    if spec is None or spec.loader is None:
+        raise AssertionError(f"could not load module spec for {SCRIPT}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def run_test_subprocess(
@@ -77,13 +95,22 @@ class BundleTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
-    def run_bundle(self, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    def run_bundle(
+        self,
+        *args: str,
+        check: bool = True,
+        env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        process_env = os.environ.copy()
+        if env:
+            process_env.update(env)
         result = subprocess.run(
             [sys.executable, str(SCRIPT), *args],
             cwd=self.root,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            env=process_env,
         )
         if check and result.returncode != 0:
             self.fail(f"command failed: {args}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}")
@@ -290,7 +317,7 @@ class BundleTest(unittest.TestCase):
             "not through chat memory",
             "This skill can:",
             "Standard flow:",
-            "route/current -> intake gate -> bundle",
+            "route/current -> intake gate -> controlled exploration -> bundle",
             "Tool-owned gates are not optional",
             "does not narrow ordinary coding capability",
         ]:
@@ -333,7 +360,7 @@ class BundleTest(unittest.TestCase):
 
         for required in [
             "Console Response Contract",
-            "[idea-to-code] Status: Completed | Progress | Blocked",
+            "[idea-to-code][Closer/agent] Status: Completed | Progress | Blocked",
             "Changes",
             "Completed Items",
             "Incomplete Items",
@@ -341,8 +368,103 @@ class BundleTest(unittest.TestCase):
             "Unverified Items",
             "Residual Risks",
             "Key Technical Details",
-            "Use `Completed` only",
+            "Do not use `Completed` to claim final accepted closeout for the whole bundle",
             "write `none`",
+            "use these field names",
+            "entered todo/REQ/TASK accounting",
+            "formal tracked delivery status",
+            "final handoff",
+            "formal delivery status",
+            "[idea-to-code][Closer/agent]",
+            "formal tracked `Progress`, validation, install, or status responses",
+            "render-status",
+            "The helper prints the fixed field skeleton",
+            "The helper does not finalize, verify, or mutate the bundle",
+            "must name the relevant `TASK-*` and `REQ-*` IDs",
+            "represented by a READY TASK",
+            "If a response cannot map to a TASK/REQ",
+            "Status labels describe the scope of the current user-visible response",
+            "Use `Completed` when every TASK/REQ in that response's stated scope is implemented and validated",
+            "For an interim TASK/REQ slice, `Completed` does not claim the whole bundle is finalized",
+            "Use `Progress` when at least one in-scope TASK/REQ is still being implemented or validated",
+            "`Incomplete Items` must contain only unfinished in-scope TASK/REQ work",
+            "Do not list `No commit made`, `bundle not finalized`, `awaiting user review`, or fresh-session/user acceptance retest as incomplete",
+            "Put no-commit and bundle-finalization state in `Key Technical Details`",
+            "put fresh-session checks, user acceptance, or other external checks in `Unverified Items`",
+            "<TASK/REQ-mapped change>",
+            "<TASK/REQ-mapped accepted item or coverage>",
+            "<TASK/REQ-mapped validation type + command/evidence + result>",
+            "awaiting user review",
+            "No commit made",
+            "Do not leave commit/publish state implicit",
+            "Do not use the fixed field contract for ordinary questions",
+            "short explanations",
+            "naming discussions",
+            "even when a bundle is active",
+            "the template is for formal tracked delivery status, not every message",
+        ]:
+            self.assertIn(required, combined)
+
+    def test_render_status_outputs_fixed_field_skeleton(self) -> None:
+        result = self.run_bundle(
+            "quickstart",
+            "--root", str(self.root),
+            "--slug", "render-status",
+            "--title", "Render status",
+            "--idea", "Render a formal status response skeleton.",
+            "--file", "README.md",
+            "--task", "Document the status render behavior.",
+            "--unique",
+        )
+        slug = json.loads((self.root / ".idea-to-code" / "current.json").read_text(encoding="utf-8"))["slug"]
+        ready_match = re.search(r"READY_TASK_OUTPUT_ID:\s*(\S+)", result.stdout)
+        self.assertIsNotNone(ready_match)
+
+        rendered = self.run_bundle(
+            "render-status",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--status", "Completed",
+        )
+
+        for required in [
+            "[idea-to-code][Closer/agent] Status: Completed",
+            "Changes:",
+            "Completed Items:",
+            "Incomplete Items:",
+            "Validation Results:",
+            "Unverified Items:",
+            "Residual Risks:",
+            "Key Technical Details:",
+            "TASK-*",
+            "REQ-1",
+            "READY_TASK_OUTPUT_ID:",
+            ready_match.group(1),
+            "No commit made",
+            "Bundle finalization/commit/publish state belongs here unless explicitly in scope.",
+        ]:
+            self.assertIn(required, rendered.stdout)
+
+    def test_status_scope_semantics_prevent_false_incomplete_items(self) -> None:
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        verification_text = (REFERENCES_DIR / "verification-and-evidence.md").read_text(encoding="utf-8")
+        benchmark_text = (REFERENCES_DIR / "controlled-exploration-benchmark.md").read_text(encoding="utf-8")
+        combined = "\n".join([skill_text, verification_text, benchmark_text])
+
+        for required in [
+            "Status labels describe the scope of the current user-visible response",
+            "Use `Completed` when every TASK/REQ in that response's stated scope is implemented and validated",
+            "If `Incomplete Items` is `none` for the stated response scope and validation passed, default to `Status: Completed`",
+            "do not downgrade to `Progress` only because the bundle remains open, no commit was made, fresh-session retest remains external, or user acceptance has not been separately collected",
+            "Do not use `Completed` to claim final accepted closeout for the whole bundle",
+            "`Incomplete Items` must contain only unfinished in-scope TASK/REQ work",
+            "Do not list `No commit made`, `bundle not finalized`, `awaiting user review`, or fresh-session/user acceptance retest as incomplete",
+            "Put no-commit and bundle-finalization state in `Key Technical Details`",
+            "put fresh-session checks, user acceptance, or other external checks in `Unverified Items`",
+            "Uses `Status: Completed` for fully validated response-scoped TASK/REQ slices with `Incomplete Items: none`",
+            "Does not downgrade a fully validated response-scoped slice to `Status: Progress`",
+            "Lists `No commit made` under Key Technical Details by default, not Incomplete Items",
+            "Explicitly says `No commit made` in Key Technical Details unless commit was an explicit in-scope TASK/REQ",
         ]:
             self.assertIn(required, combined)
 
@@ -370,6 +492,112 @@ class BundleTest(unittest.TestCase):
         ]:
             self.assertIn(required, combined)
 
+    def test_controlled_exploration_is_documented_as_bounded_and_not_extra_approval(self) -> None:
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        workflow_text = (REFERENCES_DIR / "workflow.md").read_text(encoding="utf-8")
+        planning_text = (REFERENCES_DIR / "planning-patterns.md").read_text(encoding="utf-8")
+        verification_text = (REFERENCES_DIR / "verification-and-evidence.md").read_text(encoding="utf-8")
+        benchmark_text = (REFERENCES_DIR / "controlled-exploration-benchmark.md").read_text(encoding="utf-8")
+        combined = "\n".join([skill_text, workflow_text, planning_text, verification_text, benchmark_text])
+
+        for required in [
+            "Controlled Exploration",
+            "Exploration Needed: yes|no",
+            "Options Considered",
+            "Decision reason",
+            "not a second approval gate",
+            "2-4 options",
+            "Need Confirmation: yes",
+            "Need Confirmation: no",
+            "recommended decision",
+            "implementation ready",
+            "Default to `Exploration Needed: no`",
+            "Use `yes` only for a real fork or risk",
+            "treat it as a candidate path",
+            "recommend a better default path",
+            "not a fixed answer template",
+            "Do not hard-code fixed answers",
+            "does not blindly follow a flawed requested implementation",
+            "controlled-exploration-benchmark.md",
+            "live model outputs",
+            "Scenario Library",
+            "Run Protocol",
+        ]:
+            self.assertIn(required, combined)
+
+    def test_controlled_exploration_benchmark_has_required_scenarios_and_rubric(self) -> None:
+        benchmark_text = (REFERENCES_DIR / "controlled-exploration-benchmark.md").read_text(encoding="utf-8")
+
+        for required in [
+            "Do not score a hard-coded sample answer",
+            "Scoring Rubric",
+            "Real goal",
+            "Flawed proposal",
+            "Better default",
+            "Confirmation burden",
+            "Verification",
+            "Alignment",
+            "Small-task friction",
+            "Scenario score: `0-7`",
+            "unnecessary exploration",
+            "no option dump, no confirmation",
+            "Scenario 1: Destructive Security Request",
+            "Scenario 2: Overbroad Rewrite",
+            "Scenario 3: Low-Risk Better Implementation",
+            "Scenario 4: Ambiguous Product Direction",
+            "Scenario 5: Clear Small Task",
+            "Scenario 6: Inappropriate Data Shortcut",
+            "Response Mode Scenarios",
+            "Response Scenario A: Tracked Progress Status",
+            "Response Scenario B: Ordinary Explanation",
+            "Response Scenario C: Naming Discussion",
+            "Response Scenario D: In-Progress Working Update",
+            "Response Scenario E: Tracked Conversation, No Status Request",
+            "Response Scenario F: Explicit No-Commit Status Request",
+            "Expected mode: `tracked-delivery-status`",
+            "Expected mode: `tracked-work-update`",
+            "Expected mode: `untracked-answer`",
+            "Expected mode: `commentary-update`",
+            "Reporting Format",
+            "Instruction gap",
+        ]:
+            self.assertIn(required, benchmark_text)
+
+    def test_fresh_session_live_benchmark_protocol_is_documented(self) -> None:
+        benchmark_text = (REFERENCES_DIR / "controlled-exploration-benchmark.md").read_text(encoding="utf-8")
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        template_path = REFERENCES_DIR / "fresh-session-live-benchmark-template.md"
+        template_text = template_path.read_text(encoding="utf-8")
+        combined = "\n".join([benchmark_text, skill_text, template_text])
+
+        for required in [
+            "Fresh-Session Live Benchmark Protocol",
+            "Controlled samples and instruction-level reviews are useful, but they are not production proof",
+            "Use the exact installed skill; do not paste corrected guidance into the chat",
+            "Capture raw assistant output before editing or correcting it",
+            "Fresh-session score dimensions",
+            "Controlled Exploration fit",
+            "READY visibility",
+            "Response mode",
+            "Status semantics",
+            "Small-task friction",
+            "Fresh-session score: `0-7` per output",
+            ">= 32/35",
+            "Time and cost bounds",
+            "Default run uses exactly five prompts",
+            "Maximum wall-clock budget is 45 minutes",
+            "Stop early",
+            "Elapsed time",
+            "Prompt count",
+            "Stop reason",
+            "Fresh-Session Reporting Format",
+            "Fresh-session run id",
+            "Raw output",
+            "Instruction drift",
+            "prompt-level scenario library plus fresh-session live benchmark protocol",
+        ]:
+            self.assertIn(required, combined)
+
     def test_confirmation_ready_output_contract_is_documented(self) -> None:
         skill_text = SKILL_MD.read_text(encoding="utf-8")
         verification_text = (REFERENCES_DIR / "verification-and-evidence.md").read_text(encoding="utf-8")
@@ -377,6 +605,7 @@ class BundleTest(unittest.TestCase):
 
         for required in [
             "Confirmation Required",
+            "[idea-to-code][Planner/agent] Confirmation Required",
             "explicit decision request",
             "paused before implementation",
             "Restated user goal",
@@ -403,6 +632,8 @@ class BundleTest(unittest.TestCase):
 
     def test_need_confirmation_no_still_requires_user_visible_ready_task_list(self) -> None:
         skill_text = SKILL_MD.read_text(encoding="utf-8")
+        verification_text = (REFERENCES_DIR / "verification-and-evidence.md").read_text(encoding="utf-8")
+        combined = "\n".join([skill_text, verification_text])
 
         for required in [
             "`Need Confirmation: no` skips the approval wait",
@@ -410,33 +641,156 @@ class BundleTest(unittest.TestCase):
             "before any product-file edit",
             "`implementation ready` prints the generated",
             "READY_TASK_OUTPUT_ID",
-            "user-visible `[idea-to-code] Implementation Gate: READY`",
+            "user-visible `[idea-to-code][Planner/agent] Implementation Gate: READY`",
             "Files",
             "Execution Details",
             "Done Criteria",
             "Planned Verification",
             "transparency, not an approval request",
-            "writing it only to `00-idea.md`, command stdout, a tool result, or internal notes is not enough",
-            "Send that output to the user before product-file edits",
+            "Command stdout, tool output, or a folded transcript is not enough by itself",
+            "Tool stdout or folded command transcripts are not enough for READY visibility",
+            "send a normal assistant message",
+            "Plan-level READY",
+            "Execution-level READY",
+            "For multi-task work, default the user-visible execution message to the current TASK",
+            "not the entire long task list",
+            "focused READY TASK excerpt",
+            "--task TASK-N",
+            "Focused READY output is for user visibility only",
+            "hard contract",
+            "covered REQ hint",
+            "covered `REQ-*`",
+            "If any of those fields are missing, the READY output is invalid",
+            "same visible TASK/REQ set",
+            "Before moving from TASK-1 to TASK-2, show the TASK-2 focused READY excerpt",
+            "each result bullet maps to the focused execution-level READY excerpt shown before that TASK",
+            "must not introduce unshown or unmapped work",
+            "Before product-file edits, the READY task list must be visible to the user in a normal assistant message",
             "Implementer evidence must cite the generated READY output id",
             "Use `implementation show-ready` to reprint or refresh",
             "Use `quickstart --json` only for automation",
         ]:
-            self.assertIn(required, skill_text)
+            self.assertIn(required, combined)
+
+    def test_multi_task_ready_visibility_defaults_to_current_task_pairing(self) -> None:
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        verification_text = (REFERENCES_DIR / "verification-and-evidence.md").read_text(encoding="utf-8")
+        combined = "\n".join([skill_text, verification_text])
+
+        for required in [
+            "READY visibility has two layers",
+            "`Plan-level READY`: the complete TASK list remains in `00-idea.md`",
+            "`Execution-level READY`: the current TASK excerpt is shown immediately before that TASK is executed",
+            "For multi-task work, default user-visible execution display to the current TASK's focused READY excerpt",
+            "Before moving from one TASK to the next, show the next TASK's focused READY excerpt",
+            "The generated READY output has a hard excerpt contract",
+            "the `TASK-*` or `IMP-*` line",
+            "covered `REQ-*` or the script's covered REQ hint when inferable",
+            "If generated READY output omits any of these fields, it is invalid",
+            "The final summary may aggregate TASKs, but it must not introduce unshown or unmapped work",
+        ]:
+            self.assertIn(required, combined)
 
     def test_execution_visibility_documents_profile_prefix(self) -> None:
         skill_text = SKILL_MD.read_text(encoding="utf-8")
+        roles_text = (REFERENCES_DIR / "roles-and-state.md").read_text(encoding="utf-8")
+        workflow_text = (REFERENCES_DIR / "workflow.md").read_text(encoding="utf-8")
+        combined = "\n".join([skill_text, roles_text, workflow_text])
 
         for required in [
-            "Direct idea-to-code use uses `[idea-to-code]`",
-            "use `[idea-to-code/<profile-name>]`",
-            "[idea-to-code/<profile-name>] Mode: delivery",
+            "Direct idea-to-code use uses `[idea-to-code][Role/source]`",
+            "use `[idea-to-code/<profile-name>][Role/source]`",
+            "[idea-to-code/<profile-name>][Planner/agent] Mode: delivery",
+            "[idea-to-code][Planner/agent]",
+            "[idea-to-code][Validator/subagent]",
+            "`Planner`, `Implementer`, `Validator`, `Reviewer`, or `Closer`",
+            "`subagent` only when a real delegated subagent actually ran",
+            "Do not display `/subagent` as a plan or aspiration",
             "caller-provided and display-only",
             "does not change lifecycle gates, state files, ledger semantics, permissions, or closeout rules",
             "Do not infer trust, ownership, permissions, or scope from a profile name",
-            "default or profile-aware idea-to-code prefix",
+            "default or profile-aware idea-to-code role/source prefix",
+            "Do not remove or shorten existing READY TASK, confirmation, validation, or closeout fields",
         ]:
-            self.assertIn(required, skill_text)
+            self.assertIn(required, combined)
+
+    def test_delegation_healthcheck_protocol_is_documented(self) -> None:
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        roles_text = (REFERENCES_DIR / "roles-and-state.md").read_text(encoding="utf-8")
+        combined = "\n".join([skill_text, roles_text])
+
+        for required in [
+            "Delegation Healthcheck Protocol",
+            "Use this protocol before claiming `/subagent`",
+            "`Ping`",
+            "`Scoped review`",
+            "`Broader review`",
+            "`Timeout/fallback record`",
+            "role delegated: `Validator` or `Reviewer`",
+            "scope delegated: files, TASK/REQ IDs, or question",
+            "result returned before timeout",
+            "whether the result is used as independent evidence or rejected as unusable",
+            "Do not display `/subagent` for planned, timed-out, unavailable, or unusable delegation",
+            "Use the Delegation Healthcheck Protocol",
+        ]:
+            self.assertIn(required, combined)
+
+    def test_user_visible_prefix_examples_do_not_drift_to_old_forms(self) -> None:
+        combined = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in [SKILL_MD, *sorted(REFERENCES_DIR.glob("*.md"))]
+        )
+
+        old_bare_lifecycle_examples = [
+            r"\[idea-to-code\]\s+Implementation Gate:",
+            r"\[idea-to-code\]\s+Confirmation Required",
+            r"\[idea-to-code\]\s+Status:",
+            r"\[idea-to-code\]\s+Mode:",
+            r"\[idea-to-code/<profile-name>\]\s+Implementation Gate:",
+            r"\[idea-to-code/<profile-name>\]\s+Mode:",
+        ]
+        for pattern in old_bare_lifecycle_examples:
+            self.assertIsNone(re.search(pattern, combined), pattern)
+
+        self.assertIsNone(
+            re.search(r"\[idea-to-code(?:/[^\]]+)?\]\[[A-Za-z]+/same-agent\]", combined),
+            "Visible source labels should be agent/subagent; same-agent is only an internal execution mode.",
+        )
+
+        for expected in [
+            "[idea-to-code][Planner/agent] Implementation Gate: READY",
+            "[idea-to-code][Planner/agent] Confirmation Required",
+            "[idea-to-code][Closer/agent] Status: Completed | Progress | Blocked",
+            "[idea-to-code/<profile-name>][Planner/agent] Mode: delivery",
+        ]:
+            self.assertIn(expected, combined)
+
+    def test_formal_response_template_keeps_required_fields_and_task_req_placeholders(self) -> None:
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        template = skill_text.split("```text\n[idea-to-code][Closer/agent] Status: Completed | Progress | Blocked", 1)[1].split("```", 1)[0]
+
+        expected_order = [
+            "Changes:",
+            "Completed Items:",
+            "Incomplete Items:",
+            "Validation Results:",
+            "Unverified Items:",
+            "Residual Risks:",
+            "Key Technical Details:",
+        ]
+        last_index = -1
+        for field in expected_order:
+            next_index = template.find(field)
+            self.assertGreater(next_index, last_index, field)
+            last_index = next_index
+
+        for required in [
+            "<TASK/REQ-mapped change>",
+            "<TASK/REQ-mapped accepted item or coverage>",
+            "<TASK/REQ-mapped unfinished item and why>",
+            "<TASK/REQ-mapped validation type + command/evidence + result>",
+        ]:
+            self.assertIn(required, template)
 
     def test_user_intent_acceptance_contract_is_documented(self) -> None:
         skill_text = SKILL_MD.read_text(encoding="utf-8")
@@ -452,6 +806,10 @@ class BundleTest(unittest.TestCase):
             "counterexamples",
             "wrong-but-working",
             "non-goal boundaries",
+            "User Goal Fit",
+            "Acceptance Examples",
+            "Counterexamples",
+            "Non-Goal Boundaries",
             "technically working but solves a different problem",
             "Command success is not enough for acceptance",
             "result fits the user's intended outcome",
@@ -622,6 +980,20 @@ class BundleTest(unittest.TestCase):
 - Unknowns: no open unknowns.
 {intake}
 
+## Controlled Exploration
+
+- Exploration Needed: no
+- Trigger: Test fixture has one direct command-flow implementation path.
+- Constraints:
+  - Keep the fixture scoped to state.json and bundle commands.
+- Options Considered:
+  - Not required for this deterministic test fixture.
+- Decision:
+  - Chosen option: Use the direct ready-bundle fixture.
+  - Decision reason: No architecture or behavior fork requires option exploration.
+  - Rejected options: none.
+  - Unverified items: none.
+
 ## Task Classification
 
 - File changes: yes
@@ -631,9 +1003,8 @@ class BundleTest(unittest.TestCase):
 
 ## Acceptance Matrix
 
-| ID | Expected Path | Negative/Invalid Inputs | Boundary Cases | State/Persistence | Rollback/Cancellation | Error Reporting | Observability | Real Product Path | Validation Type |
-|----|---------------|-------------------------|----------------|-------------------|-----------------------|-----------------|---------------|-------------------|-----------------|
-| REQ-1 | {expected_path} | {negative} | {boundary} | {state} | {rollback} | {error} | {observability} | {product_path} | {validation_type} |
+{TEST_ACCEPTANCE_HEADER}
+| REQ-1 | Sample behavior matches the requested command outcome. | Final bundle verification succeeds for REQ-1. | Missing evidence must not be accepted. | Production code changes are outside this fixture. | {expected_path} | {negative} | {boundary} | {state} | {rollback} | {error} | {observability} | {product_path} | {validation_type} |
 """
         implementation = """# Implementation
 
@@ -711,7 +1082,7 @@ Planned Verification: source-only python idea_to_code_bundle.py verify exits zer
         self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
 
     def write_no_requirement_ready_bundle(self, slug: str) -> None:
-        requirements = """# Requirements
+        requirements = f"""# Requirements
 
 - Target outcome: Sample behavior is delivered.
 - Primary user: Maintainer.
@@ -729,6 +1100,20 @@ Planned Verification: source-only python idea_to_code_bundle.py verify exits zer
 - Need Confirmation: no
 - Confirmation Reason: Test fixture has explicit scope and no risky ambiguity.
 
+## Controlled Exploration
+
+- Exploration Needed: no
+- Trigger: Test fixture has one direct negative verification path.
+- Constraints:
+  - Keep the fixture scoped to missing requirement coverage.
+- Options Considered:
+  - Not required for this deterministic test fixture.
+- Decision:
+  - Chosen option: Use the direct no-requirement fixture.
+  - Decision reason: No implementation alternative is needed for this negative test.
+  - Rejected options: none.
+  - Unverified items: none.
+
 ## Task Classification
 
 - File changes: yes
@@ -738,8 +1123,7 @@ Planned Verification: source-only python idea_to_code_bundle.py verify exits zer
 
 ## Acceptance Matrix
 
-| ID | Expected Path | Negative/Invalid Inputs | Boundary Cases | State/Persistence | Rollback/Cancellation | Error Reporting | Observability | Real Product Path | Validation Type |
-|----|---------------|-------------------------|----------------|-------------------|-----------------------|-----------------|---------------|-------------------|-----------------|
+{TEST_ACCEPTANCE_HEADER}
 """
         implementation = """# Implementation
 
@@ -905,6 +1289,35 @@ Planned Verification:
         self.assertNotEqual(verify.returncode, 0)
         self.assertIn("weak column", verify.stdout)
 
+    def test_verify_rejects_legacy_acceptance_matrix_without_user_intent_columns(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        idea_path = self.root / ".idea-to-code" / slug / "00-idea.md"
+        text = idea_path.read_text(encoding="utf-8")
+        legacy_header = (
+            "| ID | Expected Path | Negative/Invalid Inputs | Boundary Cases | State/Persistence | "
+            "Rollback/Cancellation | Error Reporting | Observability | Real Product Path | Validation Type |\n"
+            "|----|---------------|-------------------------|----------------|-------------------|-----------------------|"
+            "-----------------|---------------|-------------------|-----------------|\n"
+            "| REQ-1 | command exits zero | invalid command reports a failure | empty input is explicitly outside scope | "
+            "state.json records role evidence | no rollback state is created | stderr reports command failures | "
+            "verify prints JSON output | temporary script path only | source-only |"
+        )
+        text = re.sub(
+            r"\| ID \| User Goal Fit \|[\s\S]*?(?=\n## Design)",
+            legacy_header + "\n",
+            text,
+        )
+        idea_path.write_text(text, encoding="utf-8")
+        self.record_roles_through_reviewer(slug)
+        self.checkpoint(slug)
+
+        verify = self.run_bundle("verify", "--root", str(self.root), "--slug", slug, check=False)
+
+        self.assertNotEqual(verify.returncode, 0)
+        self.assertIn("Acceptance Matrix header missing column: User Goal Fit", verify.stdout)
+        self.assertIn("Acceptance Matrix header missing column: Acceptance Examples", verify.stdout)
+
     def test_finalize_requires_preclose_verify(self) -> None:
         slug = self.init_bundle()
         self.write_ready_bundle(slug)
@@ -937,8 +1350,10 @@ Planned Verification:
         self.record_roles_through_reviewer(slug)
         self.checkpoint(slug)
         self.run_bundle("verify", "--root", str(self.root), "--slug", slug)
-        time.sleep(1.1)
         self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "reviewer", "--evidence", "same-agent review checked REQ-1 residual risk and coverage in 01-progress.md after prior verify", "--covers", "REQ-1")
+        status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        latest_reviewer = status["role_evidence"]["reviewer"][-1]
+        self.assertGreater(latest_reviewer["event_sequence"], status["last_verified_event_sequence"])
         result = self.run_bundle(
             "role", "record",
             "--root", str(self.root),
@@ -950,6 +1365,43 @@ Planned Verification:
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("pre-close verify is older than the latest Reviewer evidence", result.stderr)
+        refreshed = self.run_bundle("verify", "--root", str(self.root), "--slug", slug)
+        self.assertIn('"ok": true', refreshed.stdout)
+        accepted = self.run_bundle(
+            "role", "record",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--role", "closer",
+            "--evidence", "REQ-1 covered by Sample milestone; pre-close source-only verify passed; final decision pass accepted",
+            "--covers", "REQ-1",
+        )
+        self.assertEqual(accepted.returncode, 0)
+
+    def test_bundle_lock_timeout_reports_owner_and_recovery_hint(self) -> None:
+        slug = self.init_bundle()
+        lock_dir = self.root / ".idea-to-code" / slug / ".status.lock"
+        lock_dir.mkdir()
+        (lock_dir / "owner.json").write_text(
+            json.dumps({"pid": 424242, "created_at_utc": "2026-01-01T00:00:00+00:00"}) + "\n",
+            encoding="utf-8",
+        )
+
+        result = self.run_bundle(
+            "requirement", "add",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--id", "REQ-LOCK",
+            "--description", "Lock diagnostic requirement",
+            "--type", "functional",
+            check=False,
+            env={"IDEA_TO_CODE_LOCK_TIMEOUT_SECONDS": "0.01"},
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(".status.lock", result.stderr)
+        self.assertIn("owner pid=424242", result.stderr)
+        self.assertIn("created_at_utc=2026-01-01T00:00:00+00:00", result.stderr)
+        self.assertIn("remove", result.stderr)
 
     def test_role_order_is_enforced(self) -> None:
         slug = self.init_bundle()
@@ -989,6 +1441,44 @@ Planned Verification:
         result = self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "validator", "--evidence", "REQ-1 reviewed in 01-progress.md with coverage notes", "--covers", "REQ-1", check=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Validator evidence must name a validation type", result.stderr)
+
+    def test_validator_allows_role_words_inside_test_identifiers(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "planner", "--evidence", "REQ-1 planned in 00-idea.md with acceptance matrix and TASK-1 in 00-idea.md", "--covers", "REQ-1")
+        output_id = self.run_ready_output(slug)
+        self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "implementer", "--evidence", f"TASK-1 implemented by updating state.json behavior in 00-idea.md after READY_TASK_OUTPUT_ID {output_id}", "--covers", "REQ-1")
+
+        result = self.run_bundle(
+            "role", "record",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--role", "validator",
+            "--evidence", "REQ-1 source-only validation command python test_idea_to_code_bundle.py BundleTest.test_closer_requires_verify_after_latest_reviewer passed",
+            "--covers", "REQ-1",
+        )
+
+        self.assertEqual(result.returncode, 0)
+
+    def test_validator_still_rejects_wrong_role_prose(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "planner", "--evidence", "REQ-1 planned in 00-idea.md with acceptance matrix and TASK-1 in 00-idea.md", "--covers", "REQ-1")
+        output_id = self.run_ready_output(slug)
+        self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "implementer", "--evidence", f"TASK-1 implemented by updating state.json behavior in 00-idea.md after READY_TASK_OUTPUT_ID {output_id}", "--covers", "REQ-1")
+
+        result = self.run_bundle(
+            "role", "record",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--role", "validator",
+            "--evidence", "Reviewer performed REQ-1 source-only validation with python verify command",
+            "--covers", "REQ-1",
+            check=False,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Validator evidence must describe validation work, not another role", result.stderr)
 
     def test_reviewer_requires_review_evidence(self) -> None:
         slug = self.init_bundle()
@@ -1079,11 +1569,47 @@ Planned Verification: x
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Need Confirmation is yes", result.stderr)
 
+    def test_implementation_ready_rejects_missing_controlled_exploration(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        idea_path = self.root / ".idea-to-code" / slug / "00-idea.md"
+        text = idea_path.read_text(encoding="utf-8")
+        text = re.sub(
+            r"\n## Controlled Exploration\n[\s\S]*?(?=\n## Task Classification\n)",
+            "",
+            text,
+            count=1,
+        )
+        idea_path.write_text(text, encoding="utf-8")
+
+        result = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("missing Controlled Exploration section", result.stderr)
+
+    def test_implementation_ready_rejects_required_controlled_exploration_without_decision(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        idea_path = self.root / ".idea-to-code" / slug / "00-idea.md"
+        text = idea_path.read_text(encoding="utf-8")
+        replacement = """\n## Controlled Exploration\n\n- Exploration Needed: yes\n- Trigger: Two user-visible approaches need comparison before implementation.\n- Constraints:\n  - Keep scope narrow.\n- Options Considered:\n  - Option A: Direct command flow.\n    - Hypothesis: The direct path satisfies the fixture.\n    - Fit to user goal: Strong fit for the test fixture.\n    - Cost: Low.\n    - Risk: Low.\n    - Verification path: implementation ready command.\n    - Rejection condition: The command rejects the bundle.\n- Decision:\n  - Chosen option:\n  - Decision reason:\n  - Rejected options:\n  - Unverified items:\n"""
+        text = re.sub(
+            r"\n## Controlled Exploration\n[\s\S]*?(?=\n## Task Classification\n)",
+            replacement,
+            text,
+            count=1,
+        )
+        idea_path.write_text(text, encoding="utf-8")
+
+        result = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Decision missing concrete Chosen option", result.stderr)
+        self.assertIn("Decision missing concrete Decision reason", result.stderr)
+
     def test_implementation_ready_accepts_intake_without_confirmation_needed(self) -> None:
         slug = self.init_bundle()
         self.write_ready_bundle(slug, need_confirmation="no", mark_ready=False)
         result = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
-        self.assertIn("[idea-to-code] Implementation Gate: READY", result.stdout)
+        self.assertIn("[idea-to-code][Planner/agent] Implementation Gate: READY", result.stdout)
         self.assertIn("READY_TASK_OUTPUT_ID:", result.stdout)
         self.assertIn("TASK-1: Verify sample bundle flow", result.stdout)
         self.assertNotIn(str(self.root / ".idea-to-code" / slug), result.stdout)
@@ -1102,9 +1628,35 @@ Planned Verification: x
             "--slug", slug,
             "--profile", "upper-layer",
         )
-        self.assertIn("[idea-to-code/upper-layer] Implementation Gate: READY", result.stdout)
+        self.assertIn("[idea-to-code/upper-layer][Planner/agent] Implementation Gate: READY", result.stdout)
         self.assertIn("READY_TASK_OUTPUT_ID:", result.stdout)
-        self.assertNotIn("[idea-to-code] Implementation Gate: READY", result.stdout)
+        self.assertNotIn("[idea-to-code][Planner/agent] Implementation Gate: READY", result.stdout)
+
+    def test_implementation_ready_supports_role_source_prefix(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, need_confirmation="no", mark_ready=False)
+        result = self.run_bundle(
+            "implementation", "ready",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--role", "validator",
+            "--source", "subagent",
+        )
+        self.assertIn("[idea-to-code][Validator/subagent] Implementation Gate: READY", result.stdout)
+        self.assertIn("READY_TASK_OUTPUT_ID:", result.stdout)
+        self.assertIn("TASK-1: Verify sample bundle flow", result.stdout)
+
+    def test_implementation_ready_normalizes_role_case(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, need_confirmation="no", mark_ready=False)
+        result = self.run_bundle(
+            "implementation", "ready",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--role", "Planner",
+            "--source", "agent",
+        )
+        self.assertIn("[idea-to-code][Planner/agent] Implementation Gate: READY", result.stdout)
 
     def test_implementation_profile_is_display_only_not_persisted(self) -> None:
         slug = self.init_bundle()
@@ -1128,7 +1680,7 @@ Planned Verification: x
         slug = self.init_bundle()
         self.write_ready_bundle(slug)
         result = self.run_bundle("implementation", "show-ready", "--root", str(self.root), "--slug", slug)
-        self.assertIn("[idea-to-code] Implementation Gate: READY", result.stdout)
+        self.assertIn("[idea-to-code][Planner/agent] Implementation Gate: READY", result.stdout)
         self.assertIn("READY_TASK_OUTPUT_ID:", result.stdout)
         self.assertIn("TASK-1: Verify sample bundle flow", result.stdout)
         self.assertIn("Files:", result.stdout)
@@ -1143,10 +1695,116 @@ Planned Verification: x
         slug = self.init_bundle()
         self.write_ready_bundle(slug)
         result = self.run_bundle("implementation", "show-ready", "--root", str(self.root), "--slug", slug)
-        self.assertIn("[idea-to-code] Implementation Gate: READY", result.stdout)
+        self.assertIn("[idea-to-code][Planner/agent] Implementation Gate: READY", result.stdout)
         self.assertIn("READY_TASK_OUTPUT_ID:", result.stdout)
         self.assertIn("TASK-1: Verify sample bundle flow", result.stdout)
         self.assertIn("Files:", result.stdout)
+
+    def test_implementation_show_ready_supports_focused_task_output(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        result = self.run_bundle(
+            "implementation", "show-ready",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--task", "TASK-1",
+        )
+
+        for required in [
+            "Focused READY TASK excerpt: yes",
+            "This excerpt is for visibility only",
+            "TASK-1: Verify sample bundle flow",
+            "Covered REQ hint: REQ-1",
+            "Files:",
+            "Done Criteria:",
+            "Planned Verification:",
+            "READY_TASK_OUTPUT_ID:",
+        ]:
+            self.assertIn(required, result.stdout)
+
+    def test_ready_output_contract_accepts_complete_focused_output(self) -> None:
+        module = load_bundle_module()
+        blocks = [(
+            "TASK-1: Verify sample bundle flow",
+            "Files:\n- README.md\n\nDone Criteria:\n- Change is visible\n\nPlanned Verification:\n- source-only check",
+        )]
+        lines = module._format_ready_output(
+            "sample",
+            "Sample task",
+            "sample-r1-20260626000000",
+            blocks,
+            focused=True,
+        )
+        self.assertEqual(module._ready_output_contract_problems(lines, blocks), [])
+
+    def test_ready_output_contract_rejects_missing_task_line(self) -> None:
+        module = load_bundle_module()
+        blocks = [(
+            "TASK-1: Verify sample bundle flow",
+            "Files:\n- README.md\n\nDone Criteria:\n- Change is visible\n\nPlanned Verification:\n- source-only check",
+        )]
+        lines = [
+            "[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: sample",
+            "Covered REQ hint: REQ-1",
+            "Files:",
+            "- README.md",
+            "Done Criteria:",
+            "- Change is visible",
+            "Planned Verification:",
+            "- source-only check",
+        ]
+        problems = module._ready_output_contract_problems(lines, blocks)
+        self.assertIn("READY output missing task line: TASK-1: Verify sample bundle flow", problems)
+
+    def test_ready_output_contract_rejects_missing_req_hint(self) -> None:
+        module = load_bundle_module()
+        blocks = [(
+            "TASK-1: Verify sample bundle flow",
+            "Files:\n- README.md\n\nDone Criteria:\n- Change is visible\n\nPlanned Verification:\n- source-only check",
+        )]
+        lines = [
+            "[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: sample",
+            "TASK-1: Verify sample bundle flow",
+            "Files:",
+            "- README.md",
+            "Done Criteria:",
+            "- Change is visible",
+            "Planned Verification:",
+            "- source-only check",
+        ]
+        problems = module._ready_output_contract_problems(lines, blocks)
+        self.assertIn("READY output missing covered REQ hint for TASK-1: Verify sample bundle flow: REQ-1", problems)
+
+    def test_ready_output_contract_rejects_missing_required_section(self) -> None:
+        module = load_bundle_module()
+        blocks = [(
+            "TASK-1: Verify sample bundle flow",
+            "Files:\n- README.md\n\nDone Criteria:\n- Change is visible\n\nPlanned Verification:\n- source-only check",
+        )]
+        lines = [
+            "[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: sample",
+            "TASK-1: Verify sample bundle flow",
+            "Covered REQ hint: REQ-1",
+            "Files:",
+            "- README.md",
+            "Done Criteria:",
+            "- Change is visible",
+        ]
+        problems = module._ready_output_contract_problems(lines, blocks)
+        self.assertIn("READY output missing Planned Verification: for TASK-1: Verify sample bundle flow", problems)
+
+    def test_implementation_show_ready_rejects_unknown_focused_task(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        result = self.run_bundle(
+            "implementation", "show-ready",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--task", "TASK-99",
+            check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("READY task filter did not match: TASK-99", result.stderr)
 
     def test_implementation_show_ready_supports_profile_prefix(self) -> None:
         slug = self.init_bundle()
@@ -1157,9 +1815,32 @@ Planned Verification: x
             "--slug", slug,
             "--profile", "upper-layer",
         )
-        self.assertIn("[idea-to-code/upper-layer] Implementation Gate: READY", result.stdout)
+        self.assertIn("[idea-to-code/upper-layer][Planner/agent] Implementation Gate: READY", result.stdout)
         self.assertIn("READY_TASK_OUTPUT_ID:", result.stdout)
         self.assertIn("TASK-1: Verify sample bundle flow", result.stdout)
+
+    def test_implementation_show_ready_rejects_invalid_role_source(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        bad_role = self.run_bundle(
+            "implementation", "show-ready",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--role", "architect",
+            check=False,
+        )
+        self.assertNotEqual(bad_role.returncode, 0)
+        self.assertIn("--role must be one of", bad_role.stderr)
+
+        bad_source = self.run_bundle(
+            "implementation", "show-ready",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--source", "planned-subagent",
+            check=False,
+        )
+        self.assertNotEqual(bad_source.returncode, 0)
+        self.assertIn("--source must be one of", bad_source.stderr)
 
     def test_implementation_profile_rejects_unsafe_name(self) -> None:
         slug = self.init_bundle()
@@ -1196,7 +1877,7 @@ Planned Verification: x
         payload = json.loads(json_part)
         slug = payload["slug"]
         self.assertTrue(payload["ready"])
-        self.assertIn("[idea-to-code] Implementation Gate: READY", ready_output_part)
+        self.assertIn("[idea-to-code][Planner/agent] Implementation Gate: READY", ready_output_part)
         self.assertIn("READY_TASK_OUTPUT_ID:", ready_output_part)
         self.assertIn("TASK-1: Add one concise README sentence.", ready_output_part)
         current = json.loads((self.root / ".idea-to-code" / "current.json").read_text(encoding="utf-8"))
@@ -1208,6 +1889,9 @@ Planned Verification: x
         self.assertTrue(status["ready_task_output_id"])
         self.assertEqual(len(status["requirements"]), 1)
         self.assertTrue(status["role_evidence"]["planner"])
+        idea = (self.root / ".idea-to-code" / slug / "00-idea.md").read_text(encoding="utf-8")
+        self.assertIn("## Controlled Exploration", idea)
+        self.assertIn("- Exploration Needed: no", idea)
         ready_output = self.run_bundle("implementation", "show-ready", "--root", str(self.root), "--slug", slug)
         self.assertIn("READY_TASK_OUTPUT_ID:", ready_output.stdout)
         self.assertIn("TASK-1: Add one concise README sentence.", ready_output.stdout)
@@ -1227,7 +1911,7 @@ Planned Verification: x
         payload = json.loads(result.stdout)
         self.assertTrue(payload["ready"])
         self.assertTrue(payload["ready_task_output_id"])
-        self.assertNotIn("[idea-to-code] Implementation Gate: READY", result.stdout)
+        self.assertNotIn("[idea-to-code][Planner/agent] Implementation Gate: READY", result.stdout)
 
     def test_quickstart_validates_generated_bundle_and_sanitizes_matrix_cells(self) -> None:
         result = self.run_bundle(
@@ -1582,6 +2266,21 @@ Planned Verification:
         status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
         self.assertFalse(status["pending_plan_update"])
 
+    def test_implementation_ready_clears_pending_plan_update(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        state_path = self.root / ".idea-to-code" / slug / "state.json"
+        status = json.loads(state_path.read_text(encoding="utf-8"))
+        status["pending_plan_update"] = True
+        status["implementation_ready"] = False
+        state_path.write_text(json.dumps(status, indent=2), encoding="utf-8")
+
+        self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+
+        status = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertFalse(status["pending_plan_update"])
+        self.assertTrue(status["implementation_ready"])
+
     def test_user_input_non_ascii_fails_without_traceback(self) -> None:
         slug = self.init_bundle()
         result = self.run_bundle(
@@ -1598,6 +2297,20 @@ Planned Verification:
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("English-only ASCII", result.stderr)
         self.assertNotIn("Traceback", result.stderr)
+
+    def test_lifecycle_reasons_reject_non_ascii_without_traceback(self) -> None:
+        slug = self.init_bundle()
+        for command in (
+            ("checkpoint", "--root", str(self.root), "--slug", slug, "--milestone", "caf\u00e9 milestone", "--delivered", "changed files", "--verified", "source-only inspection", "--next", "continue", "--focus", "focus", "--gate", "verify", "--gate-status", "pass"),
+            ("current", "archive", "--root", str(self.root), "--reason", "paus\u00e9"),
+            ("current", "pause", "--root", str(self.root), "--reason", "paus\u00e9"),
+            ("block", "--root", str(self.root), "--slug", slug, "--reason", "caf\u00e9 outage", "--need", "network access"),
+            ("unblock", "--root", str(self.root), "--slug", slug, "--note", "r\u00e9solved"),
+        ):
+            result = self.run_bundle(*command, check=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("English-only ASCII", result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
 
     def test_mutating_commands_reject_non_current_bundle(self) -> None:
         active = self.init_bundle()
@@ -2083,7 +2796,7 @@ Planned Verification:
         # Large task: multiple milestones all bind back to the same requirement set.
         self.run_bundle("init", "--root", str(self.root), "--slug", "large", "--title", "Large task", "--unique", "--idea", "Large task")
         large = json.loads((self.root / ".idea-to-code" / "current.json").read_text(encoding="utf-8"))["slug"]
-        requirements = """# Requirements
+        requirements = f"""# Requirements
 
 - Target outcome: Large task is delivered across multiple milestones.
 - Primary user: Maintainer.
@@ -2101,6 +2814,20 @@ Planned Verification:
 - Need Confirmation: no
 - Confirmation Reason: Test fixture has explicit scope and no risky ambiguity.
 
+## Controlled Exploration
+
+- Exploration Needed: no
+- Trigger: Large dogfood fixture has a predefined multi-milestone command path.
+- Constraints:
+  - Keep the fixture scoped to bundle governance commands.
+- Options Considered:
+  - Not required for this deterministic dogfood scenario.
+- Decision:
+  - Chosen option: Use the predefined planning, execution, and acceptance milestones.
+  - Decision reason: The scenario is a regression fixture, not an architecture fork.
+  - Rejected options: none.
+  - Unverified items: none.
+
 ## Task Classification
 
 - File changes: yes
@@ -2110,11 +2837,10 @@ Planned Verification:
 
 ## Acceptance Matrix
 
-| ID | Expected Path | Negative/Invalid Inputs | Boundary Cases | State/Persistence | Rollback/Cancellation | Error Reporting | Observability | Real Product Path | Validation Type |
-|----|---------------|-------------------------|----------------|-------------------|-----------------------|-----------------|---------------|-------------------|-----------------|
-| REQ-1 | command path covers planning | missing evidence rejected | temporary root only | state.json records planning coverage | archive preserves state | verify reports failures | verify prints JSON | temporary bundle path only | source-only |
-| REQ-2 | command path covers execution | missing evidence rejected | temporary root only | state.json records execution coverage | archive preserves state | verify reports failures | verify prints JSON | temporary bundle path only | source-only |
-| REQ-3 | command path covers acceptance | missing evidence rejected | temporary root only | state.json records acceptance coverage | archive preserves state | verify reports failures | verify prints JSON | temporary bundle path only | source-only |
+{TEST_ACCEPTANCE_HEADER}
+| REQ-1 | Planning satisfies the requested governance outcome. | Planning evidence covers REQ-1. | Missing planning evidence is rejected. | Production code is outside this fixture. | command path covers planning | missing evidence rejected | temporary root only | state.json records planning coverage | archive preserves state | verify reports failures | verify prints JSON | temporary bundle path only | source-only |
+| REQ-2 | Execution satisfies the requested governance outcome. | Execution evidence covers REQ-2. | Missing execution evidence is rejected. | Production code is outside this fixture. | command path covers execution | missing evidence rejected | temporary root only | state.json records execution coverage | archive preserves state | verify reports failures | verify prints JSON | temporary bundle path only | source-only |
+| REQ-3 | Acceptance satisfies the requested governance outcome. | Acceptance evidence covers REQ-3. | Missing acceptance evidence is rejected. | Production code is outside this fixture. | command path covers acceptance | missing evidence rejected | temporary root only | state.json records acceptance coverage | archive preserves state | verify reports failures | verify prints JSON | temporary bundle path only | source-only |
 """
         implementation = """# Implementation
 
@@ -2418,4 +3144,3 @@ class NonZeroTextTestRunner(unittest.TextTestRunner):
 
 if __name__ == "__main__":
     unittest.main(testRunner=NonZeroTextTestRunner)
-
