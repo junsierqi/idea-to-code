@@ -2761,6 +2761,62 @@ Planned Verification:
         self.assertTrue(any("unblock --root" in command for command in payload["required_next_commands"]))
         self.assertIn("run unblock", payload["next_action"])
 
+    def test_unblock_refuses_bundle_without_unresolved_blocker(self) -> None:
+        slug = self.init_bundle()
+        result = self.run_bundle(
+            "unblock",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--note", "Nothing to resolve",
+            check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("no unresolved blocker", result.stderr)
+
+    def test_unblock_keeps_bundle_blocked_until_all_blockers_resolve(self) -> None:
+        slug = self.init_bundle()
+        self.run_bundle(
+            "block",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--reason", "Missing API key",
+            "--need", "Provide API key",
+        )
+        self.run_bundle(
+            "block",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--reason", "Missing fixture",
+            "--need", "Provide fixture",
+        )
+
+        self.run_bundle(
+            "unblock",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--note", "Fixture provided",
+        )
+        status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(status["state"], "blocked")
+        self.assertNotIn("resolved_at_utc", status["blocks"][0])
+        self.assertIn("resolved_at_utc", status["blocks"][1])
+        route = json.loads(self.run_bundle("route", "--root", str(self.root), "--input", "Continue implementation").stdout)
+        self.assertEqual(route["route_gate"], "unblock-required")
+        self.assertFalse(route["can_edit_product_files"])
+
+        self.run_bundle(
+            "unblock",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--note", "API key provided",
+        )
+        status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(status["state"], "in_progress")
+        self.assertTrue(all("resolved_at_utc" in block for block in status["blocks"]))
+        route = json.loads(self.run_bundle("route", "--root", str(self.root), "--input", "Continue implementation").stdout)
+        self.assertNotEqual(route["route_gate"], "unblock-required")
+        self.assertFalse(route["requires_unblock"])
+
     def test_route_non_ascii_fails_without_traceback(self) -> None:
         result = self.run_bundle("route", "--root", str(self.root), "--input", "优化这个任务", check=False)
         self.assertNotEqual(result.returncode, 0)

@@ -1116,10 +1116,31 @@ def unblock_bundle(root: Path, slug: str, note: str) -> Path:
     with bundle_lock(target):
         timestamp = utc_now()
         status = read_status(target)
-        status["state"] = "in_progress"
-        if status["blocks"]:
-            status["blocks"][-1]["resolved_at_utc"] = timestamp
-            status["blocks"][-1]["resolution"] = note
+        unresolved_indexes = [
+            index
+            for index, block in enumerate(status.get("blocks", []))
+            if "resolved_at_utc" not in block
+        ]
+        if status.get("state") != "blocked" or not unresolved_indexes:
+            raise SystemExit("unblock refused: current bundle has no unresolved blocker.")
+        status["blocks"][unresolved_indexes[-1]]["resolved_at_utc"] = timestamp
+        status["blocks"][unresolved_indexes[-1]]["resolution"] = note
+        remaining_unresolved = [
+            block
+            for block in status.get("blocks", [])
+            if "resolved_at_utc" not in block
+        ]
+        if remaining_unresolved:
+            latest = remaining_unresolved[-1]
+            status["state"] = "blocked"
+            phase_status = "blocked"
+            phase_focus = f"BLOCKED: {latest.get('reason', '')}"
+            phase_gate = f"unblock: {latest.get('need', '')}"
+        else:
+            status["state"] = "in_progress"
+            phase_status = "in_progress"
+            phase_focus = status.get("current_focus") or ""
+            phase_gate = status.get("next_gate") or ""
         write_status(target, status)
         append_ledger(target, "unblock", f"Unblocked: {note}")
 
@@ -1128,7 +1149,7 @@ def unblock_bundle(root: Path, slug: str, note: str) -> Path:
         )
         rewrite_current_phase(
             target / MILESTONES_FILE,
-            current_phase_block("in_progress", status.get("current_focus") or "", status.get("next_gate") or ""),
+            current_phase_block(phase_status, phase_focus, phase_gate),
         )
     return target
 
