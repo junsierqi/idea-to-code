@@ -2468,24 +2468,45 @@ Planned Verification:
         )
         status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
         self.assertTrue(status["pending_plan_update"])
-        self.write_ready_bundle(slug)
+        self.assertEqual(status["pending_plan_update_sections"], ["requirements", "design", "implementation"])
+        self.write_ready_bundle(slug, mark_ready=False)
+        status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        self.assertTrue(status["pending_plan_update"])
+        self.assertEqual(status["pending_plan_update_sections"], ["design"])
+        ready = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug, check=False)
+        self.assertNotEqual(ready.returncode, 0)
+        self.assertIn("pending plan update sections remain stale: design", ready.stderr)
+        design_path = self.root / "design.md"
+        design_path.write_text(
+            "# Design\n\nPlan-changing clarification is reflected in the design before implementation resumes.\n",
+            encoding="utf-8",
+        )
+        self.run_bundle("update", "--root", str(self.root), "--slug", slug, "--file", "design", "--content-file", str(design_path))
         status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
         self.assertFalse(status["pending_plan_update"])
+        self.assertEqual(status["pending_plan_update_sections"], [])
+        self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        self.assertFalse(status["pending_plan_update"])
+        self.assertEqual(status["pending_plan_update_sections"], [])
 
-    def test_implementation_ready_clears_pending_plan_update(self) -> None:
+    def test_implementation_ready_rejects_pending_plan_update(self) -> None:
         slug = self.init_bundle()
         self.write_ready_bundle(slug, mark_ready=False)
         state_path = self.root / ".idea-to-code" / slug / "state.json"
         status = json.loads(state_path.read_text(encoding="utf-8"))
         status["pending_plan_update"] = True
+        status["pending_plan_update_sections"] = ["requirements", "design"]
         status["implementation_ready"] = False
         state_path.write_text(json.dumps(status, indent=2), encoding="utf-8")
 
-        self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        result = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug, check=False)
 
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("pending plan update sections remain stale: requirements, design", result.stderr)
         status = json.loads(state_path.read_text(encoding="utf-8"))
-        self.assertFalse(status["pending_plan_update"])
-        self.assertTrue(status["implementation_ready"])
+        self.assertTrue(status["pending_plan_update"])
+        self.assertFalse(status["implementation_ready"])
 
     def test_user_input_non_ascii_fails_without_traceback(self) -> None:
         slug = self.init_bundle()
@@ -2834,6 +2855,35 @@ Planned Verification:
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("English-only ASCII", result.stderr)
 
+    def test_requirement_add_after_ready_invalidates_implementation_gate(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        before = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        self.assertTrue(before["implementation_ready"])
+        self.assertTrue(before["ready_task_output_id"])
+
+        self.run_bundle(
+            "requirement", "add",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--id", "REQ-2",
+            "--description", "Second requirement added after ready must refresh the plan",
+            "--type", "functional",
+        )
+
+        status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        self.assertFalse(status["implementation_ready"])
+        self.assertIsNone(status["ready_task_output_id"])
+        self.assertEqual(status["plan_revision"], before["plan_revision"] + 1)
+        self.assertTrue(status["pending_plan_update"])
+        self.assertEqual(status["pending_plan_update_sections"], ["requirements", "design", "implementation"])
+
+        result = self.run_bundle("route", "--root", str(self.root), "--input", "Continue implementation")
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["route_gate"], "plan-update-required")
+        self.assertFalse(payload["can_edit_product_files"])
+        self.assertIn("REQ-2", payload["active_bundle"]["open_requirements"])
+
     def test_finalize_rejects_non_ascii_arguments(self) -> None:
         slug = self.init_bundle()
         self.write_ready_bundle(slug)
@@ -2949,6 +2999,58 @@ Planned Verification:
         self.assertFalse(payload["can_edit_product_files"])
         self.assertTrue(any("update --root" in command for command in payload["required_next_commands"]))
         self.assertIn("pending plan update", payload["next_action"])
+
+    def test_partial_plan_update_does_not_clear_pending_gate(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        self.run_bundle(
+            "user-input", "record",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--summary", "User added another acceptance case",
+            "--classification", "expand",
+            "--rationale", "The new acceptance case changes requirements and design",
+            "--action", "Update requirements design and implementation before coding",
+            "--changes-plan", "yes",
+        )
+        impl_path = self.root / "implementation-only.md"
+        impl_path.write_text("""# Implementation
+
+Gate Status: READY
+
+## TASK-1: Verify sample bundle flow
+
+Status: pending
+
+Files:
+- state.json
+
+Execution Details:
+- Record one requirement and all role evidence after the new acceptance case.
+
+Done Criteria:
+- finalize and verify succeed with the new acceptance case.
+
+Planned Verification:
+- source-only python idea_to_code_bundle.py verify exits zero.
+""", encoding="utf-8")
+        self.run_bundle("update", "--root", str(self.root), "--slug", slug, "--file", "implementation", "--content-file", str(impl_path))
+        status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        self.assertTrue(status["pending_plan_update"])
+        self.assertEqual(status["pending_plan_update_sections"], ["requirements", "design"])
+
+        ready = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug, check=False)
+        self.assertNotEqual(ready.returncode, 0)
+        self.assertIn("pending plan update sections remain stale: requirements, design", ready.stderr)
+
+        result = self.run_bundle("route", "--root", str(self.root), "--input", "Continue implementation")
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["route_gate"], "plan-update-required")
+        self.assertFalse(payload["can_edit_product_files"])
+        self.assertIn("requirements, design", payload["next_action"])
+        self.assertTrue(any("--file requirements" in command for command in payload["required_next_commands"]))
+        self.assertTrue(any("--file design" in command for command in payload["required_next_commands"]))
+        self.assertFalse(any("--file implementation" in command for command in payload["required_next_commands"]))
 
     def test_route_blocks_product_edits_when_implementation_ready_is_false(self) -> None:
         slug = self.init_bundle()

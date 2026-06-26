@@ -148,7 +148,9 @@ Classifications:
 - `clarification`: user corrected target or acceptance; use `--changes-plan yes`.
 - `no-op`: no tracked effect.
 
-`pending_plan_update` blocks product-code edits until requirements/design/implementation are updated and `implementation ready` is rerun.
+`pending_plan_update` blocks product-code edits until every section named by `pending_plan_update_sections` is updated and `implementation ready` is rerun. A partial update must keep the remaining named sections stale. Older bundles without section metadata keep the legacy boolean gate and should refresh the plan before coding.
+
+Add requirements before READY whenever possible. A post-READY or post-execution `requirement add` invalidates READY and requires refreshing requirements/design/implementation. Requirement removal after READY or execution evidence remains refused.
 
 ## Key Commands
 

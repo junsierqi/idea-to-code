@@ -347,7 +347,7 @@ Use `state.json` as the source of truth. Chat history is supporting context only
 - Implementation gate: `implementation_ready` must be true before product-code edits continue.
 - Plan revision: requirements, design, or implementation updates increment `plan_revision` and stale prior role evidence.
 - User input decisions: `user_input_decisions` records whether new user input continues, expands, switches, pauses, blocks, clarifies, or has no effect on the task.
-- Pending plan update: `pending_plan_update` means user input changed the plan but requirements/design/implementation have not been updated yet; do not edit code or close while this is true.
+- Pending plan update: `pending_plan_update` means user input changed the plan but requirements/design/implementation have not all been refreshed yet; `pending_plan_update_sections` names the stale sections when available. Updating only one named section must not clear the gate for the others. Older bundles without section metadata keep the legacy boolean gate. Do not edit code or close while this is true.
 - Verification state: `last_verify_ok` and `last_verified_plan_revision` show whether current-plan pre-close verification passed.
 - Closeout state: `gate_status`, `decision`, and `closeout_status` summarize acceptance after finalize.
 
@@ -366,7 +366,7 @@ On a new session or after interruption:
 3. Inspect `state.json`, `00-idea.md`, role evidence, milestones, blocks, and user input decisions.
 4. If `state` is `blocked` or `paused`, report the resume condition before editing.
 5. If `state` is `paused`, run `current resume --reason "<why work is resuming>"` only after the user resumes.
-6. If `pending_plan_update` is true, update requirements/design/implementation before coding.
+6. If `pending_plan_update` is true, update every stale section named by `pending_plan_update_sections` before coding, then rerun `implementation ready`. If no stale section list is available, refresh the plan under the legacy boolean gate before coding.
 7. If `implementation_ready` is false, refine the implementation plan and run `implementation ready` before coding.
 8. If role evidence is missing or stale for the current `plan_revision`, return to the missing role.
 9. If closeout seems ready, rerun `verify`, then Closer/finalize/final verify.
@@ -455,6 +455,7 @@ Project-level state:
      --id REQ-1 --description "User can X" --type functional
    ```
    `--type` is `functional | nonfunctional | constraint`. Do not skip this step for tracked work; `verify` and `finalize` require at least one open `REQ-*` with acceptance-matrix coverage.
+   Add requirements before marking READY whenever possible. Adding a requirement after READY, checkpoint, or role evidence invalidates the READY gate and requires refreshing requirements/design/implementation before implementation continues. Removing requirements after READY or execution evidence remains refused instead of silently changing scope.
 6. **Inspect the current codebase, docs, project governance, and runnable paths** before proposing structure. If project-local rules define authority order, module boundaries, real product paths, validation types, or closeout gates, obey them before generic skill defaults.
 7. **Decide the next smallest milestone** that creates real progress and keeps the system runnable.
 8. **Before editing, fill and print `00-idea.md`.** This is the implementation gate. "Print" means send the task list in a user-visible assistant/commentary message; writing it only to `00-idea.md`, command stdout, a tool result, folded transcript, or internal notes is not enough. During intake and discovery, use the same `TASK-ID` or `IMP-ID` items as the visible task list; placeholder detail values such as `...` are acceptable while `Gate Status` is `DRAFT`. Use this shape even when there is only one task. Before marking the gate `READY`, replace every placeholder with concrete details that are specific enough to verify but not so fine-grained that they describe every line edit:

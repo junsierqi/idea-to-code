@@ -74,6 +74,7 @@ READY_OUTPUT_FIELDS = (
     "ready_task_output_event_sequence",
     "ready_task_output_scope",
 )
+PLAN_UPDATE_SECTIONS = ("requirements", "design", "implementation")
 LOCAL_RECORD_KINDS = {
     "A": "acceptance",
     "D": "discovery",
@@ -495,6 +496,7 @@ def read_status(target: Path) -> dict:
     status.setdefault("last_verified_plan_revision", None)
     status.setdefault("user_input_decisions", [])
     status.setdefault("pending_plan_update", False)
+    status.setdefault("pending_plan_update_sections", [])
     _migrate_ready_output_fields(status)
     status.setdefault("role_evidence", {})
     for role in ROLE_NAMES:
@@ -538,6 +540,54 @@ def _verify_is_older_than_entry(status: dict, entry: dict) -> bool:
 def _clear_ready_output(status: dict) -> None:
     for field in READY_OUTPUT_FIELDS:
         status[field] = False if field.endswith("_required") else None
+
+
+def _set_pending_plan_update(status: dict, sections: tuple[str, ...] | list[str] = PLAN_UPDATE_SECTIONS) -> None:
+    existing = {
+        str(section)
+        for section in status.get("pending_plan_update_sections", [])
+        if str(section) in PLAN_UPDATE_SECTIONS
+    }
+    existing.update(section for section in sections if section in PLAN_UPDATE_SECTIONS)
+    status["pending_plan_update_sections"] = [
+        section for section in PLAN_UPDATE_SECTIONS if section in existing
+    ]
+    status["pending_plan_update"] = bool(status["pending_plan_update_sections"])
+
+
+def _clear_pending_plan_section(status: dict, section: str) -> None:
+    pending = [
+        item
+        for item in status.get("pending_plan_update_sections", [])
+        if item in PLAN_UPDATE_SECTIONS and item != section
+    ]
+    status["pending_plan_update_sections"] = pending
+    status["pending_plan_update"] = bool(pending)
+
+
+def _pending_plan_update_problem(status: dict) -> str | None:
+    if not status.get("pending_plan_update"):
+        return None
+    sections = [
+        item
+        for item in status.get("pending_plan_update_sections", [])
+        if item in PLAN_UPDATE_SECTIONS
+    ]
+    if sections:
+        return "pending plan update sections remain stale: " + ", ".join(sections)
+    return "user input changed the plan but requirements/design/implementation were not updated"
+
+
+def _reset_ready_for_plan_change(status: dict, focus: str, pending_sections: tuple[str, ...] | list[str] | None = None) -> None:
+    status["implementation_ready"] = False
+    _clear_ready_output(status)
+    status["plan_revision"] = int(status.get("plan_revision", 0)) + 1
+    status["last_verify_ok"] = False
+    status["last_verified_plan_revision"] = None
+    status["phase"] = "planning"
+    status["current_focus"] = focus
+    if pending_sections is not None:
+        _set_pending_plan_update(status, pending_sections)
 
 
 def write_status(target: Path, status: dict) -> None:
@@ -947,7 +997,7 @@ Planned Verification:
 - {verification}
 """
     (target / IDEA_FILE).write_text(content, encoding="utf-8")
-    problems = implementation_gate_problems(target)
+    problems = implementation_gate_problems(target, ignore_pending_plan_update=True)
     problems.extend(_acceptance_matrix_problems(content, [{"id": "REQ-1", "state": "open"}]))
     if problems:
         raise SystemExit("quickstart generated an invalid ready bundle:\n  - " + "\n  - ".join(problems))
@@ -964,6 +1014,7 @@ Planned Verification:
         ]
         status["plan_revision"] = int(status.get("plan_revision", 0)) + 1
         status["pending_plan_update"] = False
+        status["pending_plan_update_sections"] = []
         status["implementation_ready"] = True
         status["phase"] = "ready_to_implement"
         output_id, ready_output_lines = _record_ready_output(target, actual_slug, status)
@@ -1195,14 +1246,11 @@ def update_section(
             )
         status = read_status(target)
         if file_key in {"requirements", "design", "implementation"}:
-            status["implementation_ready"] = False
-            _clear_ready_output(status)
-            status["plan_revision"] = int(status.get("plan_revision", 0)) + 1
-            status["last_verify_ok"] = False
-            status["last_verified_plan_revision"] = None
-            status["pending_plan_update"] = False
-            status["phase"] = "planning"
-            status["current_focus"] = "implementation plan changed; rerun implementation ready"
+            _reset_ready_for_plan_change(
+                status,
+                "implementation plan changed; rerun implementation ready",
+            )
+            _clear_pending_plan_section(status, file_key)
         write_status(target, status)
     return path
 
@@ -1252,13 +1300,11 @@ def user_input_record(
         status.setdefault("user_input_decisions", []).append(entry)
         status["last_user_input_decision"] = entry
         if changes_plan_bool:
-            status["pending_plan_update"] = True
-            status["implementation_ready"] = False
-            _clear_ready_output(status)
-            status["last_verify_ok"] = False
-            status["last_verified_plan_revision"] = None
-            status["phase"] = "planning"
-            status["current_focus"] = "user input changed plan; update requirements/design/implementation"
+            _reset_ready_for_plan_change(
+                status,
+                "user input changed plan; update requirements/design/implementation",
+                PLAN_UPDATE_SECTIONS,
+            )
         write_status(target, status)
         append_ledger(target, "user-input", f"{classification}: {summary}; action: {action}", [])
     return target
@@ -1294,12 +1340,16 @@ def _task_section_blocks(text: str) -> list[tuple[str, dict[str, str]]]:
     return blocks
 
 
-def implementation_gate_problems(target: Path) -> list[str]:
+def implementation_gate_problems(target: Path, ignore_pending_plan_update: bool = False) -> list[str]:
     path = target / IMPLEMENTATION_FILE
     if not path.exists():
         return [f"missing: {IMPLEMENTATION_FILE}"]
     text = path.read_text(encoding="utf-8")
+    status = read_status(target) if state_exists(target) else {}
     problems: list[str] = _intake_gate_problems(target)
+    pending_problem = _pending_plan_update_problem(status)
+    if pending_problem and not ignore_pending_plan_update:
+        problems.append(f"{STATE_FILE}: {pending_problem}")
     problems.extend(_controlled_exploration_problems(target))
     if not re.search(r"^Gate Status:\s*READY\s*$", text, re.MULTILINE):
         problems.append(f"{IMPLEMENTATION_FILE}: Gate Status is not READY")
@@ -1467,6 +1517,7 @@ def mark_implementation_ready(
         status = read_status(target)
         status["phase"] = "ready_to_implement"
         status["pending_plan_update"] = False
+        status["pending_plan_update_sections"] = []
         status["implementation_ready"] = True
         output_id, lines = _record_ready_output(target, slug, status, profile, role, source, None)
         if task_filters:
@@ -1750,6 +1801,13 @@ def requirement_add(
                 "state": "open",
             }
         )
+        has_role_evidence = any(status.get("role_evidence", {}).get(role) for role in ROLE_NAMES)
+        if status.get("implementation_ready") or status.get("ready_task_output_id") or status.get("milestones") or has_role_evidence:
+            _reset_ready_for_plan_change(
+                status,
+                f"{rid} added after READY or execution evidence; update requirements/design/implementation",
+                PLAN_UPDATE_SECTIONS,
+            )
         write_status(target, status)
         append_ledger(target, "requirement-add", f"{rid}: {description}", [rid])
     return target
@@ -2197,6 +2255,7 @@ def route_task(root: Path, user_input: str) -> int:
     has_active_current = False
     active_state = None
     pending_plan_update = False
+    pending_plan_update_sections: list[str] = []
     active_implementation_ready = False
     active_gate_problems: list[str] = []
     active_unresolved_blockers = 0
@@ -2213,6 +2272,11 @@ def route_task(root: Path, user_input: str) -> int:
             status = read_status(target)
             active_state = status.get("state")
             pending_plan_update = bool(status.get("pending_plan_update"))
+            pending_plan_update_sections = [
+                section
+                for section in status.get("pending_plan_update_sections", [])
+                if section in PLAN_UPDATE_SECTIONS
+            ]
             active_implementation_ready = bool(status.get("implementation_ready"))
             active_gate_problems = implementation_gate_problems(target) if active_state not in {"completed", "closed"} else []
             active_unresolved_blockers = len(_unresolved_block_indexes(status))
@@ -2224,6 +2288,7 @@ def route_task(root: Path, user_input: str) -> int:
                     "implementation_gate_problems": active_gate_problems,
                     "unresolved_blockers": active_unresolved_blockers,
                     "pending_plan_update": pending_plan_update,
+                    "pending_plan_update_sections": pending_plan_update_sections,
                     "plan_revision": status.get("plan_revision"),
                     "open_requirements": [
                         r.get("id")
@@ -2258,7 +2323,8 @@ def route_task(root: Path, user_input: str) -> int:
     if requires_unblock:
         state_actions.append("Current bundle is blocked. Resolve the dependency and run unblock before mutating it.")
     if pending_plan_update:
-        state_actions.append("A pending plan update already exists. Update requirements/design/implementation and rerun implementation ready before editing product files.")
+        stale = ", ".join(pending_plan_update_sections) if pending_plan_update_sections else "requirements/design/implementation"
+        state_actions.append(f"A pending plan update already exists. Update stale plan sections ({stale}) and rerun implementation ready before editing product files.")
     if (
         has_active_current
         and classification not in {"status", "pause", "blocked", "new-task", "no-op"}
@@ -2305,8 +2371,10 @@ def route_task(root: Path, user_input: str) -> int:
             )
         required_next_commands.extend(
             [
-                f'update --root <root> --slug {active_slug} --file requirements --content-file <requirements.md>',
-                f'update --root <root> --slug {active_slug} --file implementation --content-file <implementation.md>',
+                *[
+                    f'update --root <root> --slug {active_slug} --file {section} --content-file <{section}.md>'
+                    for section in (pending_plan_update_sections or list(PLAN_UPDATE_SECTIONS))
+                ],
                 f'implementation ready --root <root> --slug {active_slug}',
                 f'role record --root <root> --slug {active_slug} --role planner --covers <REQ-IDs> --evidence "<planning evidence>"',
             ]
