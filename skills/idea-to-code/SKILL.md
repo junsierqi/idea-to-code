@@ -280,6 +280,8 @@ If the user provides a new consideration while work is active, classify it as co
 
 Mission-control rule: every non-trivial incoming request must first be routed against `.idea-to-code/current.json`. The active bundle owns the work until it is finalized, archived, paused, or explicitly switched. Treat chat history as secondary; the bundle state decides whether the request continues the current idea, expands it, replaces it, parks it for a separate task, or only asks for status.
 
+Historical bundle boundary: `.idea-to-code/<slug>` directories are persistent recovery and audit ledgers, not default repository context. Do not scan every historical bundle or treat old `00-idea.md`, `01-progress.md`, or `state.json` contents as current task context. Read a historical bundle only when `.idea-to-code/current.json` points to that slug, the user explicitly asks to resume or inspect that slug, or a lifecycle command such as `current status`, `ledger`, `verify`, or `current resume --slug` requires it. If `current.json` is missing, do not infer context by reading all bundle directories; ask for a known unfinished slug, use the history/current commands, or initialize a new bundle according to the workflow.
+
 Use the read-only router when the classification is not obvious or when resuming after interruption:
 
 ```bash
@@ -363,7 +365,7 @@ On a new session or after interruption:
      --reason "<why work is resuming>"
    ```
    This safely sets that unfinished bundle as current and resumes it if it was paused. It refuses missing, completed, or closed slugs and refuses to switch away from a different unfinished current bundle.
-3. Inspect `state.json`, `00-idea.md`, role evidence, milestones, blocks, and user input decisions.
+3. Inspect `state.json`, `00-idea.md`, role evidence, milestones, blocks, and user input decisions only for the resolved active bundle or for a user-specified slug being explicitly restored or audited. Historical bundle ledgers are recovery records; they must not become implicit context for unrelated work.
 4. If `state` is `blocked` or `paused`, report the resume condition before editing.
 5. If `state` is `paused`, run `current resume --reason "<why work is resuming>"` only after the user resumes.
 6. If `pending_plan_update` is true, update every stale section named by `pending_plan_update_sections` before coding, then rerun `implementation ready`. If no stale section list is available, refresh the plan under the legacy boolean gate before coding.

@@ -23,6 +23,8 @@ Every active bundle uses exactly:
 
 Do not add ad hoc top-level Markdown files. `verify` rejects them.
 
+Historical bundle ledgers are not default context. `.idea-to-code/<slug>/` directories persist so a user or agent can explicitly resume, inspect, verify, or audit a known task, but old bundle files must not be scanned as ordinary repository context. Read a historical bundle only when `current.json` points to it, the user explicitly names the slug or asks to inspect history, or a lifecycle command needs that slug. If `current.json` is missing, do not infer the current task by reading every bundle directory; use `current resume --slug <known-unfinished-slug>`, inspect `history/index.jsonl`, ask for the intended slug, or initialize a new bundle.
+
 ## Intake Before Implementation
 
 The first user idea may be recorded immediately as task capture, but implementation cannot start until the intake is resolved.
@@ -105,7 +107,7 @@ Do not leave generated tests ambiguous. If a test should run with the product pe
 ## Normal Lifecycle
 
 1. Run `doctor` or `current status`.
-2. Initialize or resume the active bundle.
+2. Initialize or resume the active bundle. Use only the active `current.json` bundle or an explicitly requested slug; historical ledgers remain inert by default.
 3. Fill Intake Gate, Controlled Exploration, and `00-idea.md` sections through `update`.
 4. Register REQ IDs.
 5. Run `implementation ready` only after `Need Confirmation: no` and Controlled Exploration has either been skipped with a concrete Trigger or resolved with options and a decision.

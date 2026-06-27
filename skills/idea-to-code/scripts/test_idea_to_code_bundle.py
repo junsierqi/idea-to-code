@@ -329,6 +329,22 @@ class BundleTest(unittest.TestCase):
         ]:
             self.assertNotIn(outdated, text)
 
+    def test_historical_bundle_ledgers_are_not_default_context(self) -> None:
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        workflow_text = (REFERENCES_DIR / "workflow.md").read_text(encoding="utf-8")
+        combined = "\n".join([skill_text, workflow_text])
+
+        for required in [
+            "persistent recovery and audit ledgers",
+            "not default repository context",
+            "Do not scan every historical bundle",
+            "Read a historical bundle only when",
+            "current.json` points to that slug",
+            "user explicitly asks to resume or inspect that slug",
+            "If `current.json` is missing, do not infer context by reading all bundle directories",
+        ]:
+            self.assertIn(required, combined)
+
     def test_generated_test_ownership_rules_are_documented(self) -> None:
         skill_text = SKILL_MD.read_text(encoding="utf-8")
         workflow_text = (REFERENCES_DIR / "workflow.md").read_text(encoding="utf-8")
