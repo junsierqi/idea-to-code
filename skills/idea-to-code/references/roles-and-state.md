@@ -83,6 +83,33 @@ When using `hybrid-team` or `independent-team`, evidence must name which role ra
 - Reviewer: reconciles requested scope, actual diff, acceptance matrix, verification strength, risks, and boundary cases.
 - Closer: runs after pre-close verify; records final decision, triggers finalize, and verifies the finalized bundle.
 
+## Multi-Role Output Compliance
+
+This section owns the role-by-role output matrix. `workflow.md` owns the lifecycle trigger for when to run the scenario and the `.idea-to-code/current.json` context boundary.
+
+After changing READY visibility, role/source prefixes, validation status wording, noncompliance reporting, or final handoff formatting, run or update the multi-role output compliance scenario. The scenario covers Planner, Implementer, Validator, Reviewer, and Closer output expectations and records expected versus observed behavior so instruction drift is visible instead of guessed.
+
+The hard checks are:
+
+- Planner output shows `[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: <slug>` and a visible TASK/REQ excerpt before tracked edits.
+- Implementer output does not start tracked repository or artifact edits until that visible READY excerpt has appeared.
+- Validator output names validation type, command/evidence, and covered TASK/REQ IDs.
+- Reviewer output flags missing READY visibility, late READY remediation, or missing fixed final status fields as noncompliance.
+- Closer output runs `render-status` first for tracked final handoff; if unavailable or failed, it states the reason and uses the fixed Console Response Contract fields manually.
+
+Ordinary untracked explanations remain concise and are scored separately so the compliance rules do not reintroduce over-templating. Over-templates ordinary untracked replies is a failure signal for this scenario.
+
+The ordinary-answer role check is explicit: a role simulation must fail if it adds READY output or fixed status fields to explanation-only, naming, clarification, or lightweight commentary messages that do not start file edits.
+
+Run protocol:
+
+1. Use the installed skill from `$HOME/.codex/skills/idea-to-code`.
+2. Require every role simulation or subagent to read installed `SKILL.md` as the behavior authority, then read only the relevant referenced files before inspecting output compliance.
+3. Ask separate role simulations or subagents to inspect the installed guidance without editing files.
+4. Capture PASS/FAIL for Planner, Implementer, Validator, Reviewer, Closer, and ordinary-answer boundary.
+5. Record exact drift, not guessed causes.
+6. If any role fails, revise guidance or tests before claiming output compliance.
+
 ## Role Evidence Checklist
 
 Use this checklist before recording role evidence. If `role record` rejects evidence, inspect this checklist or run the read-only helper:

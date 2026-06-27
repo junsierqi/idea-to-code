@@ -732,6 +732,96 @@ class BundleTest(unittest.TestCase):
         ]:
             self.assertIn(required, combined)
 
+    def test_tracked_work_compliance_checklist_is_documented(self) -> None:
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        workflow_text = (REFERENCES_DIR / "workflow.md").read_text(encoding="utf-8")
+        roles_text = (REFERENCES_DIR / "roles-and-state.md").read_text(encoding="utf-8")
+        combined = "\n".join([skill_text, workflow_text, roles_text])
+
+        for required in [
+            "Tracked Work Compliance Checklist",
+            "mandatory, not style preferences",
+            "Rule loading",
+            "must read `SKILL.md` as the behavior authority",
+            "Do not rely on partial snippets, old chat memory, or historical bundle ledgers",
+            "Non-bypassable pre-edit self-check",
+            "immediately before calling any file-editing tool for tracked work",
+            "the focused READY TASK excerpt for the exact TASK/REQ and files about to be edited",
+            "If that visible excerpt is missing, do not edit",
+            "Before any tracked repository or artifact edit",
+            "implementation show-ready --task <TASK-ID>",
+            "paste the relevant READY TASK excerpt in a normal assistant message",
+            "code, docs, tests, config, scripts, and tracked bundle artifacts",
+            "Reusing a prior READY result still requires showing the relevant excerpt again",
+            "Tool stdout, folded transcripts, and internal notes do not satisfy this requirement",
+            "Late READY rule",
+            "printing READY after edits have already started is remediation only",
+            "does not make earlier edits compliant",
+            "Action boundary for this checklist",
+            "`tracked-edit`",
+            "`plan-correction`",
+            "`read-only-status`",
+            "`ordinary-answer`",
+            "`formal-tracked-handoff`",
+            "do not run pre-edit READY because no edit is starting",
+            "do not run READY only for the answer",
+            "Before final tracked handoff",
+            "install, validation, commit, delivery, blocked, review, keep/revise/rollback, or final status",
+            "run `render-status` first",
+            "If `render-status` is unavailable or fails, state that reason",
+            "Mapping rule",
+            "must map to the visible READY TASK/REQ excerpt",
+            "Noncompliance rule",
+            "say so plainly, correct the process",
+            "Multi-role regression rule",
+            "Planner, Implementer, Validator, Reviewer, and Closer expectations",
+            "ordinary untracked explanations, naming discussions, or lightweight commentary updates",
+            "Command stdout, folded transcript output, internal notes, or a READY message printed after edits have already started are not compliant",
+        ]:
+            self.assertIn(required, combined)
+
+    def test_multi_role_output_compliance_scenario_is_documented(self) -> None:
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        workflow_text = (REFERENCES_DIR / "workflow.md").read_text(encoding="utf-8")
+        roles_text = (REFERENCES_DIR / "roles-and-state.md").read_text(encoding="utf-8")
+        combined = "\n".join([skill_text, workflow_text, roles_text])
+
+        for required in [
+            "multi-role output compliance scenario",
+            "Output Compliance Testing",
+            "references/roles-and-state.md#multi-role-output-compliance",
+            "agents may read `.idea-to-code/current.json` to identify the active slug",
+            "must not treat the active slug directory, historical slug directories",
+            "Read a slug directory only when the user explicitly asks to inspect or resume it",
+            "evidence files are not default context and are not regression-test inputs",
+            "Workflow owns the lifecycle trigger and context boundary",
+            "roles-and-state.md` owns the role-by-role expectations",
+            "Branch closure checks for output compliance",
+            "Tracked edit branch",
+            "Plan-correction branch",
+            "Read-only status branch",
+            "Ordinary-answer branch",
+            "Formal tracked handoff branch",
+            "Noncompliance branch",
+            "Multi-Role Output Compliance",
+            "This section owns the role-by-role output matrix",
+            "[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle:",
+            "tracked repository or artifact edits",
+            "code, docs, tests, config, scripts, and tracked bundle artifacts",
+            "Validator output names validation type, command/evidence, and covered TASK/REQ IDs",
+            "Reviewer output flags missing READY visibility, late READY remediation, or missing fixed final status fields as noncompliance",
+            "runs `render-status` first",
+            "Over-templates ordinary untracked replies",
+            "must fail if it adds READY output or fixed status fields to explanation-only",
+            "Require every role simulation or subagent to read installed `SKILL.md` as the behavior authority",
+            "then read only the relevant referenced files",
+            "Ask separate role simulations or subagents to inspect the installed guidance without editing files",
+            "Record exact drift, not guessed causes",
+            "If any role fails, revise guidance or tests before claiming output compliance",
+            "evidence files are not default context and are not regression-test inputs",
+        ]:
+            self.assertIn(required, combined)
+
     def test_multi_task_ready_visibility_defaults_to_current_task_pairing(self) -> None:
         skill_text = SKILL_MD.read_text(encoding="utf-8")
         verification_text = (REFERENCES_DIR / "verification-and-evidence.md").read_text(encoding="utf-8")

@@ -111,14 +111,33 @@ Do not leave generated tests ambiguous. If a test should run with the product pe
 3. Fill Intake Gate, Controlled Exploration, and `00-idea.md` sections through `update`.
 4. Register REQ IDs.
 5. Run `implementation ready` only after `Need Confirmation: no` and Controlled Exploration has either been skipped with a concrete Trigger or resolved with options and a decision.
-6. Record Planner evidence.
-7. Implement a TASK/IMP slice.
-8. Record Implementer, Validator, and Reviewer evidence.
-9. Record a checkpoint with `--covers`.
-10. Run pre-close `verify`.
-11. Record Closer evidence.
-12. Run `finalize`.
-13. Run final `verify`.
+6. Before any tracked repository or artifact edit, run the non-bypassable pre-edit self-check: confirm the current user-visible conversation already contains the focused READY TASK excerpt for the exact TASK/REQ and files about to be edited. If it does not, do not edit. Run or reuse `implementation ready` / `implementation show-ready --task <TASK-ID>`, paste the relevant READY TASK excerpt in a normal assistant message, and continue only after that message is visible. This includes code, docs, tests, config, scripts, and tracked bundle artifacts. Reusing READY still requires showing the relevant excerpt again before the current edit unless the user explicitly waived repeated visibility after an initial visible READY excerpt. Command stdout, folded transcript output, internal notes, or a READY message printed after edits have already started are not compliant for those earlier edits.
+7. Record Planner evidence.
+8. Implement a TASK/IMP slice.
+9. Record Implementer, Validator, and Reviewer evidence.
+10. Record a checkpoint with `--covers`.
+11. Run pre-close `verify`.
+12. Record Closer evidence.
+13. Run `finalize`.
+14. Run final `verify`.
+15. Before a final tracked handoff for install, validation, commit, delivery, blocked, review, keep/revise/rollback, or final status, run `render-status` first. If `render-status` is unavailable or fails, state that reason and then use the fixed Console Response Contract fields manually.
+
+## Output Compliance Testing
+
+After changing READY visibility, role/source prefixes, validation status wording, noncompliance reporting, or final handoff formatting, run or update the multi-role output compliance scenario in `references/roles-and-state.md#multi-role-output-compliance`.
+
+Context boundary: agents may read `.idea-to-code/current.json` to identify the active slug. They must not treat the active slug directory, historical slug directories, `00-idea.md`, `01-progress.md`, `state.json`, or artifact files as default context. Read a slug directory only when the user explicitly asks to inspect or resume it, or when a lifecycle command needs that bundle. Task-specific scenario run results may be recorded under the active `.idea-to-code/<slug>/artifacts/` directory as evidence, but those evidence files are not default context and are not regression-test inputs.
+
+Workflow owns the lifecycle trigger and context boundary. `roles-and-state.md` owns the role-by-role expectations, ordinary-answer boundary, and run protocol. Keep this split when future output-compliance rules are added.
+
+Branch closure checks for output compliance:
+
+- Tracked edit branch: visible focused READY exists for the exact TASK/REQ and files before the edit tool runs.
+- Plan-correction branch: correcting bundle planning files is allowed only to make READY accurate; implementation edits wait for refreshed visible READY.
+- Read-only status branch: no pre-edit READY is required because no file edit starts; formal tracked status still uses `render-status`.
+- Ordinary-answer branch: no pre-edit READY and no fixed status template; concise natural answer with the role/source prefix is expected.
+- Formal tracked handoff branch: `render-status` runs first, or the response states why it could not and then uses the fixed fields manually.
+- Noncompliance branch: late READY is recorded as noncompliant remediation and is not counted as proof the earlier edit followed the rule.
 
 ## User-Visible Role Display
 

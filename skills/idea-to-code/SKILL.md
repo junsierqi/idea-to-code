@@ -118,6 +118,29 @@ Do not require slash commands. When this skill is triggered, default to autonomo
 4. Record Planner evidence.
 5. Execute the checklist, validate, review, checkpoint, run pre-close verification, close, finalize, and run final verification.
 
+### Tracked Work Compliance Checklist
+
+For tracked idea-to-code work, these checks are mandatory, not style preferences:
+
+- **Rule loading**: every agent, subagent, or role simulation using idea-to-code must read `SKILL.md` as the behavior authority and then read only the relevant referenced files before acting. Do not rely on partial snippets, old chat memory, or historical bundle ledgers as the source of behavior rules.
+- **Non-bypassable pre-edit self-check**: immediately before calling any file-editing tool for tracked work, stop and confirm in the agent's own working context that the current user-visible conversation already contains the focused READY TASK excerpt for the exact TASK/REQ and files about to be edited. If that visible excerpt is missing, do not edit. Run or reuse `implementation show-ready --task <TASK-ID>`, send the focused READY excerpt as a normal assistant message, then continue only after that message is visible.
+- **Before any tracked repository or artifact edit**: resolve the current bundle, run or reuse `implementation ready` / `implementation show-ready --task <TASK-ID>`, and paste the relevant READY TASK excerpt in a normal assistant message. This applies to code, docs, tests, config, scripts, and tracked bundle artifacts. Reusing a prior READY result still requires showing the relevant excerpt again before the current edit unless the user explicitly waived repeated visibility after an initial visible READY excerpt. Tool stdout, folded transcripts, and internal notes do not satisfy this requirement.
+- **Before final tracked handoff**: for install, validation, commit, delivery, blocked, review, keep/revise/rollback, or final status responses, run `render-status` first. If `render-status` is unavailable or fails, state that reason and then use the fixed Console Response Contract fields manually.
+- **Mapping rule**: every formal tracked `Changes`, `Completed Items`, `Incomplete Items`, and `Validation Results` bullet must map to the visible READY TASK/REQ excerpt that was shown before execution.
+- **Noncompliance rule**: if the visible READY excerpt or fixed final status fields were missed, say so plainly, correct the process, and do not present the run as fully compliant.
+- **Late READY rule**: printing READY after edits have already started is remediation only. It does not make earlier edits compliant. Record the lapse in Reviewer or final status, tighten guidance or tests when the lapse exposed an instruction gap, and continue only after the corrected READY excerpt is visible.
+- **Multi-role regression rule**: after changing output-compliance guidance, run or update the multi-role output compliance scenario in `references/roles-and-state.md#multi-role-output-compliance`, covering Planner, Implementer, Validator, Reviewer, and Closer expectations, then record expected versus observed behavior and any instruction drift.
+
+This checklist does not apply to ordinary untracked explanations, naming discussions, or lightweight commentary updates; those remain concise while still using the required role/source prefix when this skill is active.
+
+Action boundary for this checklist:
+
+- `tracked-edit`: repository files, skill files, tests, config, scripts, or tracked bundle artifacts are about to be changed for a READY TASK/REQ. Run the pre-edit self-check and require visible READY first.
+- `plan-correction`: bundle planning files are being corrected so READY can accurately describe the work. Make the smallest planning correction, refresh READY, then run the tracked-edit branch before implementation edits.
+- `read-only-status`: the user asks status/progress/where are we. Read allowed current bundle state and answer or use `render-status` for formal tracked status; do not run pre-edit READY because no edit is starting.
+- `ordinary-answer`: explanation, naming discussion, clarification, or lightweight working update without file edits. Keep the answer natural and concise; do not use the fixed status fields and do not run READY only for the answer.
+- `formal-tracked-handoff`: install, validation, commit, delivery, blocked, review, keep/revise/rollback, or final status for tracked work. Run `render-status` first, or state why unavailable and use the fixed field contract manually.
+
 Stop after planning only when the user explicitly says "plan only", "implementation checklist only", "do not edit code", "proposal only", or equivalent. In that case, fill `00-idea.md`, print the implementation checklist, and stop before business-code edits.
 
 Treat "status", "progress", "where are we", or equivalent as read-only status requests: inspect `current.json`, `state.json`, `00-idea.md`, and `01-progress.md`; summarize progress; do not edit product files unless the user also asks to continue.
@@ -674,7 +697,7 @@ Use `partial`, `accepted-with-followup`, `fail`, or `not-accepted` when evidence
 Read only the reference needed for the current situation:
 
 - `references/workflow.md` - bundle contract, lifecycle commands, routing, preflight, pause/resume/archive, checkpoint, verify, finalize.
-- `references/roles-and-state.md` - role duties, task states, task classification, acceptance matrix, trace coverage, evidence quality.
+- `references/roles-and-state.md` - role duties, task states, task classification, acceptance matrix, trace coverage, evidence quality, and multi-role output compliance.
 - `references/verification-and-evidence.md` - validation types, verification summaries, UI/runtime evidence, acceptance and closeout checks.
 - `references/planning-patterns.md` - vague idea clarification, milestone decomposition, implementation plan shape, final report shape.
 - `references/controlled-exploration-benchmark.md` - prompt-level scenario library plus fresh-session live benchmark protocol and rubric for evaluating real model outputs after Controlled Exploration changes.
