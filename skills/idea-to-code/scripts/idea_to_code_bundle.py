@@ -1101,10 +1101,12 @@ def checkpoint_bundle(
 
         status["current_focus"] = focus
         status["next_gate"] = gate
+        event_sequence = _next_event_sequence(status)
         status["milestones"].append(
             {
                 "name": milestone,
                 "timestamp_utc": timestamp,
+                "event_sequence": event_sequence,
                 "delivered": delivered,
                 "verified": verified,
                 "next": next_step,
@@ -1112,6 +1114,8 @@ def checkpoint_bundle(
                 "covers": covers,
             }
         )
+        status["last_verify_ok"] = False
+        status["last_verified_plan_revision"] = None
         write_status(target, status)
         append_ledger(target, "checkpoint", f"{milestone}: {delivered}; verified: {verified}; gate: {gate_status}", covers)
 

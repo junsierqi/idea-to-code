@@ -1405,6 +1405,67 @@ Planned Verification:
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("closer evidence refused", result.stderr)
 
+    def test_checkpoint_after_verify_invalidates_preclose_verify(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        self.record_roles_through_reviewer(slug)
+        self.checkpoint(slug)
+        preclose = self.run_bundle("verify", "--root", str(self.root), "--slug", slug)
+        self.assertIn('"ok": true', preclose.stdout)
+        status_after_verify = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        verified_sequence = status_after_verify["last_verified_event_sequence"]
+        self.assertTrue(status_after_verify["last_verify_ok"])
+
+        self.run_bundle(
+            "checkpoint",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--milestone", "Post verify milestone",
+            "--delivered", "REQ-1 second bundle record created after pre-close verify",
+            "--verified", "source-only command flow evidence in 01-progress.md",
+            "--next", "rerun verify",
+            "--focus", "closing after post verify checkpoint",
+            "--gate", "acceptance",
+            "--gate-status", "pass",
+            "--covers", "REQ-1",
+        )
+        status_after_checkpoint = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        self.assertFalse(status_after_checkpoint["last_verify_ok"])
+        self.assertIsNone(status_after_checkpoint["last_verified_plan_revision"])
+        self.assertGreater(status_after_checkpoint["milestones"][-1]["event_sequence"], verified_sequence)
+
+        closer = self.run_bundle(
+            "role", "record",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--role", "closer",
+            "--evidence", "REQ-1 covered by Sample milestone and Post verify milestone; pre-close source-only verify passed; final decision pass accepted",
+            "--covers", "REQ-1",
+            check=False,
+        )
+        self.assertNotEqual(closer.returncode, 0)
+        self.assertIn("closer evidence refused", closer.stderr)
+        finalize = self.run_bundle(
+            "finalize",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--summary", "Sample implementation complete",
+            "--verification", "source-only command flow passed",
+            "--risks", "none",
+            "--acceptance", "REQ-1 delivered",
+            "--gate-status", "pass",
+            "--decision", "accepted",
+            check=False,
+        )
+        self.assertNotEqual(finalize.returncode, 0)
+        self.assertIn("pre-close verify has not passed", finalize.stderr)
+
+        refreshed = self.run_bundle("verify", "--root", str(self.root), "--slug", slug)
+        self.assertIn('"ok": true', refreshed.stdout)
+        self.record_closer(slug)
+        accepted = self.run_bundle("finalize", "--root", str(self.root), "--slug", slug, "--summary", "Sample implementation complete", "--verification", "source-only command flow passed", "--risks", "none", "--acceptance", "REQ-1 delivered", "--gate-status", "pass", "--decision", "accepted")
+        self.assertEqual(accepted.returncode, 0)
+
     def test_closer_requires_verify_after_latest_reviewer(self) -> None:
         slug = self.init_bundle()
         self.write_ready_bundle(slug)
