@@ -96,6 +96,7 @@ The hard checks are:
 - Validator output names validation type, command/evidence, and covered TASK/REQ IDs.
 - Reviewer output flags missing READY visibility, late READY remediation, or missing fixed final status fields as noncompliance.
 - Closer output runs `render-status` first for tracked final handoff; if unavailable or failed, it states the reason and uses the fixed Console Response Contract fields manually.
+- Closer formal tracked status fails compliance if it omits any fixed field (`Changes`, `Completed Items`, `Incomplete Items`, `Validation Results`, `Unverified Items`, `Residual Risks`, or `Key Technical Details`), drops TASK/REQ mapping from `Changes`, `Completed Items`, `Incomplete Items`, or `Validation Results`, puts `No commit made` under `Incomplete Items`, or hand-writes a formal tracked handoff without first using `render-status` when it is available.
 
 Ordinary untracked explanations remain concise and are scored separately so the compliance rules do not reintroduce over-templating. Over-templates ordinary untracked replies is a failure signal for this scenario.
 

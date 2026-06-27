@@ -181,13 +181,13 @@ The final user-visible console/chat response is a closeout artifact. Use the fix
 - `Residual Risks`
 - `Key Technical Details`
 
-Before sending formal tracked delivery status, prefer the read-only `render-status` helper:
+Before sending formal tracked delivery status, run the read-only `render-status` helper whenever it is available:
 
 ```bash
 python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" render-status --root "$(pwd)" --slug <slug> --status Completed|Progress|Blocked
 ```
 
-The helper does not finalize, verify, or mutate the bundle. It emits a fixed-field skeleton with TASK/REQ placeholders, `READY_TASK_OUTPUT_ID`, and default no-commit placement under `Key Technical Details`. Replace placeholders with actual evidence before sending. Do not use it for ordinary untracked answers.
+The helper does not finalize, verify, or mutate the bundle. It emits a fixed-field skeleton with TASK/REQ placeholders, `READY_TASK_OUTPUT_ID`, and default no-commit placement under `Key Technical Details`. Replace placeholders with actual evidence before sending. If `render-status` is unavailable or fails, state that reason and manually use the same fixed fields. Do not omit fields, do not drop TASK/REQ mapping from `Changes`, `Completed Items`, `Incomplete Items`, or `Validation Results`, and do not move no-commit state into `Incomplete Items`. Do not use it for ordinary untracked answers.
 
 Allowed status labels are `Completed`, `Progress`, and `Blocked`. Status labels describe the scope of the current user-visible response. Use `Completed` when every TASK/REQ in that response's stated scope is implemented and validated. If `Incomplete Items` is `none` for the stated response scope and validation passed, default to `Status: Completed`; do not downgrade to `Progress` only because the bundle remains open, no commit was made, fresh-session retest remains external, or user acceptance has not been separately collected. For an interim TASK/REQ slice, `Completed` does not claim the whole bundle is finalized, accepted, committed, or published; disclose those facts under `Key Technical Details` or `Unverified Items`. Use `Progress` when at least one in-scope TASK/REQ is still being implemented or validated. Use `Blocked` when in-scope work cannot continue without an external dependency or decision. If there are no incomplete items, unverified items, or residual risks, write `none` under those fields instead of omitting them.
 

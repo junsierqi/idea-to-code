@@ -632,14 +632,14 @@ Decision table:
 
 If ambiguous, use fixed fields only when the user needs formal delivery status.
 
-For formal tracked delivery status, prefer the read-only render helper before writing the response:
+For formal tracked delivery status, run the read-only render helper before writing the response whenever the helper is available. If `render-status` is unavailable or fails, state that reason in the response and then use the same fixed field contract manually. Do not skip the helper because the answer seems short.
 
 ```bash
 python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" render-status \
   --root "$(pwd)" --slug <slug> --status Completed|Progress|Blocked
 ```
 
-The helper prints the fixed field skeleton with the idea-to-code role/source prefix, TASK/REQ mapping placeholders, `READY_TASK_OUTPUT_ID`, and `No commit made` under Key Technical Details by default. Edit the skeleton with actual evidence before sending it; do not use it for ordinary untracked answers.
+The helper prints the fixed field skeleton with the idea-to-code role/source prefix, TASK/REQ mapping placeholders, `READY_TASK_OUTPUT_ID`, and `No commit made` under Key Technical Details by default. Edit the skeleton with actual evidence before sending it; do not remove fixed fields, do not drop TASK/REQ mapping from `Changes`, `Completed Items`, `Incomplete Items`, or `Validation Results`, and do not move no-commit state into `Incomplete Items`. Do not use it for ordinary untracked answers.
 
 ```text
 [idea-to-code][Closer/agent] Status: Completed | Progress | Blocked

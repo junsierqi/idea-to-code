@@ -396,6 +396,11 @@ class BundleTest(unittest.TestCase):
             "render-status",
             "The helper prints the fixed field skeleton",
             "The helper does not finalize, verify, or mutate the bundle",
+            "run the read-only render helper before writing the response whenever the helper is available",
+            "If `render-status` is unavailable or fails, state that reason",
+            "do not remove fixed fields",
+            "do not drop TASK/REQ mapping from `Changes`, `Completed Items`, `Incomplete Items`, or `Validation Results`",
+            "do not move no-commit state into `Incomplete Items`",
             "must name the relevant `TASK-*` and `REQ-*` IDs",
             "represented by a READY TASK",
             "If a response cannot map to a TASK/REQ",
@@ -941,6 +946,26 @@ class BundleTest(unittest.TestCase):
             "<TASK/REQ-mapped validation type + command/evidence + result>",
         ]:
             self.assertIn(required, template)
+
+    def test_multi_role_output_compliance_requires_render_status_mapping(self) -> None:
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        roles_text = (REFERENCES_DIR / "roles-and-state.md").read_text(encoding="utf-8")
+        verification_text = (REFERENCES_DIR / "verification-and-evidence.md").read_text(encoding="utf-8")
+        combined = "\n".join([skill_text, roles_text, verification_text])
+
+        for required in [
+            "run the read-only render helper before writing the response whenever the helper is available",
+            "If `render-status` is unavailable or fails, state that reason",
+            "Closer formal tracked status fails compliance",
+            "omits any fixed field",
+            "`Changes`, `Completed Items`, `Incomplete Items`, `Validation Results`, `Unverified Items`, `Residual Risks`, or `Key Technical Details`",
+            "drops TASK/REQ mapping from `Changes`, `Completed Items`, `Incomplete Items`, or `Validation Results`",
+            "puts `No commit made` under `Incomplete Items`",
+            "hand-writes a formal tracked handoff without first using `render-status` when it is available",
+            "Do not use it for ordinary untracked answers",
+            "The ordinary-answer role check is explicit",
+        ]:
+            self.assertIn(required, combined)
 
     def test_user_intent_acceptance_contract_is_documented(self) -> None:
         skill_text = SKILL_MD.read_text(encoding="utf-8")
