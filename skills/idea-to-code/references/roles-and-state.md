@@ -75,6 +75,8 @@ When using `same-agent`, Reviewer evidence must explicitly say `same-agent revie
 
 When using `hybrid-team` or `independent-team`, evidence must name which role ran independently and include the subagent result or identifier when available.
 
+For multi-agent implementation inside one session ledger, Planner evidence must name IDEA/TASK/REQ ownership and file/module boundaries before parallel edits begin. Implementer evidence from each agent or worker subagent must cite its owned IDEA/TASK/REQ slice and changed files. Validator/Reviewer subagents normally record evidence in the parent slug rather than creating new slugs. Different live sessions require separate slugs, not separate role entries in one bundle.
+
 ## Role Responsibilities
 
 - Planner: produces `00-idea.md` content: goal, Controlled Exploration, requirements, task classification, acceptance matrix, design, and implementation plan.
@@ -96,7 +98,8 @@ The hard checks are:
 - Validator output names validation type, command/evidence, and covered TASK/REQ IDs.
 - Reviewer output flags missing READY visibility, late READY remediation, or missing fixed final status fields as noncompliance.
 - Closer output runs `render-status` first for tracked final handoff; if unavailable or failed, it states the reason and uses the fixed Console Response Contract fields manually.
-- Closer formal tracked status fails compliance if it omits any fixed field (`Changes`, `Completed Items`, `Incomplete Items`, `Validation Results`, `Unverified Items`, `Residual Risks`, or `Key Technical Details`), drops TASK/REQ mapping from `Changes`, `Completed Items`, `Incomplete Items`, or `Validation Results`, puts `No commit made` under `Incomplete Items`, or hand-writes a formal tracked handoff without first using `render-status` when it is available.
+- Formal tracked status MUST use render-status generated fields when `render-status` is available. The final response may replace placeholders with actual evidence, but it must not omit, rename, reorder, or hand-invent the fixed field set.
+- Closer formal tracked status fails compliance if it omits any fixed field (`Changes`, `Completed Items`, `Incomplete Items`, `Validation Results`, `Unverified Items`, `Residual Risks`, or `Key Technical Details`), drops TASK/REQ mapping from `Changes`, `Completed Items`, `Incomplete Items`, or `Validation Results`, drops IDEA/TASK/REQ mapping when multiple ideas exist in the session ledger, puts `No commit made` under `Incomplete Items`, or hand-writes a formal tracked handoff without first using `render-status` when it is available.
 
 Ordinary untracked explanations remain concise and are scored separately so the compliance rules do not reintroduce over-templating. Over-templates ordinary untracked replies is a failure signal for this scenario.
 

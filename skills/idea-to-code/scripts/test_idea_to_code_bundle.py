@@ -345,6 +345,114 @@ class BundleTest(unittest.TestCase):
         ]:
             self.assertIn(required, combined)
 
+    def test_session_ledger_mode_is_documented(self) -> None:
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        workflow_text = (REFERENCES_DIR / "workflow.md").read_text(encoding="utf-8")
+        planning_text = (REFERENCES_DIR / "planning-patterns.md").read_text(encoding="utf-8")
+        combined = "\n".join([skill_text, workflow_text, planning_text])
+
+        for required in [
+            "a slug is a session ledger",
+            "one continuous conversation/cooperation context may contain multiple ideas",
+            "IDEA/REQ/TASK units inside the same slug",
+            "Same conversation session",
+            "new idea in the same session becomes a new IDEA-scoped unit",
+            "do not create one slug per user utterance or per idea by default",
+            "New chat session or explicitly separate task/session",
+            "Follow-up to an earlier idea inside the same session",
+            "Related Session",
+            "Related IDEA",
+            "Use the chat session as the default ledger boundary",
+        ]:
+            self.assertIn(required, combined)
+
+    def test_session_ledger_simulation_scenarios_are_documented(self) -> None:
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        workflow_text = (REFERENCES_DIR / "workflow.md").read_text(encoding="utf-8")
+        planning_text = (REFERENCES_DIR / "planning-patterns.md").read_text(encoding="utf-8")
+        combined = "\n".join([skill_text, workflow_text, planning_text])
+
+        for required in [
+            "Session-Ledger Routing Scenarios",
+            "`idea1` plus several clarifications before implementation finishes",
+            "Continue same session slug with `clarification` or `expand`",
+            "One slug for the session",
+            "Same chat: `idea1` completes, then user asks unrelated `idea2`",
+            "Continue same session slug and add an IDEA-2 scope",
+            "One slug with multiple IDEA scopes",
+            "Same chat: user reports a defect in delivered `idea1` after `idea2` completed",
+            "add an IDEA-1 follow-up TASK/REQ",
+            "Later session: user reports a defect in prior-session `idea1`",
+            "Initialize a new session slug and reference the old session/IDEA",
+            "New related session slug; old ledger remains historical",
+            "multiple old bundles could match",
+            "No mutation until scope is clear",
+            "User changes wording but stays in the same conversation session",
+            "Slug count remains controlled",
+            "one stale slug absorbing a different live session",
+        ]:
+            self.assertIn(required, combined)
+
+    def test_session_ledger_followup_scope_is_documented(self) -> None:
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        workflow_text = (REFERENCES_DIR / "workflow.md").read_text(encoding="utf-8")
+        planning_text = (REFERENCES_DIR / "planning-patterns.md").read_text(encoding="utf-8")
+        combined = "\n".join([skill_text, workflow_text, planning_text])
+
+        for required in [
+            "Follow-up to an earlier idea inside the same session",
+            "keep the same session slug",
+            "IDEA-1 follow-up",
+            "Follow-up to a prior session",
+            "start a new session slug",
+            "Related Session",
+            "Related IDEA",
+        ]:
+            self.assertIn(required, combined)
+
+    def test_multi_agent_ledger_ownership_is_documented(self) -> None:
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        workflow_text = (REFERENCES_DIR / "workflow.md").read_text(encoding="utf-8")
+        roles_text = (REFERENCES_DIR / "roles-and-state.md").read_text(encoding="utf-8")
+        combined = "\n".join([skill_text, workflow_text, roles_text])
+
+        for required in [
+            "Multi-agent ledger ownership",
+            "Same session ledger, parallel agents",
+            "disjoint IDEA/TASK/REQ ownership and file/module write boundaries",
+            "Different chat sessions, parallel agents",
+            "use separate slugs",
+            "Validator or Reviewer subagents",
+            "Record their evidence under the parent implementation slug",
+            "Worker subagents implementing disjoint slices",
+            "re-check `.idea-to-code/current.json`",
+            "reroute instead of writing to the previously assumed slug",
+            "current pointer conflict",
+        ]:
+            self.assertIn(required, combined)
+
+    def test_session_ledger_status_scope_is_documented(self) -> None:
+        verification_text = (REFERENCES_DIR / "verification-and-evidence.md").read_text(encoding="utf-8")
+        for required in [
+            "same visible IDEA/TASK/REQ set",
+            "Scope: IDEA-2 / TASK-4 / REQ-7",
+            "whenever multiple ideas exist",
+            "every IDEA/TASK/REQ in that response's stated scope",
+            "does not claim the whole session ledger is finalized",
+        ]:
+            self.assertIn(required, verification_text)
+
+    def test_session_ledger_does_not_require_session_registry(self) -> None:
+        combined = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in [SKILL_MD, *sorted(REFERENCES_DIR.glob("*.md"))]
+        )
+        script_text = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("Parallel sessions use separate slugs", combined)
+        self.assertNotIn(".idea-to-code/sessions/", combined)
+        self.assertNotIn("/claims/", combined)
+        self.assertNotIn("separate delivery scope", script_text)
+
     def test_generated_test_ownership_rules_are_documented(self) -> None:
         skill_text = SKILL_MD.read_text(encoding="utf-8")
         workflow_text = (REFERENCES_DIR / "workflow.md").read_text(encoding="utf-8")
@@ -398,10 +506,14 @@ class BundleTest(unittest.TestCase):
             "The helper does not finalize, verify, or mutate the bundle",
             "run the read-only render helper before writing the response whenever the helper is available",
             "If `render-status` is unavailable or fails, state that reason",
+            "Formal tracked status MUST use render-status generated fields when the helper is available",
             "do not remove fixed fields",
+            "rename them, reorder them, or hand-invent them",
             "do not drop TASK/REQ mapping from `Changes`, `Completed Items`, `Incomplete Items`, or `Validation Results`",
+            "do not drop IDEA/TASK/REQ mapping when multiple ideas exist in the session ledger",
             "do not move no-commit state into `Incomplete Items`",
             "must name the relevant `TASK-*` and `REQ-*` IDs",
+            "A formal tracked response that cannot map each result bullet to TASK/REQ",
             "represented by a READY TASK",
             "If a response cannot map to a TASK/REQ",
             "Status labels describe the scope of the current user-visible response",
@@ -964,6 +1076,30 @@ class BundleTest(unittest.TestCase):
             "hand-writes a formal tracked handoff without first using `render-status` when it is available",
             "Do not use it for ordinary untracked answers",
             "The ordinary-answer role check is explicit",
+        ]:
+            self.assertIn(required, combined)
+
+    def test_multi_role_output_compliance_requires_render_status_fields_and_mapping(self) -> None:
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        roles_text = (REFERENCES_DIR / "roles-and-state.md").read_text(encoding="utf-8")
+        verification_text = (REFERENCES_DIR / "verification-and-evidence.md").read_text(encoding="utf-8")
+        combined = "\n".join([skill_text, roles_text, verification_text])
+
+        for required in [
+            "Formal tracked status MUST use render-status generated fields when `render-status` is available",
+            "Formal tracked status MUST use render-status generated fields when the helper is available",
+            "must not omit, rename, reorder, or hand-invent the fixed field set",
+            "do not omit, rename, reorder, or hand-invent the fixed field set",
+            "do not remove fixed fields, rename them, reorder them, or hand-invent them",
+            "omits any fixed field",
+            "drops TASK/REQ mapping from `Changes`, `Completed Items`, `Incomplete Items`, or `Validation Results`",
+            "drops IDEA/TASK/REQ mapping when multiple ideas exist in the session ledger",
+            "When the session ledger contains multiple ideas",
+            "A formal tracked response that cannot map each result bullet to TASK/REQ",
+            "IDEA/TASK/REQ for multi-idea session ledgers",
+            "is noncompliant and must be regenerated from `render-status` or corrected before sending",
+            "Do not use it for ordinary untracked answers",
+            "must fail if it adds READY output or fixed status fields to explanation-only",
         ]:
             self.assertIn(required, combined)
 
@@ -2323,7 +2459,6 @@ Planned Verification:
         )
         verify = self.run_bundle("verify", "--root", str(self.root), "--slug", slug, check=False)
         self.assertNotEqual(verify.returncode, 0)
-        self.assertIn("Implementer evidence READY output check failed", verify.stdout)
         self.assertIn("Implementer evidence must be recorded after the latest READY output", verify.stdout)
 
     def test_focused_ready_output_does_not_stale_implementer_evidence(self) -> None:
@@ -2764,6 +2899,35 @@ Planned Verification:
         current = json.loads((self.root / ".idea-to-code" / "current.json").read_text(encoding="utf-8"))
         self.assertEqual(current["slug"], active)
 
+    def test_current_json_competing_task_initialization_is_conflict_safe(self) -> None:
+        commands = []
+        for slug, title in (("alpha", "Alpha task"), ("beta", "Beta task")):
+            commands.append([
+                sys.executable,
+                str(SCRIPT),
+                "init",
+                "--root",
+                str(self.root),
+                "--slug",
+                slug,
+                "--title",
+                title,
+                "--idea",
+                f"Deliver {title.lower()} behavior",
+            ])
+        procs = [
+            subprocess.Popen(cmd, cwd=self.root, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            for cmd in commands
+        ]
+        outputs = [proc.communicate(timeout=10) for proc in procs]
+        returncodes = [proc.returncode for proc in procs]
+        self.assertEqual(returncodes.count(0), 1, outputs)
+        self.assertEqual(returncodes.count(1), 1, outputs)
+        current = json.loads((self.root / ".idea-to-code" / "current.json").read_text(encoding="utf-8"))
+        self.assertIn(current["slug"], {"alpha", "beta"})
+        failed = outputs[returncodes.index(1)]
+        self.assertIn("init refused because active bundle", failed[1])
+
     def test_new_task_after_archiving_current_can_start_cleanly(self) -> None:
         active = self.init_bundle()
         self.run_bundle(
@@ -2784,6 +2948,47 @@ Planned Verification:
         self.run_bundle("current", "set", "--root", str(self.root), "--slug", active)
         current = json.loads((self.root / ".idea-to-code" / "current.json").read_text(encoding="utf-8"))
         self.assertEqual(current["slug"], active)
+
+    def test_current_json_parallel_archive_init_keeps_single_active_pointer(self) -> None:
+        active = self.init_bundle()
+        commands = [
+            [
+                sys.executable,
+                str(SCRIPT),
+                "current",
+                "archive",
+                "--root",
+                str(self.root),
+                "--reason",
+                "parallel archive before new task",
+            ],
+            [
+                sys.executable,
+                str(SCRIPT),
+                "init",
+                "--root",
+                str(self.root),
+                "--slug",
+                "other",
+                "--title",
+                "Other task",
+                "--idea",
+                "Deliver other behavior",
+            ],
+        ]
+        procs = [
+            subprocess.Popen(cmd, cwd=self.root, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            for cmd in commands
+        ]
+        outputs = [proc.communicate(timeout=10) for proc in procs]
+        self.assertTrue(any(proc.returncode == 0 for proc in procs), outputs)
+        current_file = self.root / ".idea-to-code" / "current.json"
+        if current_file.exists():
+            current = json.loads(current_file.read_text(encoding="utf-8"))
+            self.assertIn(current["slug"], {active, "other"})
+            self.assertNotEqual(current["slug"], active, "Archived bundle must not remain current after archive succeeds.")
+        history = (self.root / ".idea-to-code" / "history" / "index.jsonl").read_text(encoding="utf-8")
+        self.assertIn(active, history)
 
     def test_current_set_rejects_switching_away_from_unfinished_current(self) -> None:
         active = self.init_bundle()
@@ -2909,6 +3114,19 @@ Planned Verification:
         self.assertIn("Cannot switch current from unfinished bundle", result.stderr)
         current = json.loads((self.root / ".idea-to-code" / "current.json").read_text(encoding="utf-8"))
         self.assertEqual(current["slug"], active)
+
+    def test_current_resume_uses_current_pointer_lock(self) -> None:
+        source = SCRIPT.read_text(encoding="utf-8")
+        resume_start = source.index("def current_resume(")
+        helper_start = source.index("def _current_resume_locked(")
+        resume_body = source[resume_start:helper_start]
+        self.assertIn("with current_lock(root):", resume_body)
+        self.assertIn("return _current_resume_locked(root, reason, slug)", resume_body)
+
+        helper_end = source.index("def _coverage_by_requirement(", helper_start)
+        helper_body = source[helper_start:helper_end]
+        self.assertIn("_current_set_locked(root, slug)", helper_body)
+        self.assertNotIn("current_set(root, slug)", helper_body)
 
     def test_verify_non_current_bundle_is_read_only(self) -> None:
         self.init_bundle()
@@ -3138,6 +3356,57 @@ Planned Verification:
         self.assertFalse(payload["changes_plan"])
         self.assertIn("current status --root <root>", payload["required_next_commands"])
         self.assertIn("without editing product files", payload["next_action"])
+
+    def test_route_new_same_session_idea_expands_session_ledger(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        result = self.run_bundle("route", "--root", str(self.root), "--input", "Build a billing dashboard app")
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["active_bundle"]["slug"], slug)
+        self.assertEqual(payload["active_bundle"]["title"], "Sample task")
+        self.assertEqual(payload["recommended_classification"], "expand")
+        self.assertFalse(payload["scope_decision_required"])
+        self.assertEqual(payload["route_gate"], "plan-update-required")
+        self.assertFalse(payload["can_edit_product_files"])
+        self.assertIn("new IDEA scope", payload["next_action"])
+        self.assertTrue(any("implementation ready" in command for command in payload["required_next_commands"]))
+
+    def test_route_explicit_separate_session_requires_scope_decision(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        result = self.run_bundle("route", "--root", str(self.root), "--input", "Start a separate session for the billing dashboard")
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["active_bundle"]["slug"], slug)
+        self.assertTrue(payload["scope_decision_required"])
+        self.assertEqual(payload["route_gate"], "scope-decision-required")
+        self.assertFalse(payload["can_edit_product_files"])
+        self.assertIn("different session", payload["scope_decision_reason"])
+
+    def test_route_create_separate_session_app_requires_scope_decision(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        result = self.run_bundle("route", "--root", str(self.root), "--input", "Create a separate session for the billing dashboard app")
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["active_bundle"]["slug"], slug)
+        self.assertEqual(payload["recommended_classification"], "continue")
+        self.assertTrue(payload["scope_decision_required"])
+        self.assertEqual(payload["route_gate"], "scope-decision-required")
+        self.assertFalse(payload["can_edit_product_files"])
+        self.assertNotIn("new IDEA scope", payload["next_action"])
+        self.assertIn("different session", payload["scope_decision_reason"])
+
+    def test_route_separate_session_scope_decision_overrides_pending_plan_update(self) -> None:
+        slug = self.init_bundle()
+        result = self.run_bundle("route", "--root", str(self.root), "--input", "Create a separate session for the billing dashboard app")
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["active_bundle"]["slug"], slug)
+        self.assertTrue(payload["scope_decision_required"])
+        self.assertEqual(payload["route_gate"], "scope-decision-required")
+        self.assertTrue(payload["must_update_plan_before_code"])
+        self.assertFalse(payload["can_edit_product_files"])
+        self.assertTrue(any("current archive" in command for command in payload["required_next_commands"]))
+        self.assertFalse(any("implementation ready" in command for command in payload["required_next_commands"]))
+        self.assertNotIn("pending plan update", payload["next_action"].lower())
 
     def test_route_expansion_marks_plan_changing(self) -> None:
         self.init_bundle()

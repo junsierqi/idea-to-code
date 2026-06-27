@@ -25,6 +25,8 @@ Do not add ad hoc top-level Markdown files. `verify` rejects them.
 
 Historical bundle ledgers are not default context. `.idea-to-code/<slug>/` directories persist so a user or agent can explicitly resume, inspect, verify, or audit a known task, but old bundle files must not be scanned as ordinary repository context. Read a historical bundle only when `current.json` points to it, the user explicitly names the slug or asks to inspect history, or a lifecycle command needs that slug. If `current.json` is missing, do not infer the current task by reading every bundle directory; use `current resume --slug <known-unfinished-slug>`, inspect `history/index.jsonl`, ask for the intended slug, or initialize a new bundle.
 
+Ledger routing is session-ledger based by default. `current.json` tells you which session slug is active for the current conversation context. Continue the same slug for new ideas, clarifications, follow-ups, and corrections inside the same conversation session, but track each idea as an explicit IDEA/REQ/TASK scope. Start a new slug for a new chat session, an explicitly separate session/task, or a prior-session follow-up; when the old slug is known, reference it as `Related Session` / `Related IDEA` instead of moving old records. This prevents both failure modes: one slug per user utterance and one stale slug absorbing a different live session.
+
 ## Intake Before Implementation
 
 The first user idea may be recorded immediately as task capture, but implementation cannot start until the intake is resolved.
@@ -41,7 +43,7 @@ Use `Need Confirmation: yes` for ambiguous, risky, architecture-shaping, destruc
 
 Use `Need Confirmation: no` for clear, low-risk, reversible work with concrete acceptance criteria. In that case, restate the intake and proceed.
 
-If the user corrects the idea after a bundle exists, do not delete or silently mix goals. Use `clarification`, `expand`, `switch`, `new-task`, or archive/cancel according to the latest request, update the plan when required, then rerun `implementation ready`.
+If the user corrects or extends work after a bundle exists, do not delete or silently mix goals. Use `clarification`, `expand`, `switch`, `new-task`, or archive/cancel according to the latest request, update the plan when required, then rerun `implementation ready`. Corrections and new ideas inside the same conversation session stay in the same slug as distinct IDEA/REQ/TASK scopes. A follow-up from a different session starts a new session slug and cites the old session/IDEA when known.
 
 ## Controlled Exploration
 
@@ -172,6 +174,28 @@ Classifications:
 `pending_plan_update` blocks product-code edits until every section named by `pending_plan_update_sections` is updated and `implementation ready` is rerun. A partial update must keep the remaining named sections stale. Older bundles without section metadata keep the legacy boolean gate and should refresh the plan before coding.
 
 Add requirements before READY whenever possible. A post-READY or post-execution `requirement add` invalidates READY and requires refreshing requirements/design/implementation. Requirement removal after READY or execution evidence remains refused.
+
+Session-Ledger Routing Scenarios:
+
+| Scenario | Expected ledger decision | Slug count behavior |
+|---|---|---|
+| `idea1` plus several clarifications before implementation finishes | Continue same session slug with `clarification` or `expand` | One slug for the session |
+| Same chat: `idea1` completes, then user asks unrelated `idea2` | Continue same session slug and add an IDEA-2 scope | One slug with multiple IDEA scopes |
+| Same chat: user reports a defect in delivered `idea1` after `idea2` completed | Continue same session slug and add an IDEA-1 follow-up TASK/REQ | One slug; old IDEA scope remains auditable |
+| Later session: user reports a defect in prior-session `idea1` | Initialize a new session slug and reference the old session/IDEA | New related session slug; old ledger remains historical |
+| User says "fix the earlier thing" and multiple old bundles could match | Ask a concise scope question or inspect explicit current/history metadata read-only | No mutation until scope is clear |
+| User changes wording but stays in the same conversation session | Continue current slug; add or update the scoped IDEA/REQ/TASK | Slug count remains controlled |
+
+## Multi-Agent Ledger Ownership
+
+When several agents or subagents work at the same time, ledger ownership still follows session scope:
+
+- Same session: one shared slug, with explicit IDEA/TASK/REQ ownership and disjoint file/module write boundaries before edits.
+- Different live chat sessions: separate slugs, even if work happens in the same repository or same wall-clock window.
+- Validator/Reviewer subagents: record evidence in the parent slug; do not start a new slug for review-only or validation-only work.
+- Worker subagents: use the parent slug only for disjoint implementation slices of the same session/IDEA scope; otherwise initialize a separate session slug.
+- Before mutating current state, each agent must re-read `current status` or `.idea-to-code/current.json`. If another agent archived, initialized, set, or resumed a different current bundle, stop and reroute instead of writing to stale state.
+- A current pointer conflict should resolve by one agent succeeding and the other receiving a clear refusal or rerouting instruction; it must not silently overwrite an unfinished current bundle.
 
 ## Key Commands
 

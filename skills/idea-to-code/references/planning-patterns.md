@@ -36,7 +36,9 @@ Use `Need Confirmation: yes` for vague, risky, irreversible, security-sensitive,
 
 Use `Need Confirmation: no` when the idea is clear, low-risk, reversible, and acceptance is concrete. Continue autonomously after recording the intake.
 
-If the user corrects the idea, update the same bundle when it is the same task (`clarification`, `expand`, or `switch`). Archive and start a new bundle only for unrelated work.
+If the user corrects or adds an idea inside the same conversation session, update the same bundle. Use `clarification`, `expand`, or `switch` for the active IDEA scope, or add a new IDEA-scoped unit with its own REQ/TASK rows for a new idea in the same session. Archive and start a new bundle for a new chat session or explicitly separate session/task. Do not move old ledger records into a new bundle; cite the old slug as `Related Session` or `Related IDEA` when known.
+
+Use the chat session as the default ledger boundary. One session slug can contain multiple IDEA scopes because the ideas share context. Do not create one slug per user utterance or per idea by default: clarifications, acceptance details, new same-session ideas, and boundary cases belong in the same session bundle. If the relationship to the active session is ambiguous, ask a concise scope question before mutating bundle files.
 
 ## Controlled Exploration Pattern
 

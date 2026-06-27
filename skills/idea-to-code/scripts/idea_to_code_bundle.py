@@ -17,7 +17,7 @@ import re
 import shutil
 import sys
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
@@ -670,6 +670,63 @@ def bundle_lock(target: Path, timeout_seconds: float = 10.0):
             pass
 
 
+@contextmanager
+def current_lock(root: Path, timeout_seconds: float = 10.0):
+    """Serialize .idea-to-code/current.json mutations across agent processes."""
+    lock_dir = project_state_dir(root) / ".current.lock"
+    env_timeout = os.environ.get("IDEA_TO_CODE_LOCK_TIMEOUT_SECONDS")
+    if env_timeout:
+        try:
+            timeout_seconds = float(env_timeout)
+        except ValueError:
+            pass
+    lock_dir.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        try:
+            lock_dir.mkdir()
+            owner = {
+                "pid": os.getpid(),
+                "created_at_utc": utc_now(),
+                "lock_path": str(lock_dir),
+            }
+            (lock_dir / "owner.json").write_text(
+                json.dumps(owner, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+            break
+        except FileExistsError:
+            if time.monotonic() >= deadline:
+                owner_path = lock_dir / "owner.json"
+                owner_detail = "owner metadata unavailable"
+                if owner_path.exists():
+                    try:
+                        owner_payload = json.loads(owner_path.read_text(encoding="utf-8"))
+                        owner_detail = (
+                            f"owner pid={owner_payload.get('pid', 'unknown')}, "
+                            f"created_at_utc={owner_payload.get('created_at_utc', 'unknown')}"
+                        )
+                    except (OSError, json.JSONDecodeError):
+                        owner_detail = "owner metadata unreadable"
+                raise SystemExit(
+                    "Timed out waiting for current pointer lock: "
+                    f"{lock_dir}; {owner_detail}; timeout_seconds={timeout_seconds}. "
+                    "If no idea_to_code_bundle.py process with that pid is running, "
+                    f"remove {lock_dir} and retry."
+                )
+            time.sleep(0.05)
+    try:
+        yield
+    finally:
+        try:
+            owner_path = lock_dir / "owner.json"
+            if owner_path.exists():
+                owner_path.unlink()
+            lock_dir.rmdir()
+        except FileNotFoundError:
+            pass
+
+
 def rewrite_current_phase(milestones_path: Path, replacement_lines: list[str]) -> None:
     """Replace or insert the `## Current Phase` block inside 01-progress.md.
 
@@ -809,6 +866,12 @@ def read_content_arg(content: str | None, content_file: str | None) -> str:
 def init_bundle(root: Path, slug: str, title: str, idea: str, unique: bool, set_current: bool) -> Path:
     if not _is_ascii(title) or not _is_ascii(idea):
         raise SystemExit("init title and idea must be English-only ASCII text. Summarize non-English user input in English before writing the bundle.")
+    lock_context = current_lock(root) if set_current else nullcontext()
+    with lock_context:
+        return _init_bundle_locked(root, slug, title, idea, unique, set_current)
+
+
+def _init_bundle_locked(root: Path, slug: str, title: str, idea: str, unique: bool, set_current: bool) -> Path:
     if set_current:
         current = read_current(root)
         if current:
@@ -2201,11 +2264,26 @@ def _route_classification(user_input: str, has_active_current: bool) -> tuple[st
             False,
             "Record a blocker on the active bundle with the concrete dependency needed.",
         )
+    if has_active_current and _looks_like_other_session(text):
+        return (
+            "continue",
+            False,
+            "Input looks like another session while a session ledger is active. Require a scope decision before mutating any bundle.",
+        )
     if re.search(r"\b(new task|unrelated|separate task|another task|different task)\b", text):
         return (
             "new-task",
             False,
             "Record the new-task decision on the active bundle, archive it with a reason, then initialize the new bundle.",
+        )
+    if has_active_current and re.search(
+        r"\b(build|create|make|develop|implement|design)\b.*\b(app|dashboard|system|platform|workflow|feature|integration|tool|page|api|service)\b",
+        text,
+    ):
+        return (
+            "expand",
+            True,
+            "Record a new IDEA scope inside the active session ledger, update requirements/design/implementation, and rerun the implementation gate.",
         )
     if re.search(r"\b(replace|instead|switch to|change goal|different direction)\b", text):
         return (
@@ -2248,6 +2326,25 @@ def _route_need_confirmation(user_input: str, classification: str, has_active_cu
     if risky or vague:
         return True, "New idea appears broad or multi-interpretation; capture it, ask for confirmation, and keep Need Confirmation: yes until clarified."
     return False, "Request appears concrete enough for intake capture with Need Confirmation: no if acceptance criteria are explicit."
+
+
+def _looks_like_other_session(text: str) -> re.Match[str] | None:
+    return re.search(
+        r"\b(other session|another session|different session|new session|separate session)\b",
+        text,
+    )
+
+
+def _route_scope_decision_required(user_input: str, classification: str, has_active_current: bool) -> tuple[bool, str]:
+    if not has_active_current or classification not in {"continue"}:
+        return False, ""
+    text = user_input.lower()
+    if _looks_like_other_session(text):
+        return (
+            True,
+            "Input looks like a different session while another session ledger is active. Confirm whether to continue the active session slug or archive it and start a new session slug.",
+        )
+    return False, ""
 
 
 def route_task(root: Path, user_input: str) -> int:
@@ -2294,6 +2391,8 @@ def route_task(root: Path, user_input: str) -> int:
                     "pending_plan_update": pending_plan_update,
                     "pending_plan_update_sections": pending_plan_update_sections,
                     "plan_revision": status.get("plan_revision"),
+                    "title": status.get("title"),
+                    "current_focus": status.get("current_focus"),
                     "open_requirements": [
                         r.get("id")
                         for r in status.get("requirements", [])
@@ -2303,6 +2402,7 @@ def route_task(root: Path, user_input: str) -> int:
             )
             has_active_current = active_state not in {"completed", "closed"}
     classification, changes_plan, action = _route_classification(user_input, has_active_current)
+    scope_decision_required, scope_decision_reason = _route_scope_decision_required(user_input, classification, has_active_current)
     need_confirmation, confirmation_reason = _route_need_confirmation(user_input, classification, has_active_current)
     requires_resume = active_state == "paused" and classification not in {"status", "pause", "new-task"}
     requires_unblock = (
@@ -2316,6 +2416,7 @@ def route_task(root: Path, user_input: str) -> int:
         has_active_current
         and not requires_resume
         and not requires_unblock
+        and not scope_decision_required
         and not must_update_plan
         and active_implementation_ready
         and not active_gate_problems
@@ -2326,9 +2427,11 @@ def route_task(root: Path, user_input: str) -> int:
         state_actions.append("Current bundle is paused. Run current resume with a reason before mutating it.")
     if requires_unblock:
         state_actions.append("Current bundle is blocked. Resolve the dependency and run unblock before mutating it.")
-    if pending_plan_update:
+    if pending_plan_update and not scope_decision_required:
         stale = ", ".join(pending_plan_update_sections) if pending_plan_update_sections else "requirements/design/implementation"
         state_actions.append(f"A pending plan update already exists. Update stale plan sections ({stale}) and rerun implementation ready before editing product files.")
+    if scope_decision_required:
+        state_actions.append(scope_decision_reason)
     if (
         has_active_current
         and classification not in {"status", "pause", "blocked", "new-task", "no-op"}
@@ -2367,8 +2470,18 @@ def route_task(root: Path, user_input: str) -> int:
     if requires_unblock:
         route_gate = "unblock-required"
         required_next_commands.insert(0, 'unblock --root <root> --slug <slug> --note "<resolution>"')
-    if must_update_plan:
-        route_gate = "plan-update-required"
+    if scope_decision_required:
+        route_gate = "scope-decision-required"
+        required_next_commands.extend(
+            [
+                f'user-input record --root <root> --slug {active_slug} --classification new-task|clarification|expand --changes-plan no|yes ...',
+                'current archive --root <root> --reason "<parked reason>"  # only if this is a separate session/task scope',
+                'init --root <root> --slug <slug> --title "<title>" --unique --idea "<idea>"  # only for separate/follow-up scope',
+            ]
+        )
+    if must_update_plan and not scope_decision_required:
+        if not scope_decision_required:
+            route_gate = "plan-update-required"
         if changes_plan:
             required_next_commands.append(
                 f'user-input record --root <root> --slug {active_slug} --classification {classification} --changes-plan yes ...'
@@ -2385,6 +2498,7 @@ def route_task(root: Path, user_input: str) -> int:
         )
     elif (
         has_active_current
+        and not scope_decision_required
         and classification not in {"status", "pause", "blocked", "new-task", "no-op"}
         and (not active_implementation_ready or active_gate_problems)
     ):
@@ -2403,6 +2517,8 @@ def route_task(root: Path, user_input: str) -> int:
         route_gate = "unblock-required"
     elif requires_resume:
         route_gate = "resume-required"
+    elif scope_decision_required:
+        route_gate = "scope-decision-required"
     elif must_update_plan:
         route_gate = "plan-update-required"
     payload = {
@@ -2414,6 +2530,8 @@ def route_task(root: Path, user_input: str) -> int:
         "route_gate": route_gate,
         "changes_plan": changes_plan,
         "must_update_plan_before_code": must_update_plan,
+        "scope_decision_required": scope_decision_required,
+        "scope_decision_reason": scope_decision_reason,
         "requires_resume": requires_resume,
         "requires_unblock": requires_unblock,
         "can_edit_product_files": can_edit_product_files,
@@ -2494,6 +2612,11 @@ def doctor(root: Path) -> int:
 
 
 def current_set(root: Path, slug: str) -> Path:
+    with current_lock(root):
+        return _current_set_locked(root, slug)
+
+
+def _current_set_locked(root: Path, slug: str) -> Path:
     target = ensure_bundle(root, slug)
     status = read_status(target)
     if status.get("state") in {"completed", "closed"}:
@@ -2515,72 +2638,80 @@ def current_set(root: Path, slug: str) -> Path:
 
 
 def current_clear(root: Path) -> Path:
-    path = current_path(root)
-    if path.exists():
-        current = read_current(root)
-        current_slug = current.get("slug", "") if current else ""
-        current_target = bundle_dir(root, current_slug)
-        if current_target.exists() and state_exists(current_target):
-            status = read_status(current_target)
-            if status.get("state") not in {"completed", "closed"}:
-                raise SystemExit(
-                    f"current clear refused because active bundle '{current_slug}' is unfinished. "
-                    "Use current archive with a reason to park it."
-                )
-        path.unlink()
-    return path
+    with current_lock(root):
+        path = current_path(root)
+        if path.exists():
+            current = read_current(root)
+            current_slug = current.get("slug", "") if current else ""
+            current_target = bundle_dir(root, current_slug)
+            if current_target.exists() and state_exists(current_target):
+                status = read_status(current_target)
+                if status.get("state") not in {"completed", "closed"}:
+                    raise SystemExit(
+                        f"current clear refused because active bundle '{current_slug}' is unfinished. "
+                        "Use current archive with a reason to park it."
+                    )
+            path.unlink()
+        return path
 
 
 def current_archive(root: Path, reason: str) -> Path:
     if not _is_ascii(reason):
         raise SystemExit("archive reason must be English-only ASCII text.")
-    current = read_current(root)
-    if not current:
-        raise SystemExit("No .idea-to-code/current.json exists.")
-    slug = current.get("slug")
-    target = ensure_bundle(root, slug)
-    status = read_status(target)
-    append_history(root, slug, status, reason)
-    append_ledger(target, "archive", f"Archived current bundle: {reason}")
-    current_path(root).unlink(missing_ok=True)
-    return history_index_path(root)
+    with current_lock(root):
+        current = read_current(root)
+        if not current:
+            raise SystemExit("No .idea-to-code/current.json exists.")
+        slug = current.get("slug")
+        target = ensure_bundle(root, slug)
+        status = read_status(target)
+        append_history(root, slug, status, reason)
+        append_ledger(target, "archive", f"Archived current bundle: {reason}")
+        current_path(root).unlink(missing_ok=True)
+        return history_index_path(root)
 
 
 def current_pause(root: Path, reason: str) -> Path:
     if not _is_ascii(reason):
         raise SystemExit("pause reason must be English-only ASCII text.")
-    current = read_current(root)
-    if not current:
-        raise SystemExit("No .idea-to-code/current.json exists.")
-    slug = current.get("slug")
-    target = ensure_bundle(root, slug)
-    with bundle_lock(target):
-        status = read_status(target)
-        if status.get("state") in {"completed", "closed"}:
-            raise SystemExit(f"Cannot pause {status.get('state')} bundle.")
-        status["phase"] = "paused"
-        status["state"] = "paused"
-        status["current_focus"] = f"PAUSED: {reason}"
-        write_status(target, status)
-        current["status"] = "paused"
-        current["updated_at_utc"] = utc_now()
-        current["pause_reason"] = reason
-        current_path(root).write_text(
-            json.dumps(current, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
-        with (target / EXECUTION_LOG_FILE).open("a", encoding="utf-8") as f:
-            f.write(f"## Paused at {utc_now()}\n\n- Reason: {reason}\n\n")
-        append_ledger(target, "pause", f"Paused: {reason}")
-    return target
+    with current_lock(root):
+        current = read_current(root)
+        if not current:
+            raise SystemExit("No .idea-to-code/current.json exists.")
+        slug = current.get("slug")
+        target = ensure_bundle(root, slug)
+        with bundle_lock(target):
+            status = read_status(target)
+            if status.get("state") in {"completed", "closed"}:
+                raise SystemExit(f"Cannot pause {status.get('state')} bundle.")
+            status["phase"] = "paused"
+            status["state"] = "paused"
+            status["current_focus"] = f"PAUSED: {reason}"
+            write_status(target, status)
+            current["status"] = "paused"
+            current["updated_at_utc"] = utc_now()
+            current["pause_reason"] = reason
+            current_path(root).write_text(
+                json.dumps(current, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+            with (target / EXECUTION_LOG_FILE).open("a", encoding="utf-8") as f:
+                f.write(f"## Paused at {utc_now()}\n\n- Reason: {reason}\n\n")
+            append_ledger(target, "pause", f"Paused: {reason}")
+        return target
 
 
 def current_resume(root: Path, reason: str, slug: str | None = None) -> Path:
     if not _is_ascii(reason):
         raise SystemExit("resume reason must be English-only ASCII text.")
+    with current_lock(root):
+        return _current_resume_locked(root, reason, slug)
+
+
+def _current_resume_locked(root: Path, reason: str, slug: str | None = None) -> Path:
     selected_by_slug = slug is not None
     if selected_by_slug:
-        target = current_set(root, slug)
+        target = _current_set_locked(root, slug)
         current = read_current(root)
     else:
         current = read_current(root)

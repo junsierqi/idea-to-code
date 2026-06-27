@@ -301,7 +301,26 @@ During autonomous delivery, do not ask routine "continue?" questions. Work throu
 
 If the user provides a new consideration while work is active, classify it as continue, expand, switch, new-task, status, pause, blocked, clarification, or no-op before acting. Do not initialize a new bundle while an unfinished current bundle exists.
 
-Mission-control rule: every non-trivial incoming request must first be routed against `.idea-to-code/current.json`. The active bundle owns the work until it is finalized, archived, paused, or explicitly switched. Treat chat history as secondary; the bundle state decides whether the request continues the current idea, expands it, replaces it, parks it for a separate task, or only asks for status.
+Mission-control rule: every non-trivial incoming request must first be routed against `.idea-to-code/current.json`. By default, a slug is a session ledger: one continuous conversation/cooperation context may contain multiple ideas, and those ideas are tracked as scoped IDEA/REQ/TASK units inside the same slug. `current.json` is the active session pointer, not proof that another chat session or agent should reuse that slug.
+
+Session-ledger rule:
+
+- Same conversation session: continue the current slug. A new idea in the same session becomes a new IDEA-scoped unit with its own REQ/TASK coverage; do not create one slug per user utterance or per idea by default.
+- Same idea with corrected details: keep the same IDEA scope when possible, or add a follow-up TASK/REQ under that IDEA.
+- New chat session or explicitly separate task/session: start a new slug. Record `new-task --changes-plan no` on the current bundle when needed, archive or finalize the current session as appropriate, then initialize the new session slug.
+- Follow-up to an earlier idea inside the same session: keep the same session slug and add a scoped follow-up such as `IDEA-1 follow-up`, new REQ IDs, and new TASKs.
+- Follow-up to a prior session: start a new session slug and cite the old session slug plus IDEA/REQ/TASK when known as `Related Session` / `Related IDEA`. Do not move, rewrite, or merge the historical ledger.
+- Cross-session or cross-agent stale current: do not assume another conversation belongs to the old active slug just because `current.json` exists. Parallel sessions should use separate slugs or an explicitly selected slug.
+
+Slug count control: one session ledger may contain many user inputs and multiple ideas because they share conversation context. Parallel sessions use separate slugs. A session that becomes too broad can be archived and a new session slug started by explicit user or agent decision.
+
+Multi-agent ledger ownership:
+
+- Same session ledger, parallel agents: use the same slug only after Planner assigns disjoint IDEA/TASK/REQ ownership and file/module write boundaries. Each agent must re-read `current status` before mutating, cite the visible READY excerpt for its TASK, and record role evidence/checkpoints against the shared slug.
+- Different chat sessions, parallel agents: use separate slugs. Do not record independent live sessions in one bundle just because they run in the same repository or time window.
+- Validator or Reviewer subagents: normally do not create a new slug. Record their evidence under the parent implementation slug with `/subagent` only when a real subagent returned usable evidence.
+- Worker subagents implementing disjoint slices: stay in the parent slug when the slices are part of the same session ledger and assigned IDEA/TASK scope; their file ownership must be explicit before edits.
+- Current pointer safety: before any agent archives, initializes, sets, resumes, or mutates a bundle, it must re-check `.idea-to-code/current.json`. If another agent changed current, reroute instead of writing to the previously assumed slug.
 
 Historical bundle boundary: `.idea-to-code/<slug>` directories are persistent recovery and audit ledgers, not default repository context. Do not scan every historical bundle or treat old `00-idea.md`, `01-progress.md`, or `state.json` contents as current task context. Read a historical bundle only when `.idea-to-code/current.json` points to that slug, the user explicitly asks to resume or inspect that slug, or a lifecycle command such as `current status`, `ledger`, `verify`, or `current resume --slug` requires it. If `current.json` is missing, do not infer context by reading all bundle directories; ask for a known unfinished slug, use the history/current commands, or initialize a new bundle according to the workflow.
 
@@ -342,7 +361,9 @@ Active task routing:
 
 - Same task, different wording: record `continue --changes-plan no`, keep the current bundle, and do not create a duplicate bundle.
 - Same task with new acceptance details: record `clarification` or `expand --changes-plan yes`, update requirements/design/implementation, rerun `implementation ready`, and continue.
-- Different unrelated task while current work is unfinished: record `new-task --changes-plan no` on the current bundle, run `current archive --reason "<parked reason>"` to park it, then run `init` for the new task. Resume the parked task later with `current set`.
+- New idea inside the same conversation session: record `expand --changes-plan yes`, add an IDEA-scoped REQ/TASK set, update requirements/design/implementation, rerun `implementation ready`, and continue in the same slug.
+- Explicitly separate task or new chat session: record `new-task --changes-plan no` on the current bundle when needed, archive or finalize the current session slug, then run `init` for the new session slug.
+- Follow-up on an earlier idea in the same session: add a scoped follow-up TASK/REQ under that IDEA; follow-up from a different session starts a new session slug and references the old session/IDEA.
 - True replacement of the current goal: record `switch --changes-plan yes`, update the current bundle's plan, and continue in the same bundle.
 - Unclear relationship to the current idea: run `route`, inspect `00-idea.md`, `01-progress.md`, and `state.json`, then choose the smallest classification that preserves the user's latest goal.
 
@@ -639,7 +660,7 @@ python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" render-
   --root "$(pwd)" --slug <slug> --status Completed|Progress|Blocked
 ```
 
-The helper prints the fixed field skeleton with the idea-to-code role/source prefix, TASK/REQ mapping placeholders, `READY_TASK_OUTPUT_ID`, and `No commit made` under Key Technical Details by default. Edit the skeleton with actual evidence before sending it; do not remove fixed fields, do not drop TASK/REQ mapping from `Changes`, `Completed Items`, `Incomplete Items`, or `Validation Results`, and do not move no-commit state into `Incomplete Items`. Do not use it for ordinary untracked answers.
+The helper prints the fixed field skeleton with the idea-to-code role/source prefix, TASK/REQ mapping placeholders, `READY_TASK_OUTPUT_ID`, and `No commit made` under Key Technical Details by default. Formal tracked status MUST use render-status generated fields when the helper is available: edit the skeleton with actual evidence before sending it; do not remove fixed fields, rename them, reorder them, or hand-invent them; do not drop TASK/REQ mapping from `Changes`, `Completed Items`, `Incomplete Items`, or `Validation Results`; do not drop IDEA/TASK/REQ mapping when multiple ideas exist in the session ledger; and do not move no-commit state into `Incomplete Items`. Do not use it for ordinary untracked answers.
 
 ```text
 [idea-to-code][Closer/agent] Status: Completed | Progress | Blocked
