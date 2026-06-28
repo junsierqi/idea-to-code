@@ -66,6 +66,7 @@ ACCEPTANCE_MATRIX_COLUMNS = (
     "Validation Type",
 )
 READY_TASK_OUTPUT_ID_LABEL = "READY_TASK_OUTPUT_ID"
+EXPLORATION_OUTPUT_ID_LABEL = "EXPLORATION_OUTPUT_ID"
 READY_OUTPUT_FIELDS = (
     "ready_task_output_required",
     "ready_task_output_id",
@@ -73,6 +74,14 @@ READY_OUTPUT_FIELDS = (
     "ready_task_output_at_utc",
     "ready_task_output_event_sequence",
     "ready_task_output_scope",
+)
+EXPLORATION_OUTPUT_FIELDS = (
+    "exploration_output_required",
+    "exploration_output_id",
+    "exploration_output_plan_revision",
+    "exploration_output_at_utc",
+    "exploration_output_event_sequence",
+    "exploration_output_mode",
 )
 PLAN_UPDATE_SECTIONS = ("requirements", "design", "implementation")
 LOCAL_RECORD_KINDS = {
@@ -261,8 +270,9 @@ ROLE_GUIDANCE = {
         "purpose": "Plan requirements, acceptance matrix, design, and TASK/IMP implementation plan before code edits.",
         "must_include": [
             "planned REQ IDs",
-            "00-idea.md, Controlled Exploration, requirements, acceptance matrix, or implementation plan",
+            "00-idea.md, Controlled Exploration, Exploration Visibility Gate output, requirements, acceptance matrix, or implementation plan",
             "TASK/IMP IDs or implementation-plan reference",
+            "EXPLORATION_OUTPUT_ID and READY_TASK_OUTPUT_ID when the plan reached READY",
             "planning work, not validation, review, or closeout work",
         ],
         "must_not_include": [
@@ -497,6 +507,7 @@ def read_status(target: Path) -> dict:
     status.setdefault("user_input_decisions", [])
     status.setdefault("pending_plan_update", False)
     status.setdefault("pending_plan_update_sections", [])
+    _migrate_exploration_output_fields(status)
     _migrate_ready_output_fields(status)
     status.setdefault("role_evidence", {})
     for role in ROLE_NAMES:
@@ -513,6 +524,15 @@ def _migrate_ready_output_fields(status: dict) -> None:
     status.setdefault("ready_task_output_scope", None)
     status.setdefault("event_sequence", 0)
     status.setdefault("last_verified_event_sequence", None)
+
+
+def _migrate_exploration_output_fields(status: dict) -> None:
+    status.setdefault("exploration_output_required", False)
+    status.setdefault("exploration_output_id", None)
+    status.setdefault("exploration_output_plan_revision", None)
+    status.setdefault("exploration_output_at_utc", None)
+    status.setdefault("exploration_output_event_sequence", None)
+    status.setdefault("exploration_output_mode", None)
 
 
 def _next_event_sequence(status: dict) -> int:
@@ -539,6 +559,11 @@ def _verify_is_older_than_entry(status: dict, entry: dict) -> bool:
 
 def _clear_ready_output(status: dict) -> None:
     for field in READY_OUTPUT_FIELDS:
+        status[field] = False if field.endswith("_required") else None
+
+
+def _clear_exploration_output(status: dict) -> None:
+    for field in EXPLORATION_OUTPUT_FIELDS:
         status[field] = False if field.endswith("_required") else None
 
 
@@ -580,6 +605,7 @@ def _pending_plan_update_problem(status: dict) -> str | None:
 
 def _reset_ready_for_plan_change(status: dict, focus: str, pending_sections: tuple[str, ...] | list[str] | None = None) -> None:
     status["implementation_ready"] = False
+    _clear_exploration_output(status)
     _clear_ready_output(status)
     status["plan_revision"] = int(status.get("plan_revision", 0)) + 1
     status["last_verify_ok"] = False
@@ -593,6 +619,7 @@ def _reset_ready_for_plan_change(status: dict, focus: str, pending_sections: tup
 def write_status(target: Path, status: dict) -> None:
     status["updated_at_utc"] = utc_now()
     status["artifact_contract"] = COMPACT_CONTRACT
+    _migrate_exploration_output_fields(status)
     _migrate_ready_output_fields(status)
     status_path = state_path(target)
     tmp_path = target / f"{status_path.name}.{os.getpid()}.{time.monotonic_ns()}.tmp"
@@ -916,6 +943,10 @@ def _init_bundle_locked(root: Path, slug: str, title: str, idea: str, unique: bo
             "state": "in_progress",
             "phase": "planning",
             "implementation_ready": False,
+            "exploration_output_required": False,
+            "exploration_output_id": None,
+            "exploration_output_plan_revision": None,
+            "exploration_output_at_utc": None,
             "ready_task_output_required": False,
             "ready_task_output_id": None,
             "ready_task_output_plan_revision": None,
@@ -1080,8 +1111,9 @@ Planned Verification:
         status["pending_plan_update_sections"] = []
         status["implementation_ready"] = True
         status["phase"] = "ready_to_implement"
+        exploration_id, _ = _record_exploration_output(target, actual_slug, status)
         output_id, ready_output_lines = _record_ready_output(target, actual_slug, status)
-        status["current_focus"] = f"quickstart ready; ready_output={output_id}"
+        status["current_focus"] = f"quickstart ready; exploration_output={exploration_id}; ready_output={output_id}"
         status.setdefault("role_evidence", {role: [] for role in ROLE_NAMES})
         status["role_evidence"].setdefault("planner", []).append(
             {
@@ -1094,7 +1126,7 @@ Planned Verification:
             }
         )
         write_status(target, status)
-        append_ledger(target, "quickstart", f"Quickstart generated ready single-task bundle; ready_output={output_id}")
+        append_ledger(target, "quickstart", f"Quickstart generated ready single-task bundle; exploration_output={exploration_id}; ready_output={output_id}")
     write_current(root, actual_slug, "ready_to_implement")
     return target, ready_output_lines
 
@@ -1526,6 +1558,40 @@ def _intake_gate_problems(target: Path) -> list[str]:
     return problems
 
 
+def _field_value(block: str, label: str) -> str:
+    match = re.search(rf"^-\s*{re.escape(label)}:[ \t]*(.*)$", block, re.MULTILINE)
+    return match.group(1).strip() if match else ""
+
+
+def _intake_gate_values(target: Path) -> dict[str, str]:
+    text = (target / IDEA_FILE).read_text(encoding="utf-8")
+    block = _section_text(text, "## Intake Gate") or ""
+    return {
+        "understanding": _field_value(block, "Understanding"),
+        "assumptions": _field_value(block, "Assumptions"),
+        "acceptance_criteria": _field_value(block, "Acceptance Criteria"),
+        "need_confirmation": _field_value(block, "Need Confirmation").lower(),
+        "confirmation_reason": _field_value(block, "Confirmation Reason"),
+    }
+
+
+def _controlled_exploration_values(target: Path) -> dict[str, str]:
+    text = (target / IDEA_FILE).read_text(encoding="utf-8")
+    block = _section_text(text, "## Controlled Exploration") or ""
+    options_match = re.search(r"^-\s*Options Considered:[ \t]*$([\s\S]*?)(?=^-\s*Decision:|\Z)", block, re.MULTILINE)
+    decision_match = re.search(r"^-\s*Decision:[ \t]*$([\s\S]*?)\Z", block, re.MULTILINE)
+    decision_block = decision_match.group(1) if decision_match else ""
+    return {
+        "needed": _field_value(block, "Exploration Needed").lower(),
+        "trigger": _field_value(block, "Trigger"),
+        "options": (options_match.group(1).strip() if options_match else ""),
+        "chosen_option": _field_value(decision_block, "Chosen option"),
+        "decision_reason": _field_value(decision_block, "Decision reason"),
+        "rejected_options": _field_value(decision_block, "Rejected options"),
+        "unverified_items": _field_value(decision_block, "Unverified items"),
+    }
+
+
 ROLE_LABELS = {"planner", "implementer", "validator", "reviewer", "closer"}
 SOURCE_LABELS = {"agent", "subagent"}
 
@@ -1565,6 +1631,163 @@ def _profile_prefix(profile: str | None = None) -> str:
     return f"[idea-to-code/{profile}]"
 
 
+def _exploration_output_problem(status: dict) -> str | None:
+    if not status.get("exploration_output_required"):
+        return (
+            "Exploration output required: run exploration render --root <root> --slug <slug> "
+            "and send its output to the user before implementation READY."
+        )
+    plan_revision = int(status.get("plan_revision", 0))
+    output_id = status.get("exploration_output_id")
+    output_revision = status.get("exploration_output_plan_revision")
+    if not output_id or output_revision != plan_revision:
+        return (
+            "Exploration output refresh required: run exploration render --root <root> --slug <slug> "
+            "and send its output to the user before implementation READY."
+        )
+    return None
+
+
+def _format_exploration_output(
+    slug: str,
+    title: str,
+    output_id: str,
+    intake: dict[str, str],
+    exploration: dict[str, str],
+    profile: str | None = None,
+) -> list[str]:
+    need_confirmation = intake.get("need_confirmation") == "yes"
+    heading = "Confirmation Required" if need_confirmation else "Exploration Result"
+    lines = [
+        f"{_visibility_prefix(profile, 'planner', 'agent')} {heading} | Bundle: {slug}",
+        "",
+        f"Restated user goal: {title}",
+        f"{EXPLORATION_OUTPUT_ID_LABEL}: {output_id}",
+        "",
+        "User Goal:",
+        f"- {intake.get('understanding') or title}",
+        "",
+        "Acceptance Target:",
+        f"- {intake.get('acceptance_criteria') or 'See Intake Gate acceptance criteria.'}",
+        "",
+        "Exploration:",
+        f"- Needed: {exploration.get('needed') or 'unknown'}",
+        f"- Reason: {exploration.get('trigger') or intake.get('confirmation_reason') or 'See Controlled Exploration.'}",
+        "",
+        "Planned Scope:",
+        "- Required Now: See current requirements and implementation plan.",
+        "- Deferred: See Controlled Exploration decision and acceptance notes.",
+        "- What READY Will Cover: TASK/REQ items in the current implementation plan after this exploration output is visible.",
+        "",
+    ]
+    if need_confirmation:
+        lines.extend([
+            "Decision Options:",
+            exploration.get("options") or "- See Controlled Exploration options in 00-idea.md.",
+            "",
+            "Recommended Option:",
+            f"- {exploration.get('chosen_option') or 'See Controlled Exploration decision.'}",
+            "",
+            "Why This Option:",
+            f"- {exploration.get('decision_reason') or 'See Controlled Exploration decision reason.'}",
+            "",
+            "Please reply with one of:",
+            "- approve",
+            "- choose: <option>",
+            "- change: <correction>",
+            "- explore more: <direction>",
+            "- pause",
+            "- cancel",
+        ])
+    else:
+        lines.extend([
+            "Selected Approach:",
+            f"- {exploration.get('chosen_option') or 'Use the direct implementation path recorded in Controlled Exploration.'}",
+            "",
+            "Why This Approach:",
+            f"- {exploration.get('decision_reason') or 'The plan has no unresolved confirmation gate.'}",
+            "",
+            "Implementation Will Proceed To:",
+            "- Implementation Gate READY after this exploration output is visible.",
+            "",
+            "This is not an approval request; continue unless the user interrupts.",
+        ])
+    return lines
+
+
+def _exploration_output_contract_problems(lines: list[str], need_confirmation: bool) -> list[str]:
+    text = "\n".join(lines)
+    problems: list[str] = []
+    if EXPLORATION_OUTPUT_ID_LABEL + ":" not in text:
+        problems.append("Exploration output missing EXPLORATION_OUTPUT_ID")
+    if "User Goal:" not in text:
+        problems.append("Exploration output missing User Goal")
+    if "Exploration:" not in text:
+        problems.append("Exploration output missing Exploration summary")
+    if "Planned Scope:" not in text:
+        problems.append("Exploration output missing Planned Scope")
+    if need_confirmation:
+        for required in ("Confirmation Required", "Decision Options:", "Recommended Option:", "Please reply with one of:"):
+            if required not in text:
+                problems.append(f"Confirmation exploration output missing {required}")
+    else:
+        for required in ("Exploration Result", "Selected Approach:", "Why This Approach:", "Implementation Will Proceed To:"):
+            if required not in text:
+                problems.append(f"Autonomous exploration output missing {required}")
+        if "Please reply with one of:" in text:
+            problems.append("Autonomous exploration output must not ask for routine confirmation")
+    return problems
+
+
+def _record_exploration_output(
+    target: Path,
+    slug: str,
+    status: dict,
+    profile: str | None = None,
+) -> tuple[str, list[str]]:
+    problems = _intake_gate_problems(target)
+    problems.extend(_controlled_exploration_problems(target))
+    blocking = [
+        problem for problem in problems
+        if "Need Confirmation is yes" not in problem
+    ]
+    if blocking:
+        raise SystemExit("exploration output refused:\n  - " + "\n  - ".join(blocking))
+    plan_revision = int(status.get("plan_revision", 0))
+    timestamp = utc_now()
+    compact_time = re.sub(r"[^0-9]", "", timestamp)[:14]
+    output_id = f"{slug}-explore-r{plan_revision}-{compact_time}"
+    intake = _intake_gate_values(target)
+    exploration = _controlled_exploration_values(target)
+    need_confirmation = intake.get("need_confirmation") == "yes"
+    lines = _format_exploration_output(slug, status.get("title", slug), output_id, intake, exploration, profile)
+    output_problems = _exploration_output_contract_problems(lines, need_confirmation)
+    if output_problems:
+        raise SystemExit("Exploration output contract failed:\n  - " + "\n  - ".join(output_problems))
+    status["exploration_output_required"] = True
+    status["exploration_output_id"] = output_id
+    status["exploration_output_plan_revision"] = plan_revision
+    status["exploration_output_at_utc"] = timestamp
+    status["exploration_output_event_sequence"] = _next_event_sequence(status)
+    status["exploration_output_mode"] = "confirmation-required" if need_confirmation else "autonomous"
+    return output_id, lines
+
+
+def exploration_render(
+    root: Path,
+    slug: str,
+    profile: str | None = None,
+) -> int:
+    target = ensure_active_bundle(root, slug)
+    with bundle_lock(target):
+        status = read_status(target)
+        output_id, lines = _record_exploration_output(target, slug, status, profile)
+        write_status(target, status)
+        append_ledger(target, "exploration-render", f"Exploration output generated/refreshed: {output_id}")
+    print("\n".join(lines))
+    return 0
+
+
 def mark_implementation_ready(
     root: Path,
     slug: str,
@@ -1572,6 +1795,7 @@ def mark_implementation_ready(
     role: str = "planner",
     source: str = "agent",
     task_filters: list[str] | None = None,
+    full_plan: bool = False,
 ) -> Path:
     _reject_ready_role_source_override(role, source)
     target = ensure_active_bundle(root, slug)
@@ -1582,22 +1806,23 @@ def mark_implementation_ready(
                 "implementation gate is not ready:\n  - " + "\n  - ".join(problems)
             )
         status = read_status(target)
+        exploration_lines: list[str] = []
+        exploration_problem = _exploration_output_problem(status)
+        if exploration_problem:
+            _, exploration_lines = _record_exploration_output(target, slug, status, profile)
         status["phase"] = "ready_to_implement"
         status["pending_plan_update"] = False
         status["pending_plan_update_sections"] = []
         status["implementation_ready"] = True
-        output_id, lines = _record_ready_output(target, slug, status, profile, role, source, None)
-        if task_filters:
-            blocks = _filter_ready_task_blocks(_ready_task_blocks(target), task_filters)
-            lines = _format_ready_output(slug, status.get("title", slug), output_id, blocks, profile, "planner", "agent", focused=True)
-            output_problems = _ready_output_contract_problems(lines, blocks)
-            if output_problems:
-                raise SystemExit("READY output contract failed:\n  - " + "\n  - ".join(output_problems))
+        output_id, lines = _record_ready_output(target, slug, status, profile, role, source, task_filters, full_plan)
         write_status(target, status)
         append_ledger(target, "implementation-ready", f"Implementation gate marked READY; ready_output={output_id}")
     current = read_current(root)
     if current and current.get("slug") == slug:
         write_current(root, slug, "ready_to_implement")
+    if exploration_lines:
+        print("\n".join(exploration_lines))
+        print()
     print("\n".join(lines))
     return target
 
@@ -1630,6 +1855,10 @@ def _filter_ready_task_blocks(blocks: list[tuple[str, str]], task_filters: list[
     if missing:
         raise SystemExit(f"READY task filter did not match: {', '.join(missing)}")
     return filtered
+
+
+def _default_ready_task_blocks(blocks: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    return blocks[:1]
 
 
 def _covered_req_hint(task_name: str) -> str | None:
@@ -1678,18 +1907,22 @@ def _format_ready_output(
     role: str = "planner",
     source: str = "agent",
     focused: bool = False,
+    exploration_output_id: str | None = None,
 ) -> list[str]:
     lines = [
         f"{_visibility_prefix(profile, 'planner', 'agent')} Implementation Gate: READY | Bundle: {slug}",
         "",
         f"Restated user goal: {title}",
         f"{READY_TASK_OUTPUT_ID_LABEL}: {output_id}",
-        "",
     ]
+    if exploration_output_id:
+        lines.append(f"{EXPLORATION_OUTPUT_ID_LABEL}: {exploration_output_id}")
+    lines.append("")
     if focused:
         lines.extend([
             "Focused READY TASK excerpt: yes",
             "This excerpt is for visibility only; it does not change bundle scope or gate state.",
+            "Full READY plan remains in 00-idea.md; use --full-plan to print every TASK/IMP block.",
             "",
         ])
     for task_name, block in blocks:
@@ -1747,6 +1980,7 @@ def _record_ready_output(
     role: str = "planner",
     source: str = "agent",
     task_filters: list[str] | None = None,
+    full_plan: bool = False,
 ) -> tuple[str, list[str]]:
     plan_revision = int(status.get("plan_revision", 0))
     timestamp = utc_now()
@@ -1757,9 +1991,20 @@ def _record_ready_output(
     status["ready_task_output_plan_revision"] = plan_revision
     status["ready_task_output_at_utc"] = timestamp
     status["ready_task_output_event_sequence"] = _next_event_sequence(status)
-    status["ready_task_output_scope"] = "focused" if task_filters else "full-plan"
-    blocks = _filter_ready_task_blocks(_ready_task_blocks(target), task_filters)
-    lines = _format_ready_output(slug, status.get("title", slug), output_id, blocks, profile, "planner", "agent", focused=bool(task_filters))
+    all_blocks = _ready_task_blocks(target)
+    if task_filters:
+        blocks = _filter_ready_task_blocks(all_blocks, task_filters)
+        focused = True
+        status["ready_task_output_scope"] = "focused"
+    elif full_plan:
+        blocks = all_blocks
+        focused = False
+        status["ready_task_output_scope"] = "full-plan"
+    else:
+        blocks = _default_ready_task_blocks(all_blocks)
+        focused = True
+        status["ready_task_output_scope"] = "focused-default"
+    lines = _format_ready_output(slug, status.get("title", slug), output_id, blocks, profile, "planner", "agent", focused=focused, exploration_output_id=status.get("exploration_output_id"))
     output_problems = _ready_output_contract_problems(lines, blocks)
     if output_problems:
         raise SystemExit("READY output contract failed:\n  - " + "\n  - ".join(output_problems))
@@ -1773,6 +2018,7 @@ def implementation_show_ready(
     role: str = "planner",
     source: str = "agent",
     task_filters: list[str] | None = None,
+    full_plan: bool = False,
 ) -> int:
     _reject_ready_role_source_override(role, source)
     target = ensure_active_bundle(root, slug)
@@ -1784,18 +2030,19 @@ def implementation_show_ready(
                 "implementation show-ready refused - implementation gate is not READY:\n  - "
                 + "\n  - ".join(problems or [f"{STATE_FILE}: implementation_ready is not true"])
             )
-        if task_filters:
+        if task_filters or not full_plan:
             ready_output_problem = _ready_output_problem(status)
             if ready_output_problem:
                 raise SystemExit("implementation show-ready refused - " + ready_output_problem)
             output_id = status["ready_task_output_id"]
-            blocks = _filter_ready_task_blocks(_ready_task_blocks(target), task_filters)
-            lines = _format_ready_output(slug, status.get("title", slug), output_id, blocks, profile, "planner", "agent", focused=True)
+            all_blocks = _ready_task_blocks(target)
+            blocks = _filter_ready_task_blocks(all_blocks, task_filters) if task_filters else _default_ready_task_blocks(all_blocks)
+            lines = _format_ready_output(slug, status.get("title", slug), output_id, blocks, profile, "planner", "agent", focused=True, exploration_output_id=status.get("exploration_output_id"))
             output_problems = _ready_output_contract_problems(lines, blocks)
             if output_problems:
                 raise SystemExit("READY output contract failed:\n  - " + "\n  - ".join(output_problems))
         else:
-            output_id, lines = _record_ready_output(target, slug, status, profile, "planner", "agent", task_filters)
+            output_id, lines = _record_ready_output(target, slug, status, profile, "planner", "agent", task_filters, full_plan=True)
             write_status(target, status)
             append_ledger(target, "implementation-show-ready", f"READY task output generated/refreshed: {output_id}")
     print("\n".join(lines))
@@ -1806,12 +2053,21 @@ def implementation_status(root: Path, slug: str) -> int:
     target = ensure_bundle(root, slug)
     problems = implementation_gate_problems(target)
     status = read_status(target)
+    exploration_problem = _exploration_output_problem(status)
+    if exploration_problem:
+        problems.append(exploration_problem)
+    ready_problem = _ready_output_problem(status)
+    if ready_problem:
+        problems.append(ready_problem)
     result = {
         "path": str(target),
         "implementation_file": IMPLEMENTATION_FILE,
         "ready": not problems and bool(status.get("implementation_ready")),
         "status_flag": status.get("implementation_ready", False),
         "phase": status.get("phase"),
+        "exploration_output_required": status.get("exploration_output_required", False),
+        "exploration_output_id": status.get("exploration_output_id"),
+        "exploration_output_plan_revision": status.get("exploration_output_plan_revision"),
         "ready_task_output_required": status.get("ready_task_output_required", False),
         "ready_task_output_id": status.get("ready_task_output_id"),
         "ready_task_output_plan_revision": status.get("ready_task_output_plan_revision"),
@@ -2989,6 +3245,9 @@ def _bundle_integrity_problems(target: Path, require_closer: bool) -> list[str]:
         problems.append(f"{STATE_FILE}: no milestones recorded")
     if not status.get("implementation_ready"):
         problems.append(f"{STATE_FILE}: implementation_ready is not true")
+    exploration_output_problem = _exploration_output_problem(status)
+    if exploration_output_problem:
+        problems.append(exploration_output_problem)
     ready_output_problem = _ready_output_problem(status)
     if ready_output_problem:
         problems.append(ready_output_problem)
@@ -3406,6 +3665,7 @@ def render_status_response(
     requirements = [req.get("id", "") for req in status.get("requirements", []) if req.get("state", "open") == "open"]
     req_hint = ", ".join(requirements) if requirements else "<REQ-* IDs>"
     latest_milestone = status.get("milestones", [])[-1]["name"] if status.get("milestones") else "<latest milestone>"
+    exploration_id = status.get("exploration_output_id") or "<EXPLORATION_OUTPUT_ID>"
     ready_id = status.get("ready_task_output_id") or "<READY_TASK_OUTPUT_ID>"
     commit_note = "No commit made unless a commit was explicitly completed outside this bundle."
 
@@ -3431,6 +3691,7 @@ def render_status_response(
         "- none | <remaining risk>",
         "",
         "Key Technical Details:",
+        f"- EXPLORATION_OUTPUT_ID: {exploration_id}",
         f"- READY_TASK_OUTPUT_ID: {ready_id}",
         f"- {commit_note}",
         "- Bundle finalization/commit/publish state belongs here unless explicitly in scope.",
@@ -3655,6 +3916,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--root", required=True)
     p.add_argument("--input", required=True, help="English summary of the incoming user request.")
 
+    p = sub.add_parser("exploration", help="Render the user-visible Controlled Exploration gate.")
+    exp_sub = p.add_subparsers(dest="exploration_command", required=True)
+    er = exp_sub.add_parser("render", help="Render or refresh Exploration Result / Confirmation Required output.")
+    er.add_argument("--root", required=True)
+    er.add_argument("--slug", required=True)
+    er.add_argument("--profile", default=None, help="Optional upper-layer profile label for exploration output.")
+
     p = sub.add_parser("checkpoint", help="Record a milestone.")
     p.add_argument("--root", required=True)
     p.add_argument("--slug", required=True)
@@ -3729,6 +3997,7 @@ def build_parser() -> argparse.ArgumentParser:
     ir.add_argument("--role", default="planner", help="Visible lifecycle role for READY output.")
     ir.add_argument("--source", default="agent", help="Visible execution source for READY output.")
     ir.add_argument("--task", action="append", default=None, help="Limit READY output to a specific TASK/IMP id such as TASK-17. Repeat for multiple tasks.")
+    ir.add_argument("--full-plan", action="store_true", help="Print every TASK/IMP block instead of the default focused first TASK/IMP excerpt.")
     isr = impl_sub.add_parser("show-ready", help="Reprint or refresh the READY TASK output.")
     isr.add_argument("--root", required=True)
     isr.add_argument("--slug", required=True)
@@ -3736,6 +4005,7 @@ def build_parser() -> argparse.ArgumentParser:
     isr.add_argument("--role", default="planner", help="Visible lifecycle role for READY output.")
     isr.add_argument("--source", default="agent", help="Visible execution source for READY output.")
     isr.add_argument("--task", action="append", default=None, help="Limit READY output to a specific TASK/IMP id such as TASK-17. Repeat for multiple tasks.")
+    isr.add_argument("--full-plan", action="store_true", help="Print every TASK/IMP block instead of the default focused first TASK/IMP excerpt.")
     ist = impl_sub.add_parser("status", help="Print implementation gate status.")
     ist.add_argument("--root", required=True)
     ist.add_argument("--slug", required=True)
@@ -3854,6 +4124,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             "path": str(target),
             "slug": target.name,
             "ready": True,
+            "exploration_output_id": status.get("exploration_output_id"),
             "ready_task_output_id": status.get("ready_task_output_id"),
         }, indent=2, ensure_ascii=False))
         if not args.json:
@@ -3866,6 +4137,10 @@ def main(argv: Iterable[str] | None = None) -> int:
 
     if args.command == "route":
         return route_task(root, args.input)
+
+    if args.command == "exploration":
+        if args.exploration_command == "render":
+            return exploration_render(root, args.slug, args.profile)
 
     if args.command == "checkpoint":
         target = checkpoint_bundle(
@@ -3913,10 +4188,10 @@ def main(argv: Iterable[str] | None = None) -> int:
 
     if args.command == "implementation":
         if args.implementation_command == "ready":
-            mark_implementation_ready(root, args.slug, args.profile, args.role, args.source, args.task)
+            mark_implementation_ready(root, args.slug, args.profile, args.role, args.source, args.task, args.full_plan)
             return 0
         if args.implementation_command == "show-ready":
-            return implementation_show_ready(root, args.slug, args.profile, args.role, args.source, args.task)
+            return implementation_show_ready(root, args.slug, args.profile, args.role, args.source, args.task, args.full_plan)
         if args.implementation_command == "status":
             return implementation_status(root, args.slug)
 

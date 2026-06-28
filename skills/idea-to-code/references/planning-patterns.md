@@ -42,7 +42,9 @@ Use the chat session as the default ledger boundary. One session slug can contai
 
 ## Controlled Exploration Pattern
 
-Controlled Exploration is the bounded brainstorming step after Intake Gate and before Task Classification. It is not a separate user approval gate. It records whether exploration is needed, compares a small set of options only when needed, and chooses one decision before implementation planning.
+Controlled Exploration is the bounded brainstorming step after Intake Gate and before Task Classification. It is also a required Exploration Visibility Gate before READY. It records whether exploration is needed, compares a small set of options only when needed, chooses one decision before implementation planning, and surfaces that decision to the user.
+
+Rendered exploration output must separate `Planned Scope` from `Decision Options`. `Planned Scope` lists what is required now, what is deferred, and what READY may cover. `Decision Options` lists only mutually exclusive route choices. This keeps multi-change ideas readable: required items such as A and C are not presented as choices, while route options such as 1, 2, or a revised 3 remain explicit decisions.
 
 Use this shape in `00-idea.md`:
 
@@ -72,7 +74,30 @@ Default to `Exploration Needed: no`. Use `Exploration Needed: yes` only for real
 
 When the user's requested implementation is flawed, treat it as a candidate path, explain the issue, and recommend a better default path. Do not dump low-level engineering choices on the user.
 
-When `Need Confirmation: yes`, include the recommended decision in the existing confirmation request. The user still replies once with `yes`, `approved`, `change: <correction>`, `pause`, or `cancel`.
+When `Need Confirmation: no`, render `Exploration Result` and show `Planned Scope`, the selected approach, why it was chosen, and that implementation will proceed to READY. Do not ask for routine approval.
+
+When `Need Confirmation: yes`, render `Confirmation Required` and include `Planned Scope`, `Decision Options`, the recommended decision, and explicit reply choices. The user can reply with `approve`, `choose: <option>`, `change: <correction>`, `explore more: <direction>`, `pause`, or `cancel`.
+
+Each rendered output has an `EXPLORATION_OUTPUT_ID`. Planner evidence and final status should be able to trace the plan back to that output and to the later `READY_TASK_OUTPUT_ID`.
+
+### Exploration Revision Pattern
+
+When the user revises the exploration result, do not patch the old decision in prose. Treat it as a new exploration revision and generate a new `EXPLORATION_OUTPUT_ID`.
+
+Use this revision shape when scope or route choices change:
+
+```text
+Exploration Revision:
+- Required Now: <A, C>
+- Deferred: <B>
+- Rejected Options: <Option 1, Option 2>
+- New / Selected Option: <Option 3, or direction only - more options needed>
+- What READY Will Cover: <only the REQ/TASK scope approved for execution>
+```
+
+If the user says "1 and 2 are not what I want; explore in this direction", the direction is not automatically Option 3. Generate a new `Confirmation Required` output with new candidate options derived from that direction, recommend one, and keep `explore more: <direction>` available.
+
+If the user says "use route 3" and route 3 is concrete, low-risk, and within the updated scope, generate `Exploration Result`, set `Required Now` and `What READY Will Cover`, and proceed to READY. Deferred items must not appear in READY except as explicit deferred/follow-up notes.
 
 For optional prompt-level evaluation, use `controlled-exploration-benchmark.md`. The benchmark is a reference for maintainers, not part of the normal delivery flow.
 
@@ -127,6 +152,8 @@ Use this shape even when there is only one task.
 
 Do not mark READY until every placeholder has been replaced and every task has
 concrete Files, Execution Details, Done Criteria, and Planned Verification.
+
+For large ideas, avoid making the exploration result compete with a long READY list. Keep the exploration result as a concise decision summary and use focused READY excerpts for the next executable TASK. A future extension may add grouped READY summaries, but it must preserve per-TASK Files, Done Criteria, Planned Verification, and TASK/REQ mapping.
 
 ## Final Report Shape
 

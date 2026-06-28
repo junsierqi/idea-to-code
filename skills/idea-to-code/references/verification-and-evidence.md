@@ -80,6 +80,8 @@ Before accepted closeout, confirm:
 - implementation exists in the repository
 - intake gate is resolved with `Need Confirmation: no`
 - Controlled Exploration is either skipped with a concrete Trigger or resolved with options and one decision
+- Exploration Visibility Gate output was surfaced before READY and has a current `EXPLORATION_OUTPUT_ID`
+- if exploration was revised, the current output shows `Required Now`, `Deferred`, `Rejected Options`, `New / Selected Option`, and `What READY Will Cover`
 - the chosen decision fits the user's real goal and does not blindly follow a flawed requested implementation
 - the plan recommends one default path instead of dumping unresolved options on the user
 - when Controlled Exploration selected an option, validation and review checked whether the decision reason and verification path held up
@@ -139,14 +141,34 @@ Do not turn fallback into root-cause proof. If a broad delegation times out but 
 
 ## READY Visibility Check
 
+## Exploration Visibility Check
+
+Before READY and before product-file edits, the Controlled Exploration decision must be visible to the user in a normal assistant message, not only command stdout, tool output, folded transcript, or internal notes.
+
+Use:
+
+```bash
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" exploration render --root "$(pwd)" --slug <slug>
+```
+
+For `Need Confirmation: no`, the output must be `Exploration Result` and include `EXPLORATION_OUTPUT_ID`, `Planned Scope`, selected approach, why it was chosen, and that implementation proceeds to READY. It must not ask for routine approval.
+
+For `Need Confirmation: yes`, the output must be `Confirmation Required` and include `EXPLORATION_OUTPUT_ID`, `Planned Scope`, `Decision Options`, a recommended option, and reply choices including `approve`, `choose: <option>`, `change: <correction>`, `explore more: <direction>`, `pause`, and `cancel`.
+
+When the user revises exploration, the next output must use a new `EXPLORATION_OUTPUT_ID` and show `Required Now`, `Deferred`, `Rejected Options`, `New / Selected Option`, and `What READY Will Cover`. If the user only provides a direction for more exploration, keep the output as `Confirmation Required` with new candidate options; do not treat the direction as a selected route. Deferred scope must not appear in READY except as deferred/follow-up context, and rejected options must not remain the default route.
+
+`implementation ready` may print Exploration Visibility Gate output before READY when it must refresh the output. That does not remove the user-visible message obligation. If the output was missing before earlier edits, later printing is remediation only and must be recorded as noncompliance.
+
+For large ideas, keep Exploration Visibility Gate output separate from READY. Exploration explains the selected approach; focused READY excerpts explain the next TASK. Future grouped READY summaries may reduce visual clutter, but cannot replace focused TASK/REQ execution visibility.
+
 Before product-file edits, the READY task list must be visible to the user in a normal assistant message, not only command stdout, tool output, or a folded transcript.
 
 READY visibility has two layers:
 
-- `Plan-level READY`: the complete TASK list remains in `00-idea.md` and full READY output for traceability.
+- `Plan-level READY`: the complete TASK list remains in `00-idea.md`; use `implementation ready --full-plan` or `implementation show-ready --full-plan` when full READY output is needed for traceability.
 - `Execution-level READY`: the current TASK excerpt is shown immediately before that TASK is executed.
 
-For multi-task work, default user-visible execution display to the current TASK's focused READY excerpt, not the full long TASK list. Before moving from one TASK to the next, show the next TASK's focused READY excerpt unless the user explicitly asks to skip repeated visibility.
+For multi-task work, default user-visible execution display to the current TASK's focused READY excerpt, not the full long TASK list. `implementation ready` and `implementation show-ready` default to the first TASK/IMP focused excerpt; before moving from one TASK to the next, show the next TASK's focused READY excerpt unless the user explicitly asks to skip repeated visibility.
 
 Use the READY task filter when a long bundle would hide the current work:
 
@@ -166,7 +188,7 @@ The generated READY output has a hard excerpt contract. Every visible TASK/IMP b
 
 If generated READY output omits any of these fields, it is invalid. Regenerate or fix the parser/formatter before product-file edits; do not treat a folded transcript, partial copy, or field-only snippet as sufficient READY visibility.
 
-The final formal `Progress` or `Completed` response must map `Changes`, `Completed Items`, `Incomplete Items`, and `Validation Results` back to the same visible TASK/REQ set for single-idea sessions, and to the same visible IDEA/TASK/REQ set when a session ledger contains multiple ideas. For single-idea sessions, TASK/REQ mapping is enough when the idea scope is unambiguous.
+The final formal `Progress` or `Completed` response must map `Changes`, `Completed Items`, `Incomplete Items`, and `Validation Results` back to the same visible Exploration Visibility Gate output plus TASK/REQ set for single-idea sessions, and to the same visible IDEA/TASK/REQ set when a session ledger contains multiple ideas. For single-idea sessions, TASK/REQ mapping plus the current `EXPLORATION_OUTPUT_ID` is enough when the idea scope is unambiguous.
 
 For multi-task or multi-idea work, "same visible IDEA/TASK/REQ set" means each result bullet maps to the focused execution-level READY excerpt shown before that TASK and to the relevant IDEA scope when more than one idea exists in the session. The final summary may aggregate TASKs, but it must not introduce unshown or unmapped work.
 
@@ -187,7 +209,7 @@ Before sending formal tracked delivery status, run the read-only `render-status`
 python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" render-status --root "$(pwd)" --slug <slug> --status Completed|Progress|Blocked
 ```
 
-The helper does not finalize, verify, or mutate the bundle. It emits a fixed-field skeleton with TASK/REQ placeholders, `READY_TASK_OUTPUT_ID`, and default no-commit placement under `Key Technical Details`. Formal tracked status MUST use render-status generated fields when the helper is available: replace placeholders with actual evidence before sending, but do not omit, rename, reorder, or hand-invent the fixed field set. If `render-status` is unavailable or fails, state that reason and manually use the same fixed fields. Do not omit fields, do not drop TASK/REQ mapping from `Changes`, `Completed Items`, `Incomplete Items`, or `Validation Results`, do not drop IDEA/TASK/REQ mapping when multiple ideas exist in the session ledger, and do not move no-commit state into `Incomplete Items`. Do not use it for ordinary untracked answers.
+The helper does not finalize, verify, or mutate the bundle. It emits a fixed-field skeleton with TASK/REQ placeholders, `EXPLORATION_OUTPUT_ID`, `READY_TASK_OUTPUT_ID`, and default no-commit placement under `Key Technical Details`. Formal tracked status MUST use render-status generated fields when the helper is available: replace placeholders with actual evidence before sending, but do not omit, rename, reorder, or hand-invent the fixed field set. If `render-status` is unavailable or fails, state that reason and manually use the same fixed fields. Do not omit fields, do not drop TASK/REQ mapping from `Changes`, `Completed Items`, `Incomplete Items`, or `Validation Results`, do not drop IDEA/TASK/REQ mapping when multiple ideas exist in the session ledger, and do not move no-commit state into `Incomplete Items`. Do not use it for ordinary untracked answers.
 
 Allowed status labels are `Completed`, `Progress`, and `Blocked`. Status labels describe the scope of the current user-visible response. In session-ledger mode, state or imply the active scope, such as `Scope: IDEA-2 / TASK-4 / REQ-7`, whenever multiple ideas exist. Use `Completed` when every IDEA/TASK/REQ in that response's stated scope is implemented and validated. If `Incomplete Items` is `none` for the stated response scope and validation passed, default to `Status: Completed`; do not downgrade to `Progress` only because the session ledger remains open, no commit was made, fresh-session retest remains external, or user acceptance has not been separately collected. For an interim IDEA/TASK/REQ slice, `Completed` does not claim the whole session ledger is finalized, accepted, committed, or published; disclose those facts under `Key Technical Details` or `Unverified Items`. Use `Progress` when at least one in-scope IDEA/TASK/REQ is still being implemented or validated. Use `Blocked` when in-scope work cannot continue without an external dependency or decision. If there are no incomplete items, unverified items, or residual risks, write `none` under those fields instead of omitting them.
 

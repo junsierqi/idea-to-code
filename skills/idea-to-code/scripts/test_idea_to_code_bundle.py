@@ -317,7 +317,7 @@ class BundleTest(unittest.TestCase):
             "not through chat memory",
             "This skill can:",
             "Standard flow:",
-            "route/current -> intake gate -> controlled exploration -> bundle",
+            "route/current -> intake gate -> controlled exploration -> Exploration Visibility Gate -> bundle",
             "Tool-owned gates are not optional",
             "does not narrow ordinary coding capability",
         ]:
@@ -477,6 +477,60 @@ class BundleTest(unittest.TestCase):
         self.assertIn("not validation evidence", verification_text)
         self.assertIn("fix the command/test runner", verification_text)
 
+    def test_exploration_visibility_gate_is_documented(self) -> None:
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        workflow_text = (REFERENCES_DIR / "workflow.md").read_text(encoding="utf-8")
+        planning_text = (REFERENCES_DIR / "planning-patterns.md").read_text(encoding="utf-8")
+        verification_text = (REFERENCES_DIR / "verification-and-evidence.md").read_text(encoding="utf-8")
+        roles_text = (REFERENCES_DIR / "roles-and-state.md").read_text(encoding="utf-8")
+        combined = "\n".join([skill_text, workflow_text, planning_text, verification_text, roles_text])
+
+        for required in [
+            "Exploration Visibility Gate",
+            "EXPLORATION_OUTPUT_ID",
+            "exploration render",
+            "Exploration Result",
+            "Confirmation Required",
+            "Selected Approach",
+            "Why This Approach",
+            "Implementation Will Proceed To",
+            "Planned Scope",
+            "Decision Options",
+            "Recommended Option",
+            "explore more: <direction>",
+            "before READY",
+            "visible Exploration Visibility Gate output and READY excerpt",
+            "missing Exploration Visibility Gate output",
+            "future extension",
+            "grouped or summarized READY",
+            "focused READY excerpts",
+        ]:
+            self.assertIn(required, combined)
+
+    def test_exploration_revision_rule_is_documented(self) -> None:
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        workflow_text = (REFERENCES_DIR / "workflow.md").read_text(encoding="utf-8")
+        planning_text = (REFERENCES_DIR / "planning-patterns.md").read_text(encoding="utf-8")
+        verification_text = (REFERENCES_DIR / "verification-and-evidence.md").read_text(encoding="utf-8")
+        combined = "\n".join([skill_text, workflow_text, planning_text, verification_text])
+
+        for required in [
+            "Exploration Revision Rule",
+            "Exploration Revision Pattern",
+            "Required Now",
+            "Deferred",
+            "Rejected Options",
+            "New / Selected Option",
+            "What READY Will Cover",
+            "Generate a new `EXPLORATION_OUTPUT_ID`",
+            "direction is not automatically Option 3",
+            "keep `Confirmation Required`",
+            "do not silently promote the direction to a selected route",
+            "Deferred items must not appear in READY",
+            "rejected options must not remain the default route",
+        ]:
+            self.assertIn(required, combined)
+
     def test_console_ready_output_contract_is_documented(self) -> None:
         skill_text = SKILL_MD.read_text(encoding="utf-8")
         verification_text = (REFERENCES_DIR / "verification-and-evidence.md").read_text(encoding="utf-8")
@@ -504,6 +558,7 @@ class BundleTest(unittest.TestCase):
             "render-status",
             "The helper prints the fixed field skeleton",
             "The helper does not finalize, verify, or mutate the bundle",
+            "EXPLORATION_OUTPUT_ID",
             "run the read-only render helper before writing the response whenever the helper is available",
             "If `render-status` is unavailable or fails, state that reason",
             "Formal tracked status MUST use render-status generated fields when the helper is available",
@@ -550,6 +605,8 @@ class BundleTest(unittest.TestCase):
             "--unique",
         )
         slug = json.loads((self.root / ".idea-to-code" / "current.json").read_text(encoding="utf-8"))["slug"]
+        exploration_match = re.search(r"EXPLORATION_OUTPUT_ID:\s*(\S+)", result.stdout)
+        self.assertIsNotNone(exploration_match)
         ready_match = re.search(r"READY_TASK_OUTPUT_ID:\s*(\S+)", result.stdout)
         self.assertIsNotNone(ready_match)
 
@@ -571,6 +628,8 @@ class BundleTest(unittest.TestCase):
             "Key Technical Details:",
             "TASK-*",
             "REQ-1",
+            "EXPLORATION_OUTPUT_ID:",
+            exploration_match.group(1),
             "READY_TASK_OUTPUT_ID:",
             ready_match.group(1),
             "No commit made",
@@ -814,11 +873,12 @@ class BundleTest(unittest.TestCase):
 
         for required in [
             "`Need Confirmation: no` skips the approval wait",
-            "does not skip task-list visibility",
+            "does not skip exploration and task-list visibility",
             "before any product-file edit",
             "`implementation ready` prints the generated",
+            "EXPLORATION_OUTPUT_ID",
             "READY_TASK_OUTPUT_ID",
-            "user-visible `[idea-to-code][Planner/agent] Implementation Gate: READY`",
+            "[idea-to-code][Planner/agent] Implementation Gate: READY",
             "Files",
             "Execution Details",
             "Done Criteria",
@@ -827,6 +887,7 @@ class BundleTest(unittest.TestCase):
             "Command stdout, tool output, or a folded transcript is not enough by itself",
             "Tool stdout or folded command transcripts are not enough for READY visibility",
             "send a normal assistant message",
+            "Exploration Visibility Check",
             "Plan-level READY",
             "Execution-level READY",
             "For multi-task work, default the user-visible execution message to the current TASK",
@@ -838,7 +899,7 @@ class BundleTest(unittest.TestCase):
             "covered REQ hint",
             "covered `REQ-*`",
             "If any of those fields are missing, the READY output is invalid",
-            "same visible TASK/REQ set",
+            "same visible Exploration Visibility Gate output plus TASK/REQ set",
             "Before moving from TASK-1 to TASK-2, show the TASK-2 focused READY excerpt",
             "each result bullet maps to the focused execution-level READY excerpt shown before that TASK",
             "must not introduce unshown or unmapped work",
@@ -887,7 +948,7 @@ class BundleTest(unittest.TestCase):
             "run `render-status` first",
             "If `render-status` is unavailable or fails, state that reason",
             "Mapping rule",
-            "must map to the visible READY TASK/REQ excerpt",
+            "must map to the visible Exploration Visibility Gate output and READY TASK/REQ excerpt",
             "Noncompliance rule",
             "say so plainly, correct the process",
             "Multi-role regression rule",
@@ -925,8 +986,9 @@ class BundleTest(unittest.TestCase):
             "[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle:",
             "tracked repository or artifact edits",
             "code, docs, tests, config, scripts, and tracked bundle artifacts",
+            "Exploration Visibility Gate output",
             "Validator output names validation type, command/evidence, and covered TASK/REQ IDs",
-            "Reviewer output flags missing READY visibility, late READY remediation, or missing fixed final status fields as noncompliance",
+            "Reviewer output flags missing Exploration Visibility Gate output, missing READY visibility, late READY remediation, or missing fixed final status fields as noncompliance",
             "runs `render-status` first",
             "Over-templates ordinary untracked replies",
             "must fail if it adds READY output or fixed status fields to explanation-only",
@@ -947,9 +1009,11 @@ class BundleTest(unittest.TestCase):
         for required in [
             "READY visibility has two layers",
             "`Plan-level READY`: the complete TASK list remains in `00-idea.md`",
+            "use `implementation ready --full-plan` or `implementation show-ready --full-plan`",
             "`Execution-level READY`: the current TASK excerpt is shown immediately before that TASK is executed",
             "For multi-task work, default user-visible execution display to the current TASK's focused READY excerpt",
-            "Before moving from one TASK to the next, show the next TASK's focused READY excerpt",
+            "`implementation ready` and `implementation show-ready` default to the first TASK/IMP focused excerpt",
+            "before moving from one TASK to the next, show the next TASK's focused READY excerpt",
             "The generated READY output has a hard excerpt contract",
             "the `TASK-*` or `IMP-*` line",
             "covered `REQ-*` or the script's covered REQ hint when inferable",
@@ -1086,6 +1150,10 @@ class BundleTest(unittest.TestCase):
         combined = "\n".join([skill_text, roles_text, verification_text])
 
         for required in [
+            "Planner output shows `[idea-to-code][Planner/agent] Exploration Result | Bundle: <slug>`",
+            "Confirmation Required | Bundle: <slug>",
+            "Implementer output does not start tracked repository or artifact edits until the visible Exploration Visibility Gate output and READY excerpt have appeared",
+            "Reviewer output flags missing Exploration Visibility Gate output",
             "Formal tracked status MUST use render-status generated fields when `render-status` is available",
             "Formal tracked status MUST use render-status generated fields when the helper is available",
             "must not omit, rename, reorder, or hand-invent the fixed field set",
@@ -1102,6 +1170,102 @@ class BundleTest(unittest.TestCase):
             "must fail if it adds READY output or fixed status fields to explanation-only",
         ]:
             self.assertIn(required, combined)
+
+    def test_multi_role_output_compliance_simulation_covers_exploration_gate(self) -> None:
+        outputs = {
+            "planner": (
+                "[idea-to-code][Planner/agent] Exploration Result | Bundle: sample\n"
+                "EXPLORATION_OUTPUT_ID: sample-explore-r1-20260101000000\n"
+                "Selected Approach:\n- Direct path.\n\n"
+                "[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: sample\n"
+                "READY_TASK_OUTPUT_ID: sample-r1-20260101000001\n"
+                "EXPLORATION_OUTPUT_ID: sample-explore-r1-20260101000000\n"
+                "TASK-1: Update sample behavior\nCovered REQ hint: REQ-1\nFiles:\n- sample.py\n"
+                "Done Criteria:\n- behavior updated\nPlanned Verification:\n- source-only unittest"
+            ),
+            "implementer": (
+                "[idea-to-code][Implementer/agent] TASK-1 / REQ-1 editing starts only after "
+                "EXPLORATION_OUTPUT_ID sample-explore-r1-20260101000000 and READY_TASK_OUTPUT_ID sample-r1-20260101000001 were visible."
+            ),
+            "validator": (
+                "[idea-to-code][Validator/agent] TASK-1 / REQ-1 source-only validation: "
+                "python -m unittest passed."
+            ),
+            "reviewer": (
+                "[idea-to-code][Reviewer/agent] same-agent review: checked Exploration Visibility Gate output, "
+                "READY visibility, TASK-1 / REQ-1 scope, validation strength, and residual risks."
+            ),
+            "closer": (
+                "[idea-to-code][Closer/agent] Status: Completed\n\n"
+                "Changes:\n- TASK-1 / REQ-1: change\n\n"
+                "Completed Items:\n- TASK-1 / REQ-1: complete\n\n"
+                "Incomplete Items:\n- none\n\n"
+                "Validation Results:\n- TASK-1 / REQ-1: source-only unittest passed\n\n"
+                "Unverified Items:\n- none\n\nResidual Risks:\n- none\n\n"
+                "Key Technical Details:\n- EXPLORATION_OUTPUT_ID: sample-explore-r1-20260101000000\n"
+                "- READY_TASK_OUTPUT_ID: sample-r1-20260101000001\n- No commit made"
+            ),
+            "ordinary": (
+                "[idea-to-code][Planner/agent] Controlled Exploration means the planner briefly evaluates "
+                "whether a real fork exists and then chooses a path."
+            ),
+        }
+
+        self.assertIn("Exploration Result", outputs["planner"])
+        self.assertIn("Implementation Gate: READY", outputs["planner"])
+        self.assertLess(outputs["planner"].index("Exploration Result"), outputs["planner"].index("Implementation Gate: READY"))
+        self.assertIn("EXPLORATION_OUTPUT_ID sample-explore-r1-20260101000000", outputs["implementer"])
+        self.assertIn("READY_TASK_OUTPUT_ID sample-r1-20260101000001", outputs["implementer"])
+        self.assertIn("source-only", outputs["validator"])
+        self.assertIn("TASK-1 / REQ-1", outputs["validator"])
+        self.assertIn("checked Exploration Visibility Gate output", outputs["reviewer"])
+        for field in [
+            "Changes:",
+            "Completed Items:",
+            "Incomplete Items:",
+            "Validation Results:",
+            "Unverified Items:",
+            "Residual Risks:",
+            "Key Technical Details:",
+        ]:
+            self.assertIn(field, outputs["closer"])
+        self.assertIn("EXPLORATION_OUTPUT_ID:", outputs["closer"])
+        self.assertNotIn("Implementation Gate: READY", outputs["ordinary"])
+        self.assertNotIn("Changes:", outputs["ordinary"])
+
+    def test_exploration_revision_simulation_keeps_directional_feedback_in_confirmation(self) -> None:
+        revised_output = (
+            "[idea-to-code][Planner/agent] Confirmation Required | Bundle: sample\n"
+            "EXPLORATION_OUTPUT_ID: sample-explore-r2-20260101000002\n\n"
+            "Exploration Revision:\n"
+            "- Required Now: A, C\n"
+            "- Deferred: B\n"
+            "- Rejected Options: Option 1, Option 2\n"
+            "- New / Selected Option: direction only - more options needed\n"
+            "- What READY Will Cover: no READY until a revised option is approved\n\n"
+            "Decision Options:\n"
+            "- Option 3A: route derived from the requested direction\n"
+            "- Option 3B: narrower route derived from the requested direction\n\n"
+            "Recommended Option:\n"
+            "- Option 3A\n\n"
+            "Please reply with one of:\n"
+            "- approve\n"
+            "- choose: <option>\n"
+            "- change: <correction>\n"
+            "- explore more: <direction>\n"
+            "- pause\n"
+            "- cancel\n"
+        )
+
+        self.assertIn("Confirmation Required", revised_output)
+        self.assertIn("EXPLORATION_OUTPUT_ID: sample-explore-r2-20260101000002", revised_output)
+        self.assertIn("Required Now: A, C", revised_output)
+        self.assertIn("Deferred: B", revised_output)
+        self.assertIn("Rejected Options: Option 1, Option 2", revised_output)
+        self.assertIn("direction only - more options needed", revised_output)
+        self.assertIn("no READY until a revised option is approved", revised_output)
+        self.assertIn("explore more: <direction>", revised_output)
+        self.assertNotIn("Implementation Gate: READY", revised_output)
 
     def test_user_intent_acceptance_contract_is_documented(self) -> None:
         skill_text = SKILL_MD.read_text(encoding="utf-8")
@@ -1370,6 +1534,12 @@ Validation types: real-product-path, mock-only, fixture-only, source-only, dom-o
     def run_ready_output(self, slug: str) -> str:
         result = self.run_bundle("implementation", "show-ready", "--root", str(self.root), "--slug", slug)
         match = re.search(r"READY_TASK_OUTPUT_ID:\s*(\S+)", result.stdout)
+        self.assertIsNotNone(match, result.stdout)
+        return match.group(1)
+
+    def run_exploration_output(self, slug: str) -> str:
+        result = self.run_bundle("exploration", "render", "--root", str(self.root), "--slug", slug)
+        match = re.search(r"EXPLORATION_OUTPUT_ID:\s*(\S+)", result.stdout)
         self.assertIsNotNone(match, result.stdout)
         return match.group(1)
 
@@ -1982,15 +2152,60 @@ Planned Verification: x
         slug = self.init_bundle()
         self.write_ready_bundle(slug, need_confirmation="no", mark_ready=False)
         result = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        self.assertIn("[idea-to-code][Planner/agent] Exploration Result", result.stdout)
+        self.assertIn("EXPLORATION_OUTPUT_ID:", result.stdout)
+        self.assertIn("Selected Approach:", result.stdout)
+        self.assertIn("Implementation Will Proceed To:", result.stdout)
         self.assertIn("[idea-to-code][Planner/agent] Implementation Gate: READY", result.stdout)
         self.assertIn("READY_TASK_OUTPUT_ID:", result.stdout)
+        self.assertIn("EXPLORATION_OUTPUT_ID:", result.stdout)
         self.assertIn("TASK-1: Verify sample bundle flow", result.stdout)
         self.assertNotIn(str(self.root / ".idea-to-code" / slug), result.stdout)
         status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
         self.assertTrue(status["implementation_ready"])
+        self.assertTrue(status["exploration_output_required"])
+        self.assertEqual(status["exploration_output_plan_revision"], status["plan_revision"])
+        self.assertTrue(status["exploration_output_id"])
+        self.assertEqual(status["exploration_output_mode"], "autonomous")
         self.assertTrue(status["ready_task_output_required"])
         self.assertEqual(status["ready_task_output_plan_revision"], status["plan_revision"])
         self.assertTrue(status["ready_task_output_id"])
+
+    def test_exploration_render_outputs_confirmation_required_options(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, need_confirmation="yes", mark_ready=False)
+        result = self.run_bundle("exploration", "render", "--root", str(self.root), "--slug", slug)
+        self.assertIn("[idea-to-code][Planner/agent] Confirmation Required", result.stdout)
+        self.assertIn("EXPLORATION_OUTPUT_ID:", result.stdout)
+        self.assertIn("Planned Scope:", result.stdout)
+        self.assertIn("Decision Options:", result.stdout)
+        self.assertIn("Recommended Option:", result.stdout)
+        self.assertIn("Please reply with one of:", result.stdout)
+        self.assertIn("explore more: <direction>", result.stdout)
+        self.assertNotIn("Implementation Gate: READY", result.stdout)
+        status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(status["exploration_output_mode"], "confirmation-required")
+        self.assertTrue(status["exploration_output_id"])
+
+    def test_exploration_render_outputs_autonomous_result_without_routine_confirmation(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, need_confirmation="no", mark_ready=False)
+        result = self.run_bundle("exploration", "render", "--root", str(self.root), "--slug", slug)
+        self.assertIn("[idea-to-code][Planner/agent] Exploration Result", result.stdout)
+        self.assertIn("Selected Approach:", result.stdout)
+        self.assertIn("Why This Approach:", result.stdout)
+        self.assertIn("This is not an approval request", result.stdout)
+        self.assertNotIn("Please reply with one of:", result.stdout)
+        self.assertNotIn("Confirmation Required", result.stdout)
+
+    def test_ready_output_carries_exploration_output_id(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, need_confirmation="no", mark_ready=False)
+        result = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        self.assertIn(f"EXPLORATION_OUTPUT_ID: {status['exploration_output_id']}", result.stdout)
+        ready_output = self.run_bundle("implementation", "show-ready", "--root", str(self.root), "--slug", slug)
+        self.assertIn(f"EXPLORATION_OUTPUT_ID: {status['exploration_output_id']}", ready_output.stdout)
 
     def test_implementation_ready_supports_profile_prefix(self) -> None:
         slug = self.init_bundle()
@@ -2098,9 +2313,9 @@ Planned Verification: x
         after = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
         self.assertEqual(after["ready_task_output_id"], before["ready_task_output_id"])
         self.assertEqual(after["ready_task_output_event_sequence"], before["ready_task_output_event_sequence"])
-        self.assertEqual(after["ready_task_output_scope"], "full-plan")
+        self.assertEqual(after["ready_task_output_scope"], "focused-default")
 
-    def test_implementation_ready_task_keeps_full_plan_ready_anchor(self) -> None:
+    def test_implementation_ready_defaults_to_focused_first_task_for_multi_task_bundle(self) -> None:
         slug = self.init_bundle()
         self.write_ready_bundle(slug, mark_ready=False)
         implementation = """# Implementation
@@ -2143,18 +2358,25 @@ Planned Verification:
         impl_path.write_text(implementation, encoding="utf-8")
         self.run_bundle("update", "--root", str(self.root), "--slug", slug, "--file", "implementation", "--content-file", str(impl_path))
 
-        ready = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug, "--task", "TASK-1")
+        ready = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
         self.assertIn("Focused READY TASK excerpt: yes", ready.stdout)
+        self.assertIn("Full READY plan remains in 00-idea.md; use --full-plan", ready.stdout)
         self.assertIn("TASK-1: Verify sample bundle flow", ready.stdout)
         self.assertNotIn("TASK-2: Verify second task visibility", ready.stdout)
         status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
-        self.assertEqual(status["ready_task_output_scope"], "full-plan")
+        self.assertEqual(status["ready_task_output_scope"], "focused-default")
 
         focused_second = self.run_bundle("implementation", "show-ready", "--root", str(self.root), "--slug", slug, "--task", "TASK-2")
         self.assertIn("TASK-2: Verify second task visibility", focused_second.stdout)
         status_after = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
         self.assertEqual(status_after["ready_task_output_id"], status["ready_task_output_id"])
-        self.assertEqual(status_after["ready_task_output_scope"], "full-plan")
+        self.assertEqual(status_after["ready_task_output_scope"], "focused-default")
+
+        full_plan = self.run_bundle("implementation", "show-ready", "--root", str(self.root), "--slug", slug, "--full-plan")
+        self.assertIn("TASK-1: Verify sample bundle flow", full_plan.stdout)
+        self.assertIn("TASK-2: Verify second task visibility", full_plan.stdout)
+        status_full = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(status_full["ready_task_output_scope"], "full-plan")
 
     def test_ready_output_contract_accepts_complete_focused_output(self) -> None:
         module = load_bundle_module()
@@ -2311,13 +2533,18 @@ Planned Verification:
         payload = json.loads(json_part)
         slug = payload["slug"]
         self.assertTrue(payload["ready"])
+        self.assertTrue(payload["exploration_output_id"])
         self.assertIn("[idea-to-code][Planner/agent] Implementation Gate: READY", ready_output_part)
+        self.assertIn("EXPLORATION_OUTPUT_ID:", ready_output_part)
         self.assertIn("READY_TASK_OUTPUT_ID:", ready_output_part)
         self.assertIn("TASK-1: Add one concise README sentence.", ready_output_part)
         current = json.loads((self.root / ".idea-to-code" / "current.json").read_text(encoding="utf-8"))
         self.assertEqual(current["slug"], slug)
         status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
         self.assertTrue(status["implementation_ready"])
+        self.assertTrue(status["exploration_output_required"])
+        self.assertEqual(status["exploration_output_plan_revision"], status["plan_revision"])
+        self.assertTrue(status["exploration_output_id"])
         self.assertTrue(status["ready_task_output_required"])
         self.assertEqual(status["ready_task_output_plan_revision"], status["plan_revision"])
         self.assertTrue(status["ready_task_output_id"])
@@ -2344,6 +2571,7 @@ Planned Verification:
         )
         payload = json.loads(result.stdout)
         self.assertTrue(payload["ready"])
+        self.assertTrue(payload["exploration_output_id"])
         self.assertTrue(payload["ready_task_output_id"])
         self.assertNotIn("[idea-to-code][Planner/agent] Implementation Gate: READY", result.stdout)
 
@@ -2444,7 +2672,7 @@ Planned Verification:
             "--evidence", f"TASK-1 implemented through state.json bundle records for REQ-1 after READY_TASK_OUTPUT_ID {old_output_id}",
             "--covers", "REQ-1",
         )
-        self.run_bundle("implementation", "show-ready", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("implementation", "show-ready", "--root", str(self.root), "--slug", slug, "--full-plan")
         self.run_bundle(
             "role", "record", "--root", str(self.root), "--slug", slug,
             "--role", "validator",

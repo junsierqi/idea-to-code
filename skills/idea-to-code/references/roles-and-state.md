@@ -89,14 +89,15 @@ For multi-agent implementation inside one session ledger, Planner evidence must 
 
 This section owns the role-by-role output matrix. `workflow.md` owns the lifecycle trigger for when to run the scenario and the `.idea-to-code/current.json` context boundary.
 
-After changing READY visibility, role/source prefixes, validation status wording, noncompliance reporting, or final handoff formatting, run or update the multi-role output compliance scenario. The scenario covers Planner, Implementer, Validator, Reviewer, and Closer output expectations and records expected versus observed behavior so instruction drift is visible instead of guessed.
+After changing Exploration Visibility Gate output, READY visibility, role/source prefixes, validation status wording, noncompliance reporting, or final handoff formatting, run or update the multi-role output compliance scenario. The scenario covers Planner, Implementer, Validator, Reviewer, and Closer output expectations and records expected versus observed behavior so instruction drift is visible instead of guessed.
 
 The hard checks are:
 
-- Planner output shows `[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: <slug>` and a visible TASK/REQ excerpt before tracked edits.
-- Implementer output does not start tracked repository or artifact edits until that visible READY excerpt has appeared.
+- Planner output shows `[idea-to-code][Planner/agent] Exploration Result | Bundle: <slug>` for autonomous work or `[idea-to-code][Planner/agent] Confirmation Required | Bundle: <slug>` for confirmation work before READY, with `Planned Scope` separated from `Decision Options`.
+- Planner output shows `[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: <slug>` and a visible focused TASK/REQ excerpt only after the Exploration Visibility Gate output is current; full READY output is reserved for `--full-plan` audit use.
+- Implementer output does not start tracked repository or artifact edits until the visible Exploration Visibility Gate output and READY excerpt have appeared.
 - Validator output names validation type, command/evidence, and covered TASK/REQ IDs.
-- Reviewer output flags missing READY visibility, late READY remediation, or missing fixed final status fields as noncompliance.
+- Reviewer output flags missing Exploration Visibility Gate output, missing READY visibility, late READY remediation, or missing fixed final status fields as noncompliance.
 - Closer output runs `render-status` first for tracked final handoff; if unavailable or failed, it states the reason and uses the fixed Console Response Contract fields manually.
 - Formal tracked status MUST use render-status generated fields when `render-status` is available. The final response may replace placeholders with actual evidence, but it must not omit, rename, reorder, or hand-invent the fixed field set.
 - Closer formal tracked status fails compliance if it omits any fixed field (`Changes`, `Completed Items`, `Incomplete Items`, `Validation Results`, `Unverified Items`, `Residual Risks`, or `Key Technical Details`), drops TASK/REQ mapping from `Changes`, `Completed Items`, `Incomplete Items`, or `Validation Results`, drops IDEA/TASK/REQ mapping when multiple ideas exist in the session ledger, puts `No commit made` under `Incomplete Items`, or hand-writes a formal tracked handoff without first using `render-status` when it is available.
@@ -129,8 +130,9 @@ python ".../idea_to_code_bundle.py" role explain --role <planner|implementer|val
 Must include:
 
 - planned REQ IDs
-- 00-idea.md, Controlled Exploration, requirements, acceptance matrix, or implementation plan
+- 00-idea.md, Controlled Exploration, Exploration Visibility Gate output, requirements, acceptance matrix, or implementation plan
 - TASK/IMP IDs or implementation-plan reference
+- EXPLORATION_OUTPUT_ID and READY_TASK_OUTPUT_ID when the plan reached READY
 - planning work, not validation, review, or closeout work
 
 Must not include:

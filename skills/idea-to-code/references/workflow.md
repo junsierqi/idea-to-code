@@ -47,13 +47,31 @@ If the user corrects or extends work after a bundle exists, do not delete or sil
 
 ## Controlled Exploration
 
-Controlled Exploration happens after Intake Gate and before Task Classification. It is a planning section, not a new lifecycle state and not a second approval gate.
+Controlled Exploration happens after Intake Gate and before Task Classification. It is a planning section and a required user-visible Exploration Visibility Gate before READY, not a hidden note and not a second approval gate.
+
+The rendered Exploration Visibility Gate separates `Planned Scope` from `Decision Options`. `Planned Scope` names required-now scope, deferred scope, and what READY can cover. `Decision Options` is only for mutually exclusive route choices. Do not present required scope items as user choices, and do not bury deferred or rejected scope inside option descriptions.
 
 Default to `Exploration Needed: no`. Use `Exploration Needed: yes` only when the request has a real user-visible, architecture, API, cross-module, security, data, cost, migration, destructive-action, ambiguity, failure-cause, verification, or meaningful risk fork. Consider 2-4 options, record each as a hypothesis with fit, cost, risk, verification path, and rejection condition, then choose exactly one decision before `implementation ready`.
 
 Use `Exploration Needed: no` when the task has one clear, low-risk implementation path. Record a concrete Trigger explaining why exploration is safely skipped.
 
-When `Need Confirmation: yes`, include the Controlled Exploration options and recommended decision in the existing confirmation request. The user still confirms or corrects once; do not ask for a separate brainstorm approval.
+Render the user-visible gate with:
+
+```bash
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" exploration render --root "$(pwd)" --slug <slug>
+```
+
+When `Need Confirmation: no`, the visible output is `Exploration Result`: show `Planned Scope`, the selected approach, why it was chosen, and that implementation proceeds to READY. Do not ask for routine approval and do not show an option dump for simple single-path work.
+
+When `Need Confirmation: yes`, the visible output is `Confirmation Required`: include `Planned Scope`, `Decision Options`, the recommended decision, and exact reply choices `approve`, `choose: <option>`, `change: <correction>`, `explore more: <direction>`, `pause`, and `cancel`. The user still confirms or corrects once; do not ask for a separate brainstorm approval. If the user asks to explore more, update Controlled Exploration, rerender the gate, and keep implementation blocked until Intake Gate becomes `Need Confirmation: no`.
+
+Exploration Revision Rule:
+
+- When the user responds to exploration by deferring scope, rejecting options, proposing a new route, or asking to explore more in a direction, record a plan-changing clarification/switch before READY.
+- Generate a new `EXPLORATION_OUTPUT_ID` for the revised exploration. The prior output remains history, not current authorization.
+- The revised output must explicitly show `Required Now`, `Deferred`, `Rejected Options`, `New / Selected Option`, and `What READY Will Cover`.
+- If the user gives only a direction, generate revised candidate options from that direction and keep `Confirmation Required`; do not silently promote the direction to a selected route.
+- If the user selects a clear route and no confirmation risk remains, use `Exploration Result` and proceed to READY only for `Required Now`.
 
 Controlled Exploration should be recommendation-led. If the user's proposed implementation is flawed, treat it as a candidate, explain the issue, recommend a better default path, and ask for confirmation only when that recommendation creates a real product, security, data, cost, or architecture fork. Do not dump choices on the user or ask repeated routine confirmations after the path is approved.
 
@@ -112,21 +130,22 @@ Do not leave generated tests ambiguous. If a test should run with the product pe
 2. Initialize or resume the active bundle. Use only the active `current.json` bundle or an explicitly requested slug; historical ledgers remain inert by default.
 3. Fill Intake Gate, Controlled Exploration, and `00-idea.md` sections through `update`.
 4. Register REQ IDs.
-5. Run `implementation ready` only after `Need Confirmation: no` and Controlled Exploration has either been skipped with a concrete Trigger or resolved with options and a decision.
-6. Before any tracked repository or artifact edit, run the non-bypassable pre-edit self-check: confirm the current user-visible conversation already contains the focused READY TASK excerpt for the exact TASK/REQ and files about to be edited. If it does not, do not edit. Run or reuse `implementation ready` / `implementation show-ready --task <TASK-ID>`, paste the relevant READY TASK excerpt in a normal assistant message, and continue only after that message is visible. This includes code, docs, tests, config, scripts, and tracked bundle artifacts. Reusing READY still requires showing the relevant excerpt again before the current edit unless the user explicitly waived repeated visibility after an initial visible READY excerpt. Command stdout, folded transcript output, internal notes, or a READY message printed after edits have already started are not compliant for those earlier edits.
-7. Record Planner evidence.
-8. Implement a TASK/IMP slice.
-9. Record Implementer, Validator, and Reviewer evidence.
-10. Record a checkpoint with `--covers`.
-11. Run pre-close `verify`.
-12. Record Closer evidence.
-13. Run `finalize`.
-14. Run final `verify`.
-15. Before a final tracked handoff for install, validation, commit, delivery, blocked, review, keep/revise/rollback, or final status, run `render-status` first. If `render-status` is unavailable or fails, state that reason and then use the fixed Console Response Contract fields manually.
+5. Run or reuse `exploration render` and surface its `EXPLORATION_OUTPUT_ID` in a normal assistant message. `implementation ready` refreshes this output before READY when needed, but visibility is still a user-message obligation.
+6. Run `implementation ready` only after `Need Confirmation: no`, Controlled Exploration has either been skipped with a concrete Trigger or resolved with options and a decision, and the Exploration Visibility Gate output is current for the plan revision.
+7. Before any tracked repository or artifact edit, run the non-bypassable pre-edit self-check: confirm the current user-visible conversation already contains the Exploration Visibility Gate output plus the focused READY TASK excerpt for the exact TASK/REQ and files about to be edited. If either is missing, do not edit. Run or reuse `exploration render` and `implementation ready` / `implementation show-ready --task <TASK-ID>`, paste the relevant outputs in normal assistant messages, and continue only after they are visible. `implementation ready` and `implementation show-ready` default to the first TASK/IMP focused excerpt; use `--full-plan` only when the full audit list needs to be printed. This includes code, docs, tests, config, scripts, and tracked bundle artifacts. Reusing READY still requires showing the relevant excerpt again before the current edit unless the user explicitly waived repeated visibility after an initial visible READY excerpt. Command stdout, folded transcript output, internal notes, or a READY message printed after edits have already started are not compliant for those earlier edits.
+8. Record Planner evidence.
+9. Implement a TASK/IMP slice.
+10. Record Implementer, Validator, and Reviewer evidence.
+11. Record a checkpoint with `--covers`.
+12. Run pre-close `verify`.
+13. Record Closer evidence.
+14. Run `finalize`.
+15. Run final `verify`.
+16. Before a final tracked handoff for install, validation, commit, delivery, blocked, review, keep/revise/rollback, or final status, run `render-status` first. If `render-status` is unavailable or fails, state that reason and then use the fixed Console Response Contract fields manually.
 
 ## Output Compliance Testing
 
-After changing READY visibility, role/source prefixes, validation status wording, noncompliance reporting, or final handoff formatting, run or update the multi-role output compliance scenario in `references/roles-and-state.md#multi-role-output-compliance`.
+After changing Exploration Visibility Gate output, READY visibility, role/source prefixes, validation status wording, noncompliance reporting, or final handoff formatting, run or update the multi-role output compliance scenario in `references/roles-and-state.md#multi-role-output-compliance`.
 
 Context boundary: agents may read `.idea-to-code/current.json` to identify the active slug. They must not treat the active slug directory, historical slug directories, `00-idea.md`, `01-progress.md`, `state.json`, or artifact files as default context. Read a slug directory only when the user explicitly asks to inspect or resume it, or when a lifecycle command needs that bundle. Task-specific scenario run results may be recorded under the active `.idea-to-code/<slug>/artifacts/` directory as evidence, but those evidence files are not default context and are not regression-test inputs.
 
@@ -134,7 +153,7 @@ Workflow owns the lifecycle trigger and context boundary. `roles-and-state.md` o
 
 Branch closure checks for output compliance:
 
-- Tracked edit branch: visible focused READY exists for the exact TASK/REQ and files before the edit tool runs.
+- Tracked edit branch: visible Exploration Visibility Gate output and focused READY exist for the exact TASK/REQ and files before the edit tool runs.
 - Plan-correction branch: correcting bundle planning files is allowed only to make READY accurate; implementation edits wait for refreshed visible READY.
 - Read-only status branch: no pre-edit READY is required because no file edit starts; formal tracked status still uses `render-status`.
 - Ordinary-answer branch: no pre-edit READY and no fixed status template; concise natural answer with the role/source prefix is expected.
@@ -154,6 +173,8 @@ Examples:
 ```
 
 Role labels are display labels, not extra lifecycle states. Do not remove or shorten existing READY TASK, confirmation, validation, or closeout fields when adding the role/source prefix.
+
+READY list complexity note: for broad ideas with many TASKs, do not merge the Exploration Visibility Gate and READY into one large undifferentiated block. Exploration explains planned scope and why the selected plan is appropriate; focused READY explains the next executable TASK. The full READY plan remains in `00-idea.md` and can be printed with `--full-plan` for audits. A later extension may add grouped or summarized READY overviews, but focused per-TASK READY output remains the execution contract.
 
 ## Routing User Input
 

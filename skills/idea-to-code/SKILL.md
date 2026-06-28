@@ -30,11 +30,11 @@ This skill can:
 Standard flow:
 
 ```text
-route/current -> intake gate -> controlled exploration -> bundle -> requirements/REQs -> design -> implementation gate
+route/current -> intake gate -> controlled exploration -> Exploration Visibility Gate -> bundle -> requirements/REQs -> design -> implementation gate
 -> implement -> validate -> review -> checkpoint -> pre-close verify -> closer/finalize -> final verify -> structured closeout response
 ```
 
-Tool-owned gates are not optional and should not be inferred from chat: Intake Gate, Controlled Exploration shape, implementation ready, REQ coverage, Acceptance Matrix, role evidence, validation type, pre-close verify, finalize, and final verify are enforced by `idea_to_code_bundle.py` and guarded by the regression suite.
+Tool-owned gates are not optional and should not be inferred from chat: Intake Gate, Controlled Exploration shape, Exploration Visibility Gate, implementation ready, REQ coverage, Acceptance Matrix, role evidence, validation type, pre-close verify, finalize, and final verify are enforced by `idea_to_code_bundle.py` and guarded by the regression suite.
 
 This section orients the agent; it does not narrow ordinary coding capability. Use normal engineering judgment inside the confirmed plan, while respecting the gates that keep the idea from drifting.
 
@@ -125,8 +125,9 @@ For tracked idea-to-code work, these checks are mandatory, not style preferences
 - **Rule loading**: every agent, subagent, or role simulation using idea-to-code must read `SKILL.md` as the behavior authority and then read only the relevant referenced files before acting. Do not rely on partial snippets, old chat memory, or historical bundle ledgers as the source of behavior rules.
 - **Non-bypassable pre-edit self-check**: immediately before calling any file-editing tool for tracked work, stop and confirm in the agent's own working context that the current user-visible conversation already contains the focused READY TASK excerpt for the exact TASK/REQ and files about to be edited. If that visible excerpt is missing, do not edit. Run or reuse `implementation show-ready --task <TASK-ID>`, send the focused READY excerpt as a normal assistant message, then continue only after that message is visible.
 - **Before any tracked repository or artifact edit**: resolve the current bundle, run or reuse `implementation ready` / `implementation show-ready --task <TASK-ID>`, and paste the relevant READY TASK excerpt in a normal assistant message. This applies to code, docs, tests, config, scripts, and tracked bundle artifacts. Reusing a prior READY result still requires showing the relevant excerpt again before the current edit unless the user explicitly waived repeated visibility after an initial visible READY excerpt. Tool stdout, folded transcripts, and internal notes do not satisfy this requirement.
+- **Before implementation READY**: generate or reuse the current `exploration render` output and surface it in a normal assistant message before the READY TASK excerpt. `implementation ready` prints Exploration Visibility Gate output before READY when it must refresh it, but the agent must still make that output visible to the user. Tool stdout, folded transcripts, and internal notes are not enough by themselves.
 - **Before final tracked handoff**: for install, validation, commit, delivery, blocked, review, keep/revise/rollback, or final status responses, run `render-status` first. If `render-status` is unavailable or fails, state that reason and then use the fixed Console Response Contract fields manually.
-- **Mapping rule**: every formal tracked `Changes`, `Completed Items`, `Incomplete Items`, and `Validation Results` bullet must map to the visible READY TASK/REQ excerpt that was shown before execution.
+- **Mapping rule**: every formal tracked `Changes`, `Completed Items`, `Incomplete Items`, and `Validation Results` bullet must map to the visible Exploration Visibility Gate output and READY TASK/REQ excerpt that were shown before execution.
 - **Noncompliance rule**: if the visible READY excerpt or fixed final status fields were missed, say so plainly, correct the process, and do not present the run as fully compliant.
 - **Late READY rule**: printing READY after edits have already started is remediation only. It does not make earlier edits compliant. Record the lapse in Reviewer or final status, tighten guidance or tests when the lapse exposed an instruction gap, and continue only after the corrected READY excerpt is visible.
 - **Multi-role regression rule**: after changing output-compliance guidance, run or update the multi-role output compliance scenario in `references/roles-and-state.md#multi-role-output-compliance`, covering Planner, Implementer, Validator, Reviewer, and Closer expectations, then record expected versus observed behavior and any instruction drift.
@@ -191,7 +192,74 @@ Decision table:
 | Real user-visible, architecture, API, cross-module, security, data, cost, migration, destructive-action, ambiguity, failure-cause, verification, or meaningful risk fork | yes | Compare 2-4 options and choose one decision before `implementation ready`. |
 | User's requested implementation is clearly flawed | yes | Treat it as a candidate, explain the issue, and recommend a better default path. |
 
-Controlled Exploration is not a second approval gate. When `Need Confirmation: no`, the Planner chooses and records the decision autonomously. When `Need Confirmation: yes`, include the recommended decision in the existing confirmation request so the user approves or corrects one combined scope.
+Controlled Exploration is not a hidden planning note. It must be surfaced through the Exploration Visibility Gate before READY.
+
+The Exploration Visibility Gate must separate `Planned Scope` from `Decision Options`. `Planned Scope` is the execution scope: required-now items, deferred items, and what READY may cover. `Decision Options` is only for mutually exclusive route choices or candidate approaches. Do not ask the user to choose among required scope items, and do not hide deferred or rejected scope inside option prose.
+
+When `Need Confirmation: no`, the Planner chooses and records the decision autonomously, then shows the `Planned Scope`, selected approach, and why it will proceed. Do not dump alternative routes or ask for routine approval.
+
+When `Need Confirmation: yes`, include `Planned Scope`, the `Decision Options` list, recommended decision, and explicit reply choices in one confirmation request so the user can approve, choose another option, correct scope, ask to explore more, pause, or cancel.
+
+Exploration Revision Rule:
+
+- If the user changes the exploration output, rejects options, defers part of the planned scope, proposes a new route, or asks to explore more in a direction, treat it as a plan-changing clarification/switch before READY.
+- Generate a new `EXPLORATION_OUTPUT_ID`; do not reuse the prior exploration output as proof of the revised scope.
+- The revised Exploration Visibility Gate must explicitly show:
+  - `Required Now`
+  - `Deferred`
+  - `Rejected Options`
+  - `New / Selected Option`
+  - `What READY Will Cover`
+- If the user only gives a direction, not a concrete route, do not pretend a route is selected. Produce a revised `Confirmation Required` output with new candidate options generated from that direction, a recommendation, and `explore more: <direction>` still available.
+- If the user explicitly selects a clear route and no true confirmation risk remains, produce `Exploration Result` and proceed to READY for `Required Now` only.
+
+The user-visible shapes are:
+
+```text
+[idea-to-code][Planner/agent] Exploration Result | Bundle: <slug>
+EXPLORATION_OUTPUT_ID: <id>
+Planned Scope:
+- Required Now: <scope included now>
+- Deferred: <scope excluded from this execution>
+- What READY Will Cover: <TASK/REQ scope allowed in READY>
+Selected Approach:
+- <chosen option>
+Why This Approach:
+- <decision reason>
+Implementation Will Proceed To:
+- Implementation Gate READY after this exploration output is visible.
+```
+
+```text
+[idea-to-code][Planner/agent] Confirmation Required | Bundle: <slug>
+EXPLORATION_OUTPUT_ID: <id>
+Planned Scope:
+- Required Now: <scope included now>
+- Deferred: <scope excluded from this execution>
+- What READY Will Cover: <TASK/REQ scope allowed after confirmation>
+Decision Options:
+- <2-4 options when exploration is needed>
+Recommended Option:
+- <chosen option>
+Please reply with one of:
+- approve
+- choose: <option>
+- change: <correction>
+- explore more: <direction>
+- pause
+- cancel
+```
+
+For revised exploration, use this additional shape before either `Exploration Result` or `Confirmation Required` details:
+
+```text
+Exploration Revision:
+- Required Now: <scope that remains in this execution>
+- Deferred: <scope explicitly postponed>
+- Rejected Options: <routes or assumptions the user rejected>
+- New / Selected Option: <new route, or "direction only - more options needed">
+- What READY Will Cover: <REQ/TASK scope that can appear in READY after approval>
+```
 
 Default to `Exploration Needed: no`. Use `yes` only for a real fork or risk. The goal is better decisions with less user burden, not more process.
 
@@ -201,13 +269,13 @@ For `Exploration Needed: yes`, the chosen option is not accepted just because it
 
 Judge recommendation quality by whether the selected path improves user-goal fit, reduces risk or cost, preserves user constraints and non-goal boundaries, and is verifiable.
 
-Opening a bundle is allowed as task capture. Product-code edits are not allowed until `Need Confirmation: no` and the implementation gate is READY.
+Opening a bundle is allowed as task capture. Product-code edits are not allowed until `Need Confirmation: no`, the Exploration Visibility Gate output is current for the plan revision, any Exploration Revision fields are reflected in the plan, and the implementation gate is READY.
 
 Use `Need Confirmation: yes` when the idea is ambiguous, risky, architecture-shaping, security-sensitive, destructive, expensive, changes user-visible behavior in multiple plausible ways, or contradicts project governance. Ask the user to confirm or correct the intake before marking implementation ready.
 
 Use `Need Confirmation: no` when the task is clear, low-risk, reversible, and the acceptance criteria can be stated concretely. In that case, restate the intake and proceed autonomously without asking a routine confirmation question.
 
-`Need Confirmation: no` skips the approval wait; it does not skip task-list visibility. `implementation ready` prints the generated `[idea-to-code][Planner/agent] Implementation Gate: READY` output, or `[idea-to-code/<profile>][Planner/agent] Implementation Gate: READY` when an upper-layer skill passes a profile, including `READY_TASK_OUTPUT_ID`; send that output to the user before any product-file edit, and only then continue implementation. Command stdout, tool output, or a folded transcript is not enough by itself; the READY TASK list or a focused excerpt for the TASKs about to be executed must appear in a normal assistant message. Profile prefixes are display-only: they do not alter lifecycle gates, bundle state, requirements, role evidence, checkpoints, ledger semantics, finalize behavior, or permissions. This message is transparency, not an approval request, so continue implementation immediately after sending it unless the user interrupts.
+`Need Confirmation: no` skips the approval wait; it does not skip exploration and task-list visibility. `implementation ready` prints the generated Exploration Visibility Gate output when needed and then the `[idea-to-code][Planner/agent] Implementation Gate: READY` output, or `[idea-to-code/<profile>][Planner/agent] Implementation Gate: READY` when an upper-layer skill passes a profile, including `EXPLORATION_OUTPUT_ID` and `READY_TASK_OUTPUT_ID`; send both outputs to the user before any product-file edit, and only then continue implementation. By default, READY prints the focused first TASK/IMP excerpt and records `ready_task_output_scope: focused-default`; use `implementation ready --full-plan` or `implementation show-ready --full-plan` only when a full audit list is needed. The full READY plan remains in `00-idea.md`. Command stdout, tool output, or a folded transcript is not enough by itself; the Exploration Result plus READY TASK list or focused excerpt for the TASKs about to be executed must appear in normal assistant messages. Profile prefixes are display-only: they do not alter lifecycle gates, bundle state, requirements, role evidence, checkpoints, ledger semantics, finalize behavior, or permissions. This message is transparency, not an approval request, so continue implementation immediately after sending it unless the user interrupts.
 
 For clear, low-risk, single-slice tasks such as a small README or documentation edit, prefer the lightweight quickstart path instead of manually drafting every bundle section:
 
@@ -222,7 +290,7 @@ python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" quickst
   --unique
 ```
 
-Quickstart creates the current bundle, fills intake, Controlled Exploration with `Exploration Needed: no`, REQ-1, acceptance matrix, design, and TASK-1, marks implementation ready, records Planner evidence, and prints the generated READY TASK output. It does not replace confirmation for ambiguous, risky, destructive, security-sensitive, or multi-interpretation work; use the full intake and confirmation flow for those tasks. Paste the quickstart READY output to the user, then continue unless interrupted.
+Quickstart creates the current bundle, fills intake, Controlled Exploration with `Exploration Needed: no`, REQ-1, acceptance matrix, design, and TASK-1, records an Exploration Visibility Gate output, marks implementation ready, records Planner evidence, and prints the generated READY TASK output with `EXPLORATION_OUTPUT_ID`. It does not replace confirmation for ambiguous, risky, destructive, security-sensitive, or multi-interpretation work; use the full intake and confirmation flow for those tasks. Paste the quickstart READY output to the user, then continue unless interrupted.
 
 Use `quickstart --json` only for automation that needs pure machine-readable output; the default output intentionally includes the READY TASK text for agent/user visibility.
 
@@ -523,7 +591,7 @@ Project-level state:
    ```bash
    python ".../idea_to_code_bundle.py" implementation ready --root "$(pwd)" --slug <slug>
    ```
-   If this command fails, refine the plan only. Do not edit code. `implementation ready` refuses unresolved confirmation, missing Controlled Exploration, required exploration without a decision, or placeholder task details. `checkpoint`, `verify`, and `finalize` are script-guarded against a non-ready implementation gate.
+   If this command fails, refine the plan only. Do not edit code. `implementation ready` refuses unresolved confirmation, missing Controlled Exploration, required exploration without a decision, missing current Exploration Visibility Gate output, or placeholder task details. `checkpoint`, `verify`, and `finalize` are script-guarded against a non-ready implementation gate.
    When this command succeeds, it prints the user-visible `[idea-to-code][Planner/agent] Implementation Gate: READY` message with every TASK, `Files`, `Execution Details`, `Done Criteria`, `Planned Verification`, and `READY_TASK_OUTPUT_ID`. When another skill uses idea-to-code as a lifecycle foundation, it may pass `--profile <profile-name>` so the READY message starts with `[idea-to-code/<profile-name>][Planner/agent]`. The profile is display-only and must not be treated as bundle state, requirement scope, role evidence, or lifecycle policy. Do not infer trust, ownership, permissions, or scope from a profile name; it is only a user-visible label.
 
    Tool stdout or folded command transcripts are not enough for READY visibility. READY visibility has two layers:
@@ -531,7 +599,9 @@ Project-level state:
    - **Plan-level READY**: the full implementation plan remains in `00-idea.md` and full READY output for traceability.
    - **Execution-level READY**: before executing each TASK in multi-task work, send a normal assistant message with the current TASK's focused READY excerpt.
 
-   For multi-task work, default the user-visible execution message to the current TASK, not the entire long task list. Use `--task TASK-N` with `implementation ready` or `implementation show-ready` to print the current focused READY TASK excerpt. The generated READY output has a hard contract: every visible TASK/IMP block must include the `TASK-*` or `IMP-*` line, covered `REQ-*` or the script's covered REQ hint when inferable, `Files`, `Done Criteria`, and `Planned Verification`. If any of those fields are missing, the READY output is invalid and must be regenerated or fixed before product-file edits. Before moving from TASK-1 to TASK-2, show the TASK-2 focused READY excerpt / focused READY TASK excerpt unless the user explicitly asks to skip repeated visibility. The final formal result template must map each completed, incomplete, and validated item back to the same visible TASK/REQ excerpts.
+   For multi-task work, default the user-visible execution message to the current TASK, not the entire long task list. `implementation ready` and `implementation show-ready` default to the first TASK/IMP focused excerpt; use `--task TASK-N` to print another focused READY TASK excerpt, and `--full-plan` only for a complete audit list. The generated READY output has a hard contract: every visible TASK/IMP block must include the `TASK-*` or `IMP-*` line, covered `REQ-*` or the script's covered REQ hint when inferable, `Files`, `Done Criteria`, and `Planned Verification`. If any of those fields are missing, the READY output is invalid and must be regenerated or fixed before product-file edits. Before moving from TASK-1 to TASK-2, show the TASK-2 focused READY excerpt / focused READY TASK excerpt unless the user explicitly asks to skip repeated visibility. The final formal result template must map each completed, incomplete, and validated item back to the same visible TASK/REQ excerpts.
+
+   Future extension point: exploration output and full READY lists can become noisy when one idea expands into many TASKs. Preserve this split for now: Exploration Visibility Gate explains why the plan was chosen, and focused READY excerpts explain what will be edited next. A later change may add a grouped or summarized READY overview, but it must keep per-TASK focused READY excerpts and final TASK/REQ mapping intact.
 
    For `Need Confirmation: no`, do not ask for routine approval after the visible READY task message; continue with TASK-1 unless the user interrupts. Implementer evidence must cite the generated READY output id as `READY_TASK_OUTPUT_ID <id>`. Use `implementation show-ready` to reprint or refresh the READY output for an already-ready bundle.
 9. **Record Planner evidence before implementation**:
@@ -599,6 +669,7 @@ Project-level state:
 - Prefer execution once direction is clear; ask only for architecture, user-visible contract, security, irreversibility, missing credentials, or true scope forks.
 - Before code edits, resolve `.idea-to-code/current.json`, print the `00-idea.md` task list, and confirm the implementation gate is READY.
 - Record Controlled Exploration before implementation planning; use it to compare options only when needed, then choose one decision before coding.
+- Render and surface Exploration Visibility Gate output before READY; no tracked edit should begin from READY alone when the exploration decision was not visible.
 - Never mutate a non-current, paused, completed, or closed bundle to make progress.
 - Keep TASK/IMP IDs tied to files, done criteria, and planned verification.
 - Record Planner, Implementer, Validator, Reviewer, and Closer evidence in order for the current `plan_revision`.
@@ -660,7 +731,7 @@ python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" render-
   --root "$(pwd)" --slug <slug> --status Completed|Progress|Blocked
 ```
 
-The helper prints the fixed field skeleton with the idea-to-code role/source prefix, TASK/REQ mapping placeholders, `READY_TASK_OUTPUT_ID`, and `No commit made` under Key Technical Details by default. Formal tracked status MUST use render-status generated fields when the helper is available: edit the skeleton with actual evidence before sending it; do not remove fixed fields, rename them, reorder them, or hand-invent them; do not drop TASK/REQ mapping from `Changes`, `Completed Items`, `Incomplete Items`, or `Validation Results`; do not drop IDEA/TASK/REQ mapping when multiple ideas exist in the session ledger; and do not move no-commit state into `Incomplete Items`. Do not use it for ordinary untracked answers.
+The helper prints the fixed field skeleton with the idea-to-code role/source prefix, TASK/REQ mapping placeholders, `EXPLORATION_OUTPUT_ID`, `READY_TASK_OUTPUT_ID`, and `No commit made` under Key Technical Details by default. Formal tracked status MUST use render-status generated fields when the helper is available: edit the skeleton with actual evidence before sending it; do not remove fixed fields, rename them, reorder them, or hand-invent them; do not drop TASK/REQ mapping from `Changes`, `Completed Items`, `Incomplete Items`, or `Validation Results`; do not drop IDEA/TASK/REQ mapping when multiple ideas exist in the session ledger; and do not move no-commit state into `Incomplete Items`. Do not use it for ordinary untracked answers.
 
 ```text
 [idea-to-code][Closer/agent] Status: Completed | Progress | Blocked
