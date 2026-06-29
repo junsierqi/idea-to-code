@@ -16,6 +16,7 @@ The skill should make good engineering behavior easier to follow than ad hoc del
 - review fit to the user's intended outcome, not just code or test success;
 - install and verify latest skill code before claiming runtime readiness;
 - make every open branch explicit as completed, deferred, rejected, blocked, residual risk, or external validation.
+- make every controlled branch structurally auditable through an owner, gate/state record, evidence artifact, regression test, closeout surface, and enforcement boundary.
 
 ## Anti-Goals
 
@@ -26,6 +27,7 @@ Do not let the skill drift into any of these behaviors:
 - chat-memory-only continuity without bundle state, stable IDs, or evidence;
 - quickstart compression of complex scope into one file, one REQ, or one vague TASK;
 - rule pileups that add process but do not improve user outcome, traceability, or verification;
+- isolated hard rules that are not connected to a command, state record, test, and closeout surface;
 - hidden or silently deferred scope;
 - false "all done" claims while TODO, MB, REQ, validation, install, or branch items remain open;
 - repeated weakness lists that do not use explicit classification for already hardened, residual risk, new gap, or external validation;
@@ -41,6 +43,7 @@ Treat these as signals that the current flow may be leaving the product target:
 - a complex workflow, policy, docs, tests, install, or multi-file skill-hardening request enters quickstart;
 - final or validation output uses fixed fields for ordinary discussion and obscures the actual answer;
 - a weakness repeats across turns without status, enforcement boundary, prior evidence, or next action;
+- a branch is described in prose but is missing from `branch-map --json` or fails `lifecycle-audit --json`;
 - install is claimed without source/installed hash parity and installed focused tests;
 - subagent, fresh-session, or independent review is claimed without a usable delegation record.
 
@@ -51,6 +54,7 @@ When drift is detected, correct the process before continuing implementation:
 - classify the issue as `already hardened`, `residual risk`, `new gap`, or `external validation`;
 - label enforcement as `repo-enforced`, `skill-enforced`, or `host-required`;
 - if it is a `new gap`, convert it into an explicit TODO, REQ/TASK, defer it, or reject it with a reason;
+- run `lifecycle-audit --json` when the issue is structural or branch-level, and add the missing owner/gate/evidence/test/closeout/boundary before claiming the branch is hardened;
 - use structured planning instead of quickstart for complex workflow, policy, docs, tests, install, multi-file, or skill-hardening work;
 - record or update IDEA/REQ/TASK/MB mappings before claiming progress;
 - re-render Exploration Result and focused READY when scope changes;
@@ -66,3 +70,4 @@ When adding new rules, tests, or commands, check them against three questions:
 - Does this improve user-visible control, traceability, or delivery quality?
 - Can a later agent verify the behavior from state, files, commands, or tests rather than chat memory?
 - Does it close a real branch or failure mode without over-templating ordinary conversation?
+- Does `lifecycle-audit --json` have enough structure to catch future drift in this branch?

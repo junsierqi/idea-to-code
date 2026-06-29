@@ -138,13 +138,38 @@ Do not leave generated tests ambiguous. If a test should run with the product pe
 
 ## Normal Lifecycle
 
+Lifecycle Gate Diagram:
+
+```mermaid
+flowchart TD
+  A[doctor / current status] --> B[init or resume active bundle]
+  B --> C[Intake Gate]
+  C --> D[Controlled Exploration]
+  D --> ER[exploration render]
+  ER --> R[requirements + acceptance matrix + TASK plan]
+  R --> G[implementation ready]
+  G --> T[implementation enter-task]
+  T --> L[implementation lease acquire]
+  L --> P[implementation pre-edit]
+  P --> E[scoped edit]
+  E --> I[Implementer evidence]
+  I --> V[Validator evidence: validation type + command]
+  V --> RV[Reviewer evidence: scope fit + branch closure]
+  RV --> M[checkpoint --covers]
+  M --> PV[pre-close verify]
+  PV --> CL[Closer evidence]
+  CL --> F[finalize]
+  F --> FV[final verify]
+  FV --> RS[render-status for formal handoff]
+```
+
 1. Run `doctor` or `current status`.
 2. Initialize or resume the active bundle. Use only the active `current.json` bundle or an explicitly requested slug; historical ledgers remain inert by default.
 3. Fill Intake Gate, Controlled Exploration, and `00-idea.md` sections through `update`.
 4. Register REQ IDs.
 5. Run or reuse `exploration render` and surface its `EXPLORATION_OUTPUT_ID` in a normal assistant message. `implementation ready` refreshes this output before READY when needed, but visibility is still a user-message obligation.
 6. Run `implementation ready` only after `Need Confirmation: no`, Controlled Exploration has either been skipped with a concrete Trigger or resolved with options and a decision, and the Exploration Visibility Gate output is current for the plan revision.
-7. Before any tracked repository or artifact edit, run the non-bypassable pre-edit self-check: confirm the current user-visible conversation already contains the Exploration Visibility Gate output plus the focused READY TASK excerpt for the exact TASK/REQ and files about to be edited. If either is missing, do not edit. Run or reuse `exploration render` and `implementation ready` / `implementation enter-task --task <TASK-ID>`, paste the relevant outputs in normal assistant messages, and continue only after they are visible. Then run `implementation pre-edit --task <TASK-ID> --file <path>` for one file or grouped `--files <path>...` for multi-file TASKs. `pre-edit` must print `PRE_EDIT_OK_ID`; if it refuses, do not edit. `implementation ready` and `implementation show-ready` default to the first TASK/IMP focused excerpt; use `--full-plan` only when the full audit list needs to be printed. Every current TASK transition needs visible task info for that TASK before edits begin, not just one full list at the beginning. `enter-task` is the preferred path because it records `current_task_id` without rotating the existing `READY_TASK_OUTPUT_ID`; `show-ready --task` is a display fallback only when state mutation is impossible. This includes code, docs, tests, config, scripts, and tracked bundle artifacts. Reusing READY still requires showing the relevant excerpt again before the current edit unless the user explicitly waived repeated visibility after an initial visible READY excerpt. Command stdout, folded transcript output, internal notes, or a READY message printed after edits have already started are not compliant for those earlier edits.
+7. Before any tracked repository or artifact edit, run the non-bypassable pre-edit self-check: confirm the current user-visible conversation already contains the Exploration Visibility Gate output plus the focused READY TASK excerpt for the exact TASK/REQ and files about to be edited. If either is missing, do not edit. Run or reuse `exploration render` and `implementation ready` / `implementation enter-task --task <TASK-ID>`, paste the relevant outputs in normal assistant messages, and continue only after they are visible. Then run `implementation pre-edit --task <TASK-ID> --file <path>` for one file or grouped `--files <path>...` for multi-file TASKs. `pre-edit` must print `PRE_EDIT_OK_ID`; if it refuses, do not edit. `implementation ready` and `implementation show-ready` default to the first TASK/IMP focused excerpt; use `--full-plan` only when the full audit list needs to be printed. Every current TASK transition needs visible task info for that TASK before edits begin, not just one full list at the beginning. `enter-task` is the preferred path because it records `current_task_id` without rotating the existing `READY_TASK_OUTPUT_ID`; `show-ready --task` is a display fallback only when state mutation is impossible. This includes code, docs, tests, config, scripts, and tracked bundle artifacts. Reusing READY still requires showing the relevant excerpt again before the current edit unless the user explicitly waived repeated visibility after an initial visible READY excerpt. Command stdout, folded transcript output, internal notes, or a READY message printed after edits have already started are not compliant for those earlier edits. The compliance artifact is the assistant-visible message body, not the command output that generated it.
 8. Record Planner evidence.
 9. Implement a TASK/IMP slice.
 10. Record Implementer, Validator, and Reviewer evidence.
@@ -153,7 +178,7 @@ Do not leave generated tests ambiguous. If a test should run with the product pe
 13. Record Closer evidence.
 14. Run `finalize`.
 15. Run final `verify`.
-16. Before a final tracked handoff for install, validation, commit, delivery, blocked, review, keep/revise/rollback, or final status, run `render-status` first. If `render-status` is unavailable or fails, state that reason and then use the fixed Console Response Contract fields manually.
+16. Before a final tracked handoff for install, validation, commit, delivery, blocked, review, keep/revise/rollback, or final status, run `render-status` first. If `render-status` is unavailable or fails, state that reason and then use the fixed Console Response Contract fields manually. If `render-status` succeeds, the assistant-visible final body must preserve the fixed fields from that output; a natural-language summary that merely says the helper ran is noncompliant.
 
 ## Output Compliance Testing
 
@@ -166,6 +191,8 @@ Context boundary: agents may read `.idea-to-code/current.json` to identify the a
 Workflow owns the lifecycle trigger and context boundary. `roles-and-state.md` owns the role-by-role expectations, ordinary-answer boundary, and run protocol. Keep this split when future output-compliance rules are added.
 
 Branch closure checks for output compliance:
+
+Lifecycle invariant contract: every branch below must be represented in `branch-map --json` and must pass `lifecycle-audit --json`. A branch is closed only when it has `owner`, `gate`, `evidence`, `test`, `closeout_surface`, and `enforcement_boundary`. Do not add branch prose without updating the map and tests. Do not claim a branch is fully controlled when its `enforcement_boundary` is `host-required`; surface it as an external integration or residual risk instead.
 
 - Branch coverage map branch: use `branch-map --json` to inspect the lifecycle branch coverage map. Each branch exposes `id`, `workflow_branch`, `entry`, `exit`, `validation`, and `failure_handling`. The map mirrors the branch closure checks in this section and is a control overview, not proof that a live agent followed the branch.
 - Tracked edit branch: visible Exploration Visibility Gate output and focused READY exist for the exact TASK/REQ and files before the edit tool runs.
@@ -184,6 +211,7 @@ Branch closure checks for output compliance:
 - Read-only status branch: no pre-edit READY is required because no file edit starts; formal tracked status still uses `render-status`.
 - Ordinary-answer branch: no pre-edit READY and no fixed status template; concise natural answer with the role/source prefix is expected.
 - Formal tracked handoff branch: `render-status` runs first, or the response states why it could not and then uses the fixed fields manually.
+- Display artifact branch: `tool_stdout` and `assistant_visible_body` are separate compliance artifacts. Required `Exploration Result`, `Implementation Gate: READY`, and `render-status` blocks must be present in `assistant_visible_body`; presence only in command output is a failure.
 - Skill self-validation branch: when validating idea-to-code itself and a single full unittest command is too slow or flaky, use the official chunked runner `test-batch --chunk-size 40 --timeout-seconds 180`. Record the total test count, chunk count, and pass/fail output as validation evidence.
 - User-facing language branch: keep bundle/state/protocol content English-only ASCII, but write meaningful explanatory prose, recommendations, caveats, and conclusions in the user's language by default. Do not translate entries from `SKILL.md#Protocol Glossary / Do-Not-Translate List`, including role/source prefixes, role names, fixed fields, IDs, commands, file paths, validation types, or role evidence. Add new protocol terms to that glossary instead of inventing localized variants.
 - Weakness review branch: architecture or process weakness lists must use the `SKILL.md#Risk And Weakness Taxonomy` labels: `already hardened`, `residual risk`, `new gap`, or `external validation`. Do not turn a residual risk into a new task unless the remaining failure mode is concrete.

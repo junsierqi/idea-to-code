@@ -29,7 +29,6 @@ PRODUCT_CHARTER_MD = REFERENCES_DIR / "product-charter.md"
 CONTROLLED_EXPLORATION_BENCHMARK_MD = REFERENCES_DIR / "controlled-exploration-benchmark.md"
 ALLOWED_REFERENCES = {
     "controlled-exploration-benchmark.md",
-    "fresh-session-live-benchmark-template.md",
     "planning-patterns.md",
     "product-charter.md",
     "roles-and-state.md",
@@ -99,6 +98,27 @@ class BundleTest(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
+
+    def sample_formal_status_body(self) -> str:
+        return (
+            "[idea-to-code][Closer/agent] Status: Completed\n\n"
+            "Changes:\n"
+            "- TASK-1 / REQ-1: visible output compliance changed.\n\n"
+            "Completed Items:\n"
+            "- TASK-1 / REQ-1: display checks completed.\n\n"
+            "Incomplete Items:\n"
+            "- none\n\n"
+            "Validation Results:\n"
+            "- TASK-1 / REQ-1: source-only unittest passed.\n\n"
+            "Unverified Items:\n"
+            "- none\n\n"
+            "Residual Risks:\n"
+            "- none\n\n"
+            "Key Technical Details:\n"
+            "- EXPLORATION_OUTPUT_ID: sample-explore\n"
+            "- READY_TASK_OUTPUT_ID: sample-ready\n"
+            "- No commit made\n"
+        )
 
     def run_bundle(
         self,
@@ -189,8 +209,7 @@ class BundleTest(unittest.TestCase):
             "references/planning-patterns.md": "intake, Controlled Exploration, TASK/REQ plan shape, milestone and report patterns",
             "references/roles-and-state.md": "role responsibilities, role execution mode, delegation healthcheck, role evidence, task states, acceptance matrix, trace coverage",
             "references/verification-and-evidence.md": "validation types, evidence quality, acceptance checks, READY/Exploration visibility checks, `render-status`, installed parity",
-            "references/controlled-exploration-benchmark.md": "prompt-level and fresh-session benchmark scenarios and scoring",
-            "references/fresh-session-live-benchmark-template.md": "copyable fresh-session result-recording template",
+            "references/controlled-exploration-benchmark.md": "prompt-level and fresh-session benchmark scenarios, scoring, protocol, and copyable result template",
         }
         for reference, owner_text in expected_rows.items():
             self.assertIn(f"| `{reference}` | {owner_text}", text)
@@ -216,7 +235,6 @@ class BundleTest(unittest.TestCase):
     def test_current_reference_filenames_match_document_ownership(self) -> None:
         expected = {
             "controlled-exploration-benchmark.md",
-            "fresh-session-live-benchmark-template.md",
             "planning-patterns.md",
             "product-charter.md",
             "roles-and-state.md",
@@ -228,6 +246,65 @@ class BundleTest(unittest.TestCase):
         skill_text = SKILL_MD.read_text(encoding="utf-8")
         for name in expected:
             self.assertIn(f"`references/{name}`", skill_text)
+
+    def test_architecture_flow_diagram_guides_agent_orientation(self) -> None:
+        text = SKILL_MD.read_text(encoding="utf-8")
+        self.assertIn("Architecture Flow:", text)
+        self.assertIn("```mermaid", text)
+        for required in [
+            "User idea / follow-up",
+            "SKILL.md first-read contract",
+            "Reference Ownership Map",
+            "Planning: Intake + Controlled Exploration + REQ/TASK",
+            "Bundle: 00-idea.md + 01-progress.md + state.json",
+            "Implementation Gate: READY",
+            "Execution: enter-task + lease + pre-edit + edit",
+            "Validation: validation type + evidence",
+            "Review: scope fit + risks + branch closure",
+            "Closeout: checkpoint + verify + finalize + final verify",
+            "User response: render-status for formal handoff",
+        ]:
+            self.assertIn(required, text)
+
+    def test_role_handoff_overlay_shows_owner_and_recipient(self) -> None:
+        text = SKILL_MD.read_text(encoding="utf-8")
+        self.assertIn("Role Handoff Overlay:", text)
+        for required in [
+            "User[User] -->|idea, corrections, acceptance signals| Planner[Planner]",
+            "Planner -->|Intake, Exploration, REQ/TASK plan, READY| Implementer[Implementer]",
+            "Implementer -->|scoped diff plus PRE_EDIT_OK_ID evidence| Validator[Validator]",
+            "Validator -->|validation type, commands, observed evidence| Reviewer[Reviewer]",
+            "Reviewer -->|scope fit, risks, non-goals, branch closure| Closer[Closer]",
+            "Closer -->|finalize, final verify, formal handoff| User",
+        ]:
+            self.assertIn(required, text)
+
+    def test_workflow_lifecycle_gate_diagram_covers_key_commands(self) -> None:
+        text = WORKFLOW_MD.read_text(encoding="utf-8")
+        self.assertIn("Lifecycle Gate Diagram:", text)
+        for required in [
+            "doctor / current status",
+            "init or resume active bundle",
+            "Intake Gate",
+            "Controlled Exploration",
+            "exploration render",
+            "requirements + acceptance matrix + TASK plan",
+            "implementation ready",
+            "implementation enter-task",
+            "implementation lease acquire",
+            "implementation pre-edit",
+            "scoped edit",
+            "Implementer evidence",
+            "Validator evidence: validation type + command",
+            "Reviewer evidence: scope fit + branch closure",
+            "checkpoint --covers",
+            "pre-close verify",
+            "Closer evidence",
+            "finalize",
+            "final verify",
+            "render-status for formal handoff",
+        ]:
+            self.assertIn(required, text)
 
     def test_role_evidence_checklist_covers_all_roles(self) -> None:
         text = ROLES_STATE_MD.read_text(encoding="utf-8")
@@ -967,8 +1044,8 @@ class BundleTest(unittest.TestCase):
         benchmark_text = (REFERENCES_DIR / "controlled-exploration-benchmark.md").read_text(encoding="utf-8")
         skill_text = SKILL_MD.read_text(encoding="utf-8")
         template_path = REFERENCES_DIR / "fresh-session-live-benchmark-template.md"
-        template_text = template_path.read_text(encoding="utf-8")
-        combined = "\n".join([benchmark_text, skill_text, template_text])
+        self.assertFalse(template_path.exists())
+        combined = "\n".join([benchmark_text, skill_text])
 
         for required in [
             "Fresh-Session Live Benchmark Protocol",
@@ -997,10 +1074,15 @@ class BundleTest(unittest.TestCase):
             "Read-Only Overview",
             "Stop reason",
             "Fresh-Session Reporting Format",
+            "Copyable Fresh-Session Result Template",
+            "The copyable template below is part of this benchmark reference",
             "Fresh-session run id",
+            "External run status",
+            "CLI lifecycle state",
+            "External run limitation",
             "Raw output",
             "Instruction drift",
-            "prompt-level scenario library plus fresh-session live benchmark protocol",
+            "prompt-level scenario library, fresh-session live benchmark protocol, scoring rubric, and copyable result template",
         ]:
             self.assertIn(required, combined)
 
@@ -1350,6 +1432,156 @@ class BundleTest(unittest.TestCase):
             "The ordinary-answer role check is explicit",
         ]:
             self.assertIn(required, combined)
+
+    def test_output_compliance_detects_ready_only_in_tool_stdout(self) -> None:
+        bundle = load_bundle_module()
+        tool_stdout = (
+            "[idea-to-code][Planner/agent] Exploration Result | Bundle: sample\n"
+            "Display Layer: Exploration Result\n"
+            "Required Now: TASK-1 / REQ-1\n"
+            "Deferred: none\n"
+            "Selected Option: Option B\n"
+            "What READY Will Cover: TASK-1\n\n"
+            "[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: sample\n"
+            "Display Layer: READY Focus\n"
+            "READY_TASK_OUTPUT_ID: sample-ready\n"
+            "EXPLORATION_OUTPUT_ID: sample-explore\n"
+            "Required Now: TASK-1 / REQ-1\n"
+            "Deferred: none\n"
+            "Selected Option: Option B\n"
+            "What READY Will Cover: TASK-1\n"
+            "Files:\n- sample.py\n"
+            "Execution Details:\n- edit\n"
+            "Done Criteria:\n- done\n"
+            "Planned Verification:\n- source-only tests\n"
+        )
+        assistant_body = "[idea-to-code][Planner/agent] READY 已生成，我继续执行。"
+
+        problems = bundle.validate_visible_ready_output(tool_stdout, assistant_body)
+
+        self.assertIn("Implementation Gate: READY was only present in tool stdout, not assistant-visible body", problems)
+        self.assertIn("assistant-visible READY body missing: Files:", problems)
+
+    def test_output_compliance_accepts_visible_ready_body(self) -> None:
+        bundle = load_bundle_module()
+        tool_stdout = (
+            "[idea-to-code][Planner/agent] Exploration Result | Bundle: sample\n"
+            "[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: sample\n"
+        )
+        assistant_body = (
+            "[idea-to-code][Planner/agent] Exploration Result | Bundle: sample\n"
+            "Display Layer: Exploration Result\n"
+            "Required Now: TASK-1 / REQ-1\n"
+            "Deferred: none\n"
+            "Selected Option: Option B\n"
+            "What READY Will Cover: TASK-1\n\n"
+            "[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: sample\n"
+            "Display Layer: READY Focus\n"
+            "READY_TASK_OUTPUT_ID: sample-ready\n"
+            "EXPLORATION_OUTPUT_ID: sample-explore\n"
+            "Required Now: TASK-1 / REQ-1\n"
+            "Deferred: none\n"
+            "Selected Option: Option B\n"
+            "What READY Will Cover: TASK-1\n"
+            "Files:\n- sample.py\n"
+            "Execution Details:\n- edit\n"
+            "Done Criteria:\n- done\n"
+            "Planned Verification:\n- source-only tests\n"
+        )
+
+        self.assertEqual([], bundle.validate_visible_ready_output(tool_stdout, assistant_body))
+
+    def test_output_compliance_detects_render_status_only_in_tool_stdout(self) -> None:
+        bundle = load_bundle_module()
+        tool_stdout = self.sample_formal_status_body()
+        assistant_body = "[idea-to-code][Closer/agent] 完成了，测试通过，skill 已安装。"
+
+        problems = bundle.validate_formal_status_visible_output(tool_stdout, assistant_body)
+
+        self.assertIn("render-status output was only present in tool stdout, not assistant-visible body", problems)
+        self.assertIn("assistant-visible body missing fixed field: Changes:", problems)
+
+    def test_output_compliance_accepts_formal_status_body_and_rejects_missing_field(self) -> None:
+        bundle = load_bundle_module()
+        tool_stdout = self.sample_formal_status_body()
+        assistant_body = self.sample_formal_status_body()
+
+        self.assertEqual([], bundle.validate_formal_status_visible_output(tool_stdout, assistant_body))
+
+        missing_field = assistant_body.replace("\nResidual Risks:\n- none\n", "\n")
+        problems = bundle.validate_formal_status_visible_output(tool_stdout, missing_field)
+        self.assertIn("assistant-visible body missing fixed field: Residual Risks:", problems)
+
+    def test_output_compliance_preserves_ordinary_answer_boundary(self) -> None:
+        bundle = load_bundle_module()
+        ordinary = "[idea-to-code][Planner/agent] Controlled Exploration 是 READY 前的可见方案选择。"
+        over_templated = ordinary + "\n\nChanges:\n- TASK-1 / REQ-1: no tracked work"
+
+        self.assertEqual([], bundle.validate_ordinary_visible_output(ordinary))
+        self.assertIn(
+            "ordinary answer is over-templated with tracked output: Changes:",
+            bundle.validate_ordinary_visible_output(over_templated),
+        )
+
+    def test_output_compliance_cli_reports_json_failures(self) -> None:
+        result = run_test_subprocess([
+            sys.executable,
+            str(SCRIPT),
+            "output-compliance",
+            "check",
+            "--kind",
+            "formal-status",
+            "--tool-stdout",
+            self.sample_formal_status_body(),
+            "--assistant-body",
+            "[idea-to-code][Closer/agent] Done.",
+            "--json",
+        ])
+
+        self.assertNotEqual(0, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertIn("render-status output was only present in tool stdout, not assistant-visible body", payload["problems"])
+
+    def test_output_compliance_cli_accepts_ordinary_without_tool_stdout(self) -> None:
+        result = run_test_subprocess([
+            sys.executable,
+            str(SCRIPT),
+            "output-compliance",
+            "check",
+            "--kind",
+            "ordinary",
+            "--assistant-body",
+            "普通解释回答，不使用固定状态模板。",
+            "--json",
+        ])
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["ok"])
+
+    def test_render_status_prefers_concrete_task_from_checkpoint_focus(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        self.run_bundle(
+            "checkpoint",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--milestone", "Concrete task checkpoint",
+            "--delivered", "REQ-1 delivered for concrete task.",
+            "--verified", "source-only validation passed.",
+            "--next", "closeout",
+            "--focus", "TASK-1 / REQ-1 concrete task focus",
+            "--gate", "acceptance",
+            "--gate-status", "pass",
+            "--covers", "REQ-1",
+        )
+
+        result = self.run_bundle("render-status", "--root", str(self.root), "--slug", slug, "--status", "Completed")
+
+        self.assertIn("TASK-1 / REQ-1: REQ-1 delivered for concrete task.", result.stdout)
+        self.assertNotIn("TASK-* / REQ-1", result.stdout)
 
     def test_multi_role_output_compliance_requires_render_status_fields_and_mapping(self) -> None:
         skill_text = SKILL_MD.read_text(encoding="utf-8")
@@ -3880,6 +4112,7 @@ Planned Verification:
 
     def test_fresh_benchmark_init_and_status_create_artifact_without_claiming_live_evidence(self) -> None:
         slug = self.init_bundle()
+        self.assertFalse((REFERENCES_DIR / "fresh-session-live-benchmark-template.md").exists())
 
         missing = self.run_bundle("fresh-benchmark", "status", "--root", str(self.root), "--slug", slug, check=False)
         self.assertNotEqual(missing.returncode, 0)
@@ -3899,7 +4132,12 @@ Planned Verification:
         self.assertFalse(init_payload["live_evidence_created"])
         self.assertFalse(init_payload["evidence_ready"])
         self.assertIn("separate fresh session", init_payload["next_required_action"])
-        self.assertIn("This is not live evidence", artifact.read_text(encoding="utf-8"))
+        initial_artifact_text = artifact.read_text(encoding="utf-8")
+        self.assertIn("This is not live evidence", initial_artifact_text)
+        self.assertIn("# Fresh-Session Live Benchmark Template", initial_artifact_text)
+        self.assertIn("External run status", initial_artifact_text)
+        self.assertIn("CLI lifecycle state", initial_artifact_text)
+        self.assertIn("Controlled Exploration fit", initial_artifact_text)
 
         status = self.run_bundle("fresh-benchmark", "status", "--root", str(self.root), "--slug", slug)
         status_payload = json.loads(status.stdout)
@@ -3916,8 +4154,8 @@ Planned Verification:
 
         text = artifact.read_text(encoding="utf-8")
         unavailable_text = text.replace(
-            "External run status: `not-started | in-progress | partial | unavailable | completed`",
-            "External run status: `unavailable`",
+            "External run status: not-started | in-progress | partial | unavailable | completed",
+            "External run status: unavailable",
         )
         artifact.write_text(unavailable_text, encoding="utf-8")
         unavailable = self.run_bundle("fresh-benchmark", "status", "--root", str(self.root), "--slug", slug)
@@ -3929,8 +4167,8 @@ Planned Verification:
         self.assertIn("do not claim completed live fresh-session evidence", unavailable_payload["next_required_action"])
 
         partial_text = text.replace(
-            "External run status: `not-started | in-progress | partial | unavailable | completed`",
-            "External run status: `partial`",
+            "External run status: not-started | in-progress | partial | unavailable | completed",
+            "External run status: partial",
         )
         artifact.write_text(partial_text, encoding="utf-8")
         partial = self.run_bundle("fresh-benchmark", "status", "--root", str(self.root), "--slug", slug)
@@ -3943,9 +4181,9 @@ Planned Verification:
 
         artifact.write_text(
             text
-            .replace("External run status: `not-started | in-progress | partial | unavailable | completed`", "External run status: `completed`")
-            .replace("- Total score: `<n>/63`", "- Total score: `60/63`")
-            .replace("Raw output: `<transcript id or artifact path>`", "Raw output: `artifacts/fresh-run-raw.md`"),
+            .replace("External run status: not-started | in-progress | partial | unavailable | completed", "External run status: completed")
+            .replace("- Total score: <n>/63", "- Total score: 60/63")
+            .replace("Raw output: <transcript id or artifact path>", "Raw output: artifacts/fresh-run-raw.md"),
             encoding="utf-8",
         )
         completed = self.run_bundle("fresh-benchmark", "status", "--root", str(self.root), "--slug", slug)
@@ -4661,16 +4899,32 @@ Planned Verification:
             "read-only-status",
             "ordinary-answer",
             "formal-tracked-handoff",
+            "display-artifact",
             "skill-self-validation",
             "user-facing-language",
             "weakness-review",
+            "enforcement-boundary",
             "noncompliance",
         ]:
             self.assertIn(expected, branch_ids)
         for branch in payload["branches"]:
-            for field in ["id", "workflow_branch", "entry", "exit", "validation", "failure_handling"]:
+            for field in [
+                "id",
+                "workflow_branch",
+                "entry",
+                "exit",
+                "validation",
+                "failure_handling",
+                "owner",
+                "gate",
+                "evidence",
+                "test",
+                "closeout_surface",
+                "enforcement_boundary",
+            ]:
                 self.assertIn(field, branch)
                 self.assertTrue(branch[field])
+            self.assertIn(branch["enforcement_boundary"], {"repo-enforced", "skill-enforced", "host-required"})
 
         text_result = self.run_bundle("branch-map")
         self.assertIn("[idea-to-code][Reviewer/agent] Branch Coverage Map", text_result.stdout)
@@ -4690,6 +4944,31 @@ Planned Verification:
         self.assertGreater(len(workflow_labels), 10)
         self.assertEqual(workflow_labels, map_labels)
 
+    def test_lifecycle_audit_passes_and_rejects_missing_invariants(self) -> None:
+        result = self.run_bundle("lifecycle-audit", "--json")
+        payload = json.loads(result.stdout)
+        self.assertEqual("idea-to-code.lifecycle-audit.v1", payload["schema"])
+        self.assertTrue(payload["ok"], payload["problems"])
+        self.assertIn("owner", payload["required_invariant_fields"])
+        self.assertIn("enforcement_boundary", payload["required_invariant_fields"])
+
+        bundle = load_bundle_module()
+        bad_branch = bundle._branch_with_invariants({
+            "id": "bad-branch",
+            "workflow_branch": "Bad branch",
+            "entry": "entry",
+            "exit": "exit",
+            "validation": "validation",
+            "failure_handling": "failure",
+        })
+        bad_branch["owner"] = ""
+        bad_branch["enforcement_boundary"] = "magic-enforced"
+
+        problems = bundle.validate_lifecycle_invariants([bad_branch], ["Bad branch"])
+
+        self.assertIn("branch bad-branch missing lifecycle invariant field: owner", problems)
+        self.assertIn("branch bad-branch has invalid enforcement_boundary: magic-enforced", problems)
+
     def test_branch_coverage_map_is_documented(self) -> None:
         skill = SKILL_MD.read_text(encoding="utf-8")
         workflow = WORKFLOW_MD.read_text(encoding="utf-8")
@@ -4705,6 +4984,13 @@ Planned Verification:
             "validation",
             "failure_handling",
             "workflow_branch",
+            "lifecycle-audit --json",
+            "owner",
+            "gate",
+            "evidence",
+            "test",
+            "closeout_surface",
+            "enforcement_boundary",
             "mirrors the branch closure checks",
             "observability and self-check aid",
             "not proof that a live agent followed the branch",

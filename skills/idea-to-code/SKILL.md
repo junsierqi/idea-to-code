@@ -52,6 +52,34 @@ route/current -> intake gate -> controlled exploration -> Exploration Visibility
 -> implement -> validate -> review -> checkpoint -> pre-close verify -> closer/finalize -> final verify -> structured closeout response
 ```
 
+Architecture Flow:
+
+```mermaid
+flowchart TD
+  U[User idea / follow-up] --> S[SKILL.md first-read contract]
+  S --> R[Reference Ownership Map]
+  R --> P[Planning: Intake + Controlled Exploration + REQ/TASK]
+  P --> B[Bundle: 00-idea.md + 01-progress.md + state.json]
+  B --> G[Implementation Gate: READY]
+  G --> E[Execution: enter-task + lease + pre-edit + edit]
+  E --> V[Validation: validation type + evidence]
+  V --> RV[Review: scope fit + risks + branch closure]
+  RV --> C[Closeout: checkpoint + verify + finalize + final verify]
+  C --> O[User response: render-status for formal handoff]
+```
+
+Role Handoff Overlay:
+
+```mermaid
+flowchart LR
+  User[User] -->|idea, corrections, acceptance signals| Planner[Planner]
+  Planner -->|Intake, Exploration, REQ/TASK plan, READY| Implementer[Implementer]
+  Implementer -->|scoped diff plus PRE_EDIT_OK_ID evidence| Validator[Validator]
+  Validator -->|validation type, commands, observed evidence| Reviewer[Reviewer]
+  Reviewer -->|scope fit, risks, non-goals, branch closure| Closer[Closer]
+  Closer -->|finalize, final verify, formal handoff| User
+```
+
 Tool-owned gates are not optional and should not be inferred from chat: Intake Gate, Controlled Exploration shape, Exploration Visibility Gate, implementation ready, REQ coverage, Acceptance Matrix, role evidence, validation type, pre-close verify, finalize, and final verify are enforced by `idea_to_code_bundle.py` and guarded by the regression suite.
 
 Use the Branch Coverage Map when reviewing whether the lifecycle is controlled end to end:
@@ -62,6 +90,16 @@ python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" branch-
 
 The map is an observability and self-check aid. Each branch has `id`, `entry`, `exit`, `validation`, and `failure_handling`. It does not prove live agent compliance by itself; it shows what branch closure evidence should exist.
 The map mirrors the branch closure checks in `references/workflow.md`; each entry also exposes `workflow_branch` so reviewers can compare the CLI output to the workflow source text.
+
+Use the Lifecycle Audit when reviewing whether the skill structure is solid instead of only rule-heavy:
+
+```bash
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" lifecycle-audit --json
+```
+
+Every controlled branch must have a lifecycle invariant: `owner`, `gate`, `evidence`, `test`, `closeout_surface`, and `enforcement_boundary`. A rule is not considered structurally hardened just because it appears in prose. It is hardened only when the branch has a visible owner, a gate command or state record, evidence that can be inspected, a regression test, a closeout/status surface, and an honest boundary label: `repo-enforced`, `skill-enforced`, or `host-required`.
+
+The prior output-display failure happened because generated command output and the assistant-visible response body were not treated as separate artifacts throughout the whole lifecycle. That was a structural control gap: some parts were CLI-enforced while the final chat body was only skill-enforced. Future hardening must close the full branch, not only add another instruction sentence.
 
 This section orients the agent; it does not narrow ordinary coding capability. Use normal engineering judgment inside the confirmed plan, while respecting the gates that keep the idea from drifting.
 
@@ -174,9 +212,11 @@ For tracked idea-to-code work, these checks are mandatory, not style preferences
 - **Delegation evidence rule**: claims about independent agents, subagents, fresh agents, hybrid-team, or independent-team evidence require a current usable `delegation record`. Planned, timed-out, unusable, or unverified attempts must be recorded as such and surfaced by `delegation status`, `verify`, and `render-status`; they are not evidence of compliance.
 - **Non-bypassable pre-edit self-check**: immediately before calling any file-editing tool for tracked work, stop and confirm in the agent's own working context that the current user-visible conversation already contains the focused READY TASK excerpt for the exact TASK/REQ and files about to be edited. If that visible excerpt is missing, do not edit. Run or reuse `implementation show-ready --task <TASK-ID>`, send the focused READY excerpt as a normal assistant message, then continue only after that message is visible.
 - **Before any tracked repository or artifact edit**: resolve the current bundle, run or reuse `implementation ready` / `implementation show-ready --task <TASK-ID>`, and paste the relevant READY TASK excerpt in a normal assistant message. This applies to code, docs, tests, config, scripts, and tracked bundle artifacts. Reusing a prior READY result still requires showing the relevant excerpt again before the current edit unless the user explicitly waived repeated visibility after an initial visible READY excerpt. Tool stdout, folded transcripts, and internal notes do not satisfy this requirement.
+- **Display artifact rule**: required Display Layer output is not complete until the assistant-visible message body contains the required block. Tool stdout, folded command transcripts, hidden observations, or "I ran the command" summaries are only generation evidence; they are not user display evidence. For output compliance checks, treat `tool_stdout` and `assistant_visible_body` as separate artifacts, and fail when `Exploration Result`, `Implementation Gate: READY`, or `render-status` exists only in `tool_stdout`.
 - **Before implementation READY**: generate or reuse the current `exploration render` output and surface it in a normal assistant message before the READY TASK excerpt. `implementation ready` prints Exploration Visibility Gate output before READY when it must refresh it, but the agent must still make that output visible to the user. Tool stdout, folded transcripts, and internal notes are not enough by themselves.
 - **Execution visibility is content, not IDs only**: before tracked edits, the user-visible message must show the meaningful Exploration Result fields (`Required Now`, `Deferred`, `Selected Option`, and `What READY Will Cover`) and the focused READY TASK fields (`Files`, `Execution Details`, `Done Criteria`, and `Planned Verification`). Showing only `EXPLORATION_OUTPUT_ID`, `READY_TASK_OUTPUT_ID`, or a one-line "READY Focus" summary is noncompliant.
 - **Before final tracked handoff**: for install, validation, commit, delivery, blocked, review, keep/revise/rollback, or final status responses, run `render-status` first. If `render-status` is unavailable or fails, state that reason and then use the fixed Console Response Contract fields manually.
+- **Final body rule**: when `render-status` is available, the final tracked handoff must use the `render-status` fixed-field output as the visible response body, with actual evidence filled in. A hand-written natural-language summary after running `render-status` is noncompliant unless the fixed fields remain visible in the final answer.
 - **Mapping rule**: every formal tracked `Changes`, `Completed Items`, `Incomplete Items`, and `Validation Results` bullet must map to the visible Exploration Visibility Gate output and READY TASK/REQ excerpt that were shown before execution.
 - **Same-session continuity rule**: within one conversation session, related ideas, corrections, numbered lists, scope decisions, and completion claims must remain traceable and consistent across turns. Before answering or acting on a related follow-up, audit the prior related scope from the active bundle, visible READY/Exploration outputs, explicit conversation context, and `idea status`. Record material follow-ups with `session audit` and, when the follow-up changes or clarifies the idea itself, `idea record`. If the relationship is unclear, classify or ask; do not silently reinterpret it. Unrelated questions may stay ordinary concise answers and must not be forced into the active bundle.
 - **Idea record rule**: every material same-session idea, correction, deferral, rejection, or completion that later status may need to reference must have a stable `IDEA-*` record in `state.json`. Use `idea record --id IDEA-* --status active|completed|deferred|rejected|superseded|blocked|reference --summary "<English summary>" --related-reqs "<REQs>" --notes "<English trace notes>"`. Status, READY, and final handoff must preserve IDEA/TASK/REQ mapping when more than one idea record exists or when the user refers back to a prior idea.
@@ -1015,8 +1055,7 @@ Use this map before opening references or adding new rules:
 | `references/planning-patterns.md` | intake, Controlled Exploration, TASK/REQ plan shape, milestone and report patterns | lifecycle enforcement or final acceptance checks |
 | `references/roles-and-state.md` | role responsibilities, role execution mode, delegation healthcheck, role evidence, task states, acceptance matrix, trace coverage | validation taxonomy or final response contract details |
 | `references/verification-and-evidence.md` | validation types, evidence quality, acceptance checks, READY/Exploration visibility checks, `render-status`, installed parity | initial planning templates or role-order ownership |
-| `references/controlled-exploration-benchmark.md` | prompt-level and fresh-session benchmark scenarios and scoring | runtime rule authority or fixed answer templates |
-| `references/fresh-session-live-benchmark-template.md` | copyable fresh-session result-recording template | benchmark policy or runtime behavior rules |
+| `references/controlled-exploration-benchmark.md` | prompt-level and fresh-session benchmark scenarios, scoring, protocol, and copyable result template | runtime rule authority or fixed answer templates |
 
 Read only the reference needed for the current situation:
 
@@ -1025,5 +1064,4 @@ Read only the reference needed for the current situation:
 - `references/roles-and-state.md` - role duties, task states, task classification, acceptance matrix, trace coverage, evidence quality, and multi-role output compliance.
 - `references/verification-and-evidence.md` - validation types, verification summaries, UI/runtime evidence, acceptance and closeout checks.
 - `references/planning-patterns.md` - vague idea clarification, milestone decomposition, implementation plan shape, final report shape.
-- `references/controlled-exploration-benchmark.md` - prompt-level scenario library plus fresh-session live benchmark protocol and rubric for evaluating real model outputs after Controlled Exploration changes.
-- `references/fresh-session-live-benchmark-template.md` - copyable result template for recording raw new-session outputs and scores.
+- `references/controlled-exploration-benchmark.md` - prompt-level scenario library, fresh-session live benchmark protocol, scoring rubric, and copyable result template for evaluating real model outputs after Controlled Exploration changes.

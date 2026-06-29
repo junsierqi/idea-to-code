@@ -176,6 +176,18 @@ Reviewer output that repeats a prior weakness without one of these labels is amb
 
 ## Console Response Check
 
+Formal tracked handoff validation treats the final assistant message as the artifact under test. The command output that generated `render-status` is supporting evidence only. A closeout is noncompliant when `tool_stdout` contains a valid `render-status` block but `assistant_visible_body` omits it, summarizes it casually, or drops fixed fields.
+
+Use the output compliance helper when checking this failure mode:
+
+```bash
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" output-compliance check --kind formal-status --tool-stdout-file <render-status-output.txt> --assistant-body-file <final-message.txt>
+```
+
+The helper must fail when the final body does not start with `[idea-to-code][Closer/agent] Status: Completed|Progress|Blocked`, omits any fixed field, drops TASK/REQ mapping, moves `No commit made` under `Incomplete Items`, or loses `EXPLORATION_OUTPUT_ID` / `READY_TASK_OUTPUT_ID` that were present in `render-status`.
+
+For final closeout of tracked work, run this check whenever the assistant-visible final body is available as text before handoff or review. If the host cannot expose the final body before sending, record that as `host-required` rather than silently skipping the check. Running `render-status` alone is generation evidence; passing `output-compliance check --kind formal-status` is body-compliance evidence.
+
 ## READY Visibility Check
 
 ## Exploration Visibility Check
@@ -199,6 +211,14 @@ When the user revises exploration, the next output must use a new `EXPLORATION_O
 For large ideas, keep Exploration Visibility Gate output separate from READY. Exploration explains the selected approach; focused READY excerpts explain the next TASK. Future grouped READY summaries may reduce visual clutter, but cannot replace focused TASK/REQ execution visibility.
 
 Before product-file edits, the READY task list must be visible to the user in a normal assistant message, not only command stdout, tool output, or a folded transcript.
+
+Use the output compliance helper when checking the exact distinction between generated tool output and visible assistant output:
+
+```bash
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" output-compliance check --kind ready --tool-stdout-file <ready-command-output.txt> --assistant-body-file <assistant-ready-message.txt>
+```
+
+The helper must fail when `Exploration Result` or `Implementation Gate: READY` exists only in `tool_stdout`, or when the visible body omits `Required Now`, `Deferred`, `Selected Option`, `What READY Will Cover`, `Files`, `Execution Details`, `Done Criteria`, or `Planned Verification`.
 
 READY visibility has two layers:
 
@@ -344,6 +364,8 @@ When tracked work changes the idea-to-code skill itself and the user expects the
 If any installed focused test or source/installed SHA256 parity check is missing or failing, the response must not claim "latest skill installed and verified." Report the gap in `Unverified Items` or in the incomplete TASK/REQ that owns installation evidence.
 
 Do not use the fixed field contract for ordinary questions, short explanations, naming discussions, quick clarifications, or lightweight commentary updates, even when a bundle is active. These replies should stay concise and natural while still using the role/source prefix; the template is for formal tracked delivery status, not every message. The boundary is semantic: if no tracked delivery status, install, validation, commit, blocked handoff, review handoff, keep/revise/rollback decision, or final status is being reported, answer naturally and do not add READY, `render-status`, or fixed fields just because a bundle exists.
+
+For ordinary-answer regression checks, use `output-compliance check --kind ordinary` to fail outputs that add READY, `render-status`, or fixed status fields to explanation-only responses.
 
 Mixed-response split rule: if the user asks both a tracked status question and an ordinary review/evaluation question in the same message, split the answer instead of creating a new fixed template. The status portion should be one concise sentence with relevant TASK/REQ IDs, validation/install state, and `No commit made` when relevant. The review portion should be natural prose in the user's language with lightweight headings such as current strengths, current gaps, and suggested TODO. Do not run or paste full `render-status` fields for the review portion, and do not add a second fixed response template to solve this case.
 
