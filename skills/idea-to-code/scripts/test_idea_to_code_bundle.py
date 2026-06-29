@@ -125,6 +125,25 @@ class BundleTest(unittest.TestCase):
             args.extend(["--file", file_path])
         return self.run_bundle(*args)
 
+    def write_patch_for_file(self, file_path: str, before: str, after: str) -> Path:
+        original = self.root / file_path
+        variant = self.root / f"{file_path}.new"
+        patch = self.root / f"{file_path}.patch"
+        original.write_text(before, encoding="utf-8")
+        variant.write_text(after, encoding="utf-8")
+        result = subprocess.run(
+            ["git", "diff", "--no-index", "--", file_path, f"{file_path}.new"],
+            cwd=self.root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(result.returncode, 1, result.stderr)
+        patch_text = result.stdout.replace(f"a/{file_path}.new", f"a/{file_path}").replace(f"b/{file_path}.new", f"b/{file_path}")
+        patch.write_text(patch_text, encoding="utf-8")
+        variant.unlink()
+        return patch
+
     def init_bundle(self) -> str:
         self.run_bundle("init", "--root", str(self.root), "--slug", "sample", "--title", "Sample task", "--unique", "--idea", "Deliver sample behavior")
         current = json.loads((self.root / ".idea-to-code" / "current.json").read_text(encoding="utf-8"))
@@ -3076,6 +3095,47 @@ Planned Verification:
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("file(s) not listed under TASK-1 Files", result.stderr)
+
+    def test_implementation_guarded_apply_applies_allowed_patch_after_pre_edit(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("implementation", "enter-task", "--root", str(self.root), "--slug", slug, "--task", "TASK-1")
+        self.acquire_lease(slug)
+        patch = self.write_patch_for_file("state.json", "old\n", "new\n")
+
+        result = self.run_bundle(
+            "implementation", "guarded-apply",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--task", "TASK-1",
+            "--patch-file", str(patch),
+        )
+
+        self.assertIn("Guarded Apply: applied", result.stdout)
+        self.assertIn("PRE_EDIT_OK_ID:", result.stdout)
+        self.assertEqual((self.root / "state.json").read_text(encoding="utf-8"), "new\n")
+
+    def test_implementation_guarded_apply_rejects_out_of_scope_patch(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("implementation", "enter-task", "--root", str(self.root), "--slug", slug, "--task", "TASK-1")
+        self.acquire_lease(slug)
+        patch = self.write_patch_for_file("other.txt", "old\n", "new\n")
+
+        result = self.run_bundle(
+            "implementation", "guarded-apply",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--task", "TASK-1",
+            "--patch-file", str(patch),
+            check=False,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("file(s) not listed under TASK-1 Files", result.stderr)
+        self.assertEqual((self.root / "other.txt").read_text(encoding="utf-8"), "old\n")
 
     def test_pre_edit_records_history_and_status_exposes_records(self) -> None:
         slug = self.init_bundle()

@@ -3263,6 +3263,95 @@ def implementation_pre_edit(
     return 0
 
 
+def _guarded_patch_paths(patch_text: str) -> list[str]:
+    paths: set[str] = set()
+    for line in patch_text.splitlines():
+        candidates: list[str] = []
+        if line.startswith("diff --git "):
+            parts = line.split()
+            if len(parts) >= 4:
+                candidates.extend([parts[2], parts[3]])
+        elif line.startswith("+++ ") or line.startswith("--- "):
+            parts = line.split(maxsplit=1)
+            if len(parts) == 2:
+                candidates.append(parts[1])
+        for raw in candidates:
+            path_text = raw.strip()
+            if path_text == "/dev/null":
+                continue
+            if path_text.startswith(("a/", "b/")):
+                path_text = path_text[2:]
+            path_text = path_text.replace("\\", "/")
+            if not path_text or path_text.startswith("/") or path_text.startswith("../") or "/../" in path_text:
+                raise SystemExit(f"guarded apply refused - unsafe patch path: {raw}")
+            paths.add(path_text)
+    if not paths:
+        raise SystemExit("guarded apply refused - patch has no changed file paths.")
+    return sorted(paths)
+
+
+def implementation_guarded_apply(
+    root: Path,
+    slug: str,
+    task_id: str,
+    patch_file: str,
+    owner: str = "agent",
+    profile: str | None = None,
+) -> int:
+    target = ensure_active_bundle(root, slug)
+    patch_path = Path(patch_file)
+    if not patch_path.is_absolute():
+        patch_path = root / patch_path
+    if not patch_path.exists():
+        raise SystemExit(f"guarded apply refused - patch file not found: {patch_file}")
+    patch_text = patch_path.read_text(encoding="utf-8")
+    changed_files = _guarded_patch_paths(patch_text)
+    check = subprocess.run(
+        ["git", "apply", "--check", str(patch_path)],
+        cwd=root,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if check.returncode != 0:
+        raise SystemExit("guarded apply refused - git apply --check failed:\n" + (check.stderr or check.stdout).strip())
+
+    implementation_pre_edit(root, slug, task_id, changed_files, owner, profile)
+
+    apply_result = subprocess.run(
+        ["git", "apply", str(patch_path)],
+        cwd=root,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if apply_result.returncode != 0:
+        raise SystemExit("guarded apply failed after pre-edit - git apply failed:\n" + (apply_result.stderr or apply_result.stdout).strip())
+
+    status = read_status(target)
+    pre_edit_id = status.get("pre_edit_ok_id") or "<PRE_EDIT_OK_ID>"
+    lines = [
+        f"{_visibility_prefix(profile, 'implementer', 'agent')} Guarded Apply: applied | Bundle: {slug}",
+        "",
+        "Display Layer: Guarded Apply",
+        f"{PRE_EDIT_OK_ID_LABEL}: {pre_edit_id}",
+        f"{READY_TASK_OUTPUT_ID_LABEL}: {status.get('ready_task_output_id')}",
+        f"{EXPLORATION_OUTPUT_ID_LABEL}: {status.get('exploration_output_id')}",
+        "",
+        "Current TASK:",
+        f"- {task_id.strip().upper()}",
+        "",
+        "Patch File:",
+        f"- {patch_path}",
+        "",
+        "Files Applied:",
+    ]
+    lines.extend(f"- {item}" for item in changed_files)
+    print("\n".join(lines))
+    append_ledger(target, "implementation-guarded-apply", f"Applied guarded patch for {task_id.strip().upper()}: {', '.join(changed_files)}")
+    return 0
+
+
 def implementation_noncompliance(
     root: Path,
     slug: str,
@@ -5802,6 +5891,13 @@ def build_parser() -> argparse.ArgumentParser:
     ipe.add_argument("--file", action="append", required=True, help="File path about to be edited. Repeat for multiple files.")
     ipe.add_argument("--owner", default="agent", help="Agent/session owner label that must hold the write lease.")
     ipe.add_argument("--profile", default=None, help="Optional upper-layer profile label for pre-edit output.")
+    iga = impl_sub.add_parser("guarded-apply", help="Apply a git patch only after lease, current TASK, and pre-edit checks pass.")
+    iga.add_argument("--root", required=True)
+    iga.add_argument("--slug", required=True)
+    iga.add_argument("--task", required=True, help="TASK/IMP id about to be edited, such as TASK-2.")
+    iga.add_argument("--patch-file", required=True, help="Unified diff patch file to check and apply with git apply.")
+    iga.add_argument("--owner", default="agent", help="Agent/session owner label that must hold the write lease.")
+    iga.add_argument("--profile", default=None, help="Optional upper-layer profile label for guarded-apply output.")
     inc = impl_sub.add_parser("noncompliance", help="Record a pre-edit compliance lapse so status and verification cannot hide it.")
     inc.add_argument("--root", required=True)
     inc.add_argument("--slug", required=True)
@@ -6073,6 +6169,8 @@ def main(argv: Iterable[str] | None = None) -> int:
                 return 0
         if args.implementation_command == "pre-edit":
             return implementation_pre_edit(root, args.slug, args.task, args.file, args.owner, args.profile)
+        if args.implementation_command == "guarded-apply":
+            return implementation_guarded_apply(root, args.slug, args.task, args.patch_file, args.owner, args.profile)
         if args.implementation_command == "noncompliance":
             return implementation_noncompliance(root, args.slug, args.task, args.reason, args.file, args.profile)
         if args.implementation_command == "status":
