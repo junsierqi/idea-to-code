@@ -3476,6 +3476,23 @@ Planned Verification:
         ]:
             self.assertIn(required, combined)
 
+    def test_guarded_apply_default_and_fallback_accounting_are_documented(self) -> None:
+        skill = SKILL_MD.read_text(encoding="utf-8")
+        workflow = WORKFLOW_MD.read_text(encoding="utf-8")
+        verification = VERIFICATION_MD.read_text(encoding="utf-8")
+        combined = "\n".join([skill, workflow, verification])
+
+        for required in [
+            "default tracked edit path",
+            "patch-expressible edits",
+            "fallback reason",
+            "fallback edits are not wrapper-compliant",
+            "READY_TASK_OUTPUT_ID",
+            "PRE_EDIT_OK_ID",
+            "native-tool bypass remains a `residual risk`",
+        ]:
+            self.assertIn(required, combined)
+
     def test_protocol_glossary_lists_do_not_translate_terms_and_maintenance_rule(self) -> None:
         skill = SKILL_MD.read_text(encoding="utf-8")
         workflow = WORKFLOW_MD.read_text(encoding="utf-8")
@@ -3538,6 +3555,24 @@ Planned Verification:
         self.assertIn("SKILL.md#Risk And Weakness Taxonomy", verification)
         self.assertIn("Repeating an older issue without saying which class it belongs to is ambiguous", roles)
         self.assertIn("repeats a prior weakness without one of these labels is ambiguous", verification)
+
+    def test_weakness_reports_require_enforcement_boundary_taxonomy(self) -> None:
+        skill = SKILL_MD.read_text(encoding="utf-8")
+        verification = VERIFICATION_MD.read_text(encoding="utf-8")
+        workflow = WORKFLOW_MD.read_text(encoding="utf-8")
+        combined = "\n".join([skill, verification, workflow])
+
+        for required in [
+            "enforcement boundary",
+            "`repo-enforced`",
+            "`skill-enforced`",
+            "`host-required`",
+            "native pre-edit hook",
+            "external fresh-session runner",
+            "must not be repeatedly turned into repo-only TODOs",
+            "must not be reopened as a repo-only TODO",
+        ]:
+            self.assertIn(required, combined)
 
     def test_controlled_exploration_benchmark_has_chinese_language_boundary_scenario(self) -> None:
         benchmark = CONTROLLED_EXPLORATION_BENCHMARK_MD.read_text(encoding="utf-8")
@@ -3625,12 +3660,40 @@ Planned Verification:
         self.assertFalse(status_payload["evidence_ready"])
         self.assertFalse(status_payload["scores_present"])
         self.assertFalse(status_payload["external_run_completed"])
+        self.assertFalse(status_payload["external_run_partial"])
+        self.assertFalse(status_payload["external_run_unavailable"])
         self.assertEqual(status_payload["recorded_artifact"], "artifacts\\fresh-session-live-benchmark.md" if os.name == "nt" else "artifacts/fresh-session-live-benchmark.md")
 
         text = artifact.read_text(encoding="utf-8")
+        unavailable_text = text.replace(
+            "External run status: `not-started | in-progress | partial | unavailable | completed`",
+            "External run status: `unavailable`",
+        )
+        artifact.write_text(unavailable_text, encoding="utf-8")
+        unavailable = self.run_bundle("fresh-benchmark", "status", "--root", str(self.root), "--slug", slug)
+        unavailable_payload = json.loads(unavailable.stdout)
+        self.assertEqual(unavailable_payload["state"], "unavailable")
+        self.assertTrue(unavailable_payload["external_run_required"])
+        self.assertFalse(unavailable_payload["live_evidence_created"])
+        self.assertTrue(unavailable_payload["external_run_unavailable"])
+        self.assertIn("do not claim completed live fresh-session evidence", unavailable_payload["next_required_action"])
+
+        partial_text = text.replace(
+            "External run status: `not-started | in-progress | partial | unavailable | completed`",
+            "External run status: `partial`",
+        )
+        artifact.write_text(partial_text, encoding="utf-8")
+        partial = self.run_bundle("fresh-benchmark", "status", "--root", str(self.root), "--slug", slug)
+        partial_payload = json.loads(partial.stdout)
+        self.assertEqual(partial_payload["state"], "partial")
+        self.assertTrue(partial_payload["external_run_required"])
+        self.assertFalse(partial_payload["live_evidence_created"])
+        self.assertTrue(partial_payload["external_run_partial"])
+        self.assertIn("treat as partial external validation", partial_payload["next_required_action"])
+
         artifact.write_text(
             text
-            .replace("External run status: `not-started | in-progress | completed`", "External run status: `completed`")
+            .replace("External run status: `not-started | in-progress | partial | unavailable | completed`", "External run status: `completed`")
             .replace("- Total score: `<n>/63`", "- Total score: `60/63`")
             .replace("Raw output: `<transcript id or artifact path>`", "Raw output: `artifacts/fresh-run-raw.md`"),
             encoding="utf-8",

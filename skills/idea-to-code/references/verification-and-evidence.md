@@ -166,6 +166,12 @@ When reviewing skill architecture, process gaps, or a list of "what is still wea
 - `new gap`: the issue has no current rule, command, test, benchmark, or state path.
 - `external validation`: the rule or artifact exists, but real fresh-session, multi-agent, user acceptance, or environment validation has not been run.
 
+Each weakness must also state the enforcement boundary:
+
+- `repo-enforced`: repository code, tests, CLI commands, or committed artifacts enforce the behavior.
+- `skill-enforced`: skill rules and bundle verification require the behavior, but agent cooperation is still part of the control.
+- `host-required`: the remaining guarantee needs Codex host/tool support and must not be reopened as a repo-only TODO without a new host integration path.
+
 Reviewer output that repeats a prior weakness without one of these labels is ambiguous. Before turning such a weakness into a new TASK, map it to the earlier evidence or mark it as a new gap with a concrete reason.
 
 ## Console Response Check
@@ -241,7 +247,7 @@ The guard must print `PRE_EDIT_OK_ID`. It is valid only for the current bundle, 
 
 Closed-loop verification should check that `implementation status` exposes `pre_edit_ok_id`, `pre_edit_task_id`, `pre_edit_files`, and `pre_edit_records` after a passing guard. Implementer evidence must cite the current `PRE_EDIT_OK_ID` when one exists for the current plan revision, and the guard records must cover every file claimed for the current TASK. Missing, stale, wrong-task, or incomplete guard coverage is a verification problem, not a cosmetic warning.
 
-If an edit can be represented as a git patch, prefer `implementation guarded-apply --task <TASK-ID> --patch-file <path>` so the wrapper checks patch paths, active READY/current TASK state, lease coverage, and pre-edit before applying. If an edit happened before the guard, record it with `implementation noncompliance --task <TASK-ID> --reason "<reason>" --file <path>`. Open pre-edit noncompliance must be listed by `implementation status`, `verify`, and `render-status`; it cannot be moved only to Key Technical Details or omitted from formal tracked status.
+If an edit can be represented as a git patch, use `implementation guarded-apply --task <TASK-ID> --patch-file <path>` as the default tracked edit path so the wrapper checks patch paths, active READY/current TASK state, lease coverage, and pre-edit before applying. If a tracked edit cannot use `guarded-apply`, Implementer evidence must state the fallback reason and still cite the current `READY_TASK_OUTPUT_ID` and `PRE_EDIT_OK_ID`; fallback edits are not wrapper-compliant evidence. If an edit happened before the guard, record it with `implementation noncompliance --task <TASK-ID> --reason "<reason>" --file <path>`. Open pre-edit noncompliance must be listed by `implementation status`, `verify`, and `render-status`; it cannot be moved only to Key Technical Details or omitted from formal tracked status.
 
 Tool-layer edit wrapper design: the future enforcement target is a tracked-edit wrapper or host pre-edit hook that physically sits before file writes. It must resolve the active bundle, confirm the visible Exploration Visibility Gate output and READY Focus for the current TASK, verify or acquire a non-overlapping lease, run `implementation pre-edit`, reject writes outside the TASK file scope, capture `PRE_EDIT_OK_ID`, and require Implementer evidence to cite that same guard after the write. Current Codex edit tools are not physically blocked by the skill itself, so the absence of that wrapper is a `residual risk`; do not describe current guidance as non-bypassable physical enforcement.
 

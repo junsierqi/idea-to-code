@@ -5383,6 +5383,8 @@ def _fresh_benchmark_payload(target: Path, status: dict) -> dict:
     )
     scores_present = exists and "Total score:" in text and "`<n>/63`" not in text
     external_completed = exists and "External run status: `completed`" in text
+    external_partial = exists and "External run status: `partial`" in text
+    external_unavailable = exists and "External run status: `unavailable`" in text
     live_evidence_created = raw_outputs_present and scores_present and external_completed
     if not exists:
         state_value = "missing"
@@ -5390,6 +5392,12 @@ def _fresh_benchmark_payload(target: Path, status: dict) -> dict:
     elif live_evidence_created:
         state_value = "completed"
         next_required_action = "review the recorded raw outputs and scores before using them as live fresh-session evidence"
+    elif external_unavailable:
+        state_value = "unavailable"
+        next_required_action = "record the external-run limitation in status or closeout; do not claim completed live fresh-session evidence"
+    elif external_partial:
+        state_value = "partial"
+        next_required_action = "record which raw outputs or scores are missing, then complete or treat as partial external validation"
     else:
         state_value = "scaffolded"
         next_required_action = "run a separate fresh session, replace template placeholders with raw outputs, set External run status to `completed`, and record Total score"
@@ -5403,6 +5411,8 @@ def _fresh_benchmark_payload(target: Path, status: dict) -> dict:
         "raw_outputs_present": raw_outputs_present,
         "scores_present": scores_present,
         "external_run_completed": external_completed,
+        "external_run_partial": external_partial,
+        "external_run_unavailable": external_unavailable,
         "next_required_action": next_required_action,
         "recorded_artifact": status.get("fresh_benchmark_artifact"),
     }
