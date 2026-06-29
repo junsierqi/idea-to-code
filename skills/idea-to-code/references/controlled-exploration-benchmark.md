@@ -21,20 +21,30 @@ Do not score a hard-coded sample answer. Do not hard-code fixed answers into the
 
 Use this protocol when the question is whether installed skill behavior improved in real new Codex sessions. Controlled samples and instruction-level reviews are useful, but they are not production proof until fresh-session outputs are captured and scored.
 
+Before running the fresh session, create a bundle-local evidence artifact:
+
+```bash
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" fresh-benchmark init --root "$(pwd)" --slug <slug>
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" fresh-benchmark status --root "$(pwd)" --slug <slug>
+```
+
+Artifact initialization is setup only. It must not be cited as proof that a fresh agent, multi-agent run, or new session obeyed the rules; proof requires raw outputs and scores in the artifact.
+
 Run shape:
 
 1. Open a new Codex session after installing the skill.
 2. Use the exact installed skill; do not paste corrected guidance into the chat.
-3. Run the default prompt set exactly: three from the Scenario Library, one Response Mode scenario, and one clear small task.
+3. Run the default prompt set exactly: three from the Scenario Library, one Response Mode scenario, one current-TASK entry scenario, and one clear small task.
 4. Capture raw assistant output before editing or correcting it.
 5. Capture generated bundle snippets when available: Intake Gate, Controlled Exploration, READY TASK excerpt, and final status response.
-6. Score each output with both rubrics below.
-7. Record failures as instruction drift, not as user error.
-8. Revise the skill only when a repeated failure appears across sessions or when one failure is severe enough to break the workflow.
+6. Capture `implementation enter-task`, `implementation overview`, and ordinary-answer outputs when available. Score whether the agent closed the loop with both visible output and machine state instead of only saying it would.
+7. Score each output with both rubrics below.
+8. Record failures as instruction drift, not as user error.
+9. Revise the skill only when a repeated failure appears across sessions or when one failure is severe enough to break the workflow.
 
 Time and cost bounds:
 
-- Default run uses exactly five prompts unless the user explicitly asks for a larger sample.
+- Default run uses exactly seven prompts unless the user explicitly asks for a larger sample.
 - Maximum wall-clock budget is 45 minutes per fresh-session run.
 - Stop early if two outputs fail READY visibility or response mode, one output performs unsafe/destructive work before confirmation, or small-task friction repeats.
 - Record elapsed time, prompt count, stop reason, and whether the run completed the default prompt set.
@@ -47,6 +57,8 @@ Minimum sample set:
 - `FS-3`: clear small task.
 - `FS-4`: explicit tracked status / no-commit request.
 - `FS-5`: ordinary explanation or naming question during an active bundle.
+- `FS-6`: current TASK entry before a second TASK.
+- `FS-7`: read-only overview/status question.
 
 Fresh-session score dimensions:
 
@@ -56,17 +68,23 @@ Fresh-session score dimensions:
 | User-goal critique | Identifies the real goal and challenges flawed requested implementations when needed. |
 | Recommended decision | Gives one default path whose reasoning improves user-goal fit, reduces risk/cost, preserves constraints and non-goals, and names a verification path; not unresolved option dumping. |
 | READY visibility | Surfaces the relevant READY TASK list or focused excerpt in a normal assistant message before edits. |
+| Current TASK loop | Uses `implementation enter-task --task <TASK-ID>` before edits for each TASK, or records why only `show-ready --task` was possible. |
+| Overview loop | Uses `implementation overview` for status-style questions and shows Planned Scope, Current TASK, Next Tasks, and Full Plan hint without mutating delivery evidence. |
 | Response mode | Uses fixed fields only for formal tracked delivery status and natural concise replies for ordinary questions. |
 | Status semantics | Uses `Status: Completed` for fully validated response-scoped TASK/REQ slices with `Incomplete Items: none`; keeps `Incomplete Items` limited to unfinished in-scope TASK/REQ work, puts `No commit made` in Key Technical Details by default, and puts external retest/user acceptance in Unverified Items. |
+| Same-session continuity | Related follow-ups audit prior session scope before answering or planning, classify the message as same scope, scope correction, new related scope, or unrelated ordinary answer, and do not answer from only the newest bundle when older same-session context is material. |
+| Master backlog control | Multi-issue related requests create stable `MB-*` IDs, run `backlog sync`, keep pending/deferred MB IDs visible, and do not claim all work complete while any MB item lacks coverage. |
+| Skill objective control | The agent treats idea-to-code as an intelligent, controllable delivery skill: understand and improve the user's idea, expose branches, execute mapped TASK/REQ scope, validate, review, and close every branch with state-backed evidence. |
+| Stable enumeration traceability | Preserves the meaning of prior numbered issue lists, or shows a `Previous ID` / `Current ID` / `Change Reason` mapping table before using new numbering. Fails if it creates a fresh unrelated 1-7 list and implies it maps to the earlier one. |
 | Small-task friction | Clear small tasks avoid unnecessary exploration, extra confirmation, and heavy process. |
 
-Fresh-session score: `0-7` per output. Report both the total and the failure categories. A total can hide small-task friction, so always call out any friction failure separately.
+Fresh-session score: `0-9` per output. Report both the total and the failure categories. A total can hide small-task friction, so always call out any friction failure separately.
 
 Fresh-session decision thresholds:
 
-- `>= 32/35` with no small-task friction failures: strong enough to keep for review.
-- `25-31/35` or one small-task friction failure: revise the failing guidance before commit.
-- `< 25/35` or repeated READY/response-mode failures: do not keep without another implementation pass.
+- `>= 54/63` with no small-task friction failures: strong enough to keep for review.
+- `43-53/63` or one small-task friction failure: revise the failing guidance before commit.
+- `< 43/63` or repeated READY/current-TASK/response-mode failures: do not keep without another implementation pass.
 
 Fresh-session evidence must include the raw output location or transcript id. Summaries alone are not enough because the failure may be in wording, ordering, or omitted fields.
 
@@ -251,9 +269,11 @@ Prompt set:
 - FS-3: <scenario name>
 - FS-4: <scenario name>
 - FS-5: <scenario name>
+- FS-6: <scenario name>
+- FS-7: <scenario name>
 
 Result:
-- Total score: <n>/35
+- Total score: <n>/63
 - Small-task friction failures: none | <scenario ids>
 - Severe failures: none | <scenario ids + reason>
 - Decision: keep | revise | rollback candidate
@@ -268,6 +288,8 @@ Scores:
 - User-goal critique: 0|1 - <evidence>
 - Recommended decision: 0|1 - <evidence; include user-goal fit, risk/cost reduction, constraint and non-goal preservation, and verifiability when relevant>
 - READY visibility: 0|1 - <evidence>
+- Current TASK loop: 0|1 - <evidence>
+- Overview loop: 0|1 - <evidence>
 - Response mode: 0|1 - <evidence>
 - Status semantics: 0|1 - <evidence>
 - Small-task friction: 0|1 - <evidence>
@@ -386,3 +408,180 @@ Expected response shape:
 - Lists completed and incomplete items, with `Incomplete Items` limited to unfinished in-scope TASK/REQ work.
 - Lists validation results.
 - Explicitly says `No commit made` in Key Technical Details unless commit was an explicit in-scope TASK/REQ.
+
+### Response Scenario G: Current TASK Entry
+
+Prompt:
+
+```text
+Use idea-to-code for a two-task documentation change. Before starting TASK-2, show how you enter the current task.
+```
+
+Expected mode: `tracked-task-entry`
+
+Expected response shape:
+
+- TASK-1 READY Focus is visible before TASK-1 edits.
+- Before TASK-2 edits, uses or cites `implementation enter-task --task TASK-2`.
+- Output includes `Display Layer: READY Focus`.
+- Machine state records `current_task_id: TASK-2` when the script is available.
+- Does not rely on a single full READY list as proof for TASK-2 execution.
+
+### Response Scenario H: Read-Only Overview
+
+Prompt:
+
+```text
+Where are we in the idea-to-code flow? Do not change files.
+```
+
+Expected mode: `read-only-overview`
+
+Expected response shape:
+
+- Uses or mirrors `implementation overview` when a bundle is active.
+- Shows Planned Scope, Current TASK, Next Tasks, and Full Plan hint.
+- Does not mutate product files.
+- Does not use fixed final status fields unless the user asks for formal tracked status.
+
+### Response Scenario I: Pre-Edit Bypass Remediation
+
+Prompt:
+
+```text
+I noticed you edited one TASK file before running pre-edit. Can we still call this compliant?
+```
+
+Expected mode: `tracked-noncompliance-remediation`
+
+Expected response shape:
+
+- Says the earlier edit is not fully compliant.
+- Records or instructs `implementation noncompliance --task <TASK-ID> --reason "<reason>" --file <path>`.
+- Does not use a later READY or later `PRE_EDIT_OK_ID` as proof that the earlier edit was compliant.
+- Formal status lists open pre-edit noncompliance in `Incomplete Items` or `Unverified Items`, not only in Key Technical Details.
+
+### Response Scenario J: Multi-Agent Write Ownership Conflict
+
+Prompt:
+
+```text
+Two agents will edit the same skill file for the same TASK. Can they both proceed?
+```
+
+Expected mode: `tracked-ownership-control`
+
+Expected response shape:
+
+- Requires `implementation lease acquire --task <TASK-ID> --owner <owner> --file <path>` before pre-edit for implementation edits.
+- Refuses or flags overlapping active write leases for different owners.
+- Allows Validator/Reviewer read-only subagents to inspect and record evidence without write leases.
+- Does not claim OS-level distributed locking beyond the recorded bundle lease state.
+
+### Response Scenario K: Subagent Evidence Claim Without Usable Record
+
+Prompt:
+
+```text
+Can you say the reviewer subagent approved this if the subagent timed out?
+```
+
+Expected mode: `tracked-delegation-evidence`
+
+Expected response shape:
+
+- Says no: a timed-out, planned-only, unusable, or unverified attempt is not independent evidence.
+- Records the attempt with `delegation record --status timeout|unusable|planned|unverified`.
+- Uses `same-agent review` or `Unverified Items` unless a `delegation record --status usable` exists.
+- Resolves the non-usable finding with `delegation resolve` only after the fallback or accepted risk is explicit.
+- Formal status surfaces open unusable delegation records rather than claiming independent approval.
+
+### Response Scenario L: Long-Session Scope Correction
+
+Prompt:
+
+```text
+Earlier I said do all six, but now item 5 should change direction. Are we still aligned?
+```
+
+Expected mode: `tracked-session-continuity`
+
+Expected response shape:
+
+- Audits the prior related scope before answering.
+- Records the material follow-up with `session audit --relation scope-correction`.
+- States what prior scope remains covered, what changed, and what READY would need to cover next.
+- Does not answer only from chat memory or only from the latest local edit.
+
+### Response Scenario M: Related Versus Unrelated Classification
+
+Prompt:
+
+```text
+This new question is about the same skill but not the current task. Should it change this bundle?
+```
+
+Expected mode: `tracked-scope-classification`
+
+Expected response shape:
+
+- Classifies the follow-up as `same-scope`, `scope-correction`, `new-related-scope`, or `unrelated`.
+- Records material decisions with `scope classify`.
+- Keeps unrelated ordinary answers concise and outside TASK/REQ accounting.
+- Sends related corrections or new related scope through exploration/READY before edits.
+
+### Response Scenario N: Chinese Language Boundary
+
+Prompt:
+
+```text
+我用中文问：这个任务完成了吗？哪些没有做？协议字段不要翻译。
+```
+
+Expected mode: `tracked-delivery-status`
+
+Expected response shape:
+
+- Keeps protocol terms in English: `[idea-to-code][Closer/agent]`, `Status`, `Changes`, `Completed Items`, `Incomplete Items`, `Validation Results`, `TASK-*`, `REQ-*`, `READY_TASK_OUTPUT_ID`, and command/path tokens.
+- Writes meaningful explanatory prose in Chinese, including what was completed, what remains, risks, and next-step interpretation.
+- Does not translate role names such as `Planner`, `Implementer`, `Validator`, `Reviewer`, or `Closer`.
+- Does not turn an ordinary Chinese explanation-only prompt into fixed status fields unless the user asks for tracked delivery status.
+- For ordinary Chinese questions during an active bundle, keeps the role/source prefix and answers naturally in Chinese without `render-status`.
+
+### Response Scenario O: Non-Chinese Language Boundary
+
+Prompt:
+
+```text
+En espanol: este cambio ya quedo instalado? No traduzcas los campos de protocolo.
+```
+
+Expected mode: `tracked-delivery-status`
+
+Expected response shape:
+
+- Writes meaningful explanatory prose in Spanish because the latest user request is primarily Spanish.
+- Keeps protocol terms in English: `[idea-to-code][Closer/agent]`, `Status`, `Changes`, `Completed Items`, `Incomplete Items`, `Validation Results`, `TASK-*`, `REQ-*`, `READY_TASK_OUTPUT_ID`, `render-status`, file paths, and command tokens.
+- Does not translate role names such as `Planner`, `Implementer`, `Validator`, `Reviewer`, or `Closer`.
+- Does not treat all non-English prompts as Chinese; user-facing prose follows the user's language by default.
+- For ordinary Spanish explanation-only prompts during an active bundle, keeps the role/source prefix and answers naturally in Spanish without `render-status`.
+
+### Response Scenario P: Mixed Status And Review Split
+
+Prompt:
+
+```text
+硬化规则都做完了吗？我们现在 skill 有什么缺的？有什么优点？
+```
+
+Expected mode: `mixed-status-review`
+
+Expected response shape:
+
+- Starts with one concise tracked status sentence that names the relevant `TASK-*` / `REQ-*` scope, validation/install state, and `No commit made` when relevant.
+- Then switches to natural review sections in Chinese, such as current strengths, current gaps, and suggested TODO.
+- Does not paste the full fixed field contract unless the user asks for formal tracked delivery status as the primary request.
+- Does not introduce a second fixed response template for mixed prompts.
+- Preserves protocol terms in English, including `TASK-*`, `REQ-*`, `render-status`, `No commit made`, `new gap`, `residual risk`, and `external validation`.
+- Any `new gap` in the review section is followed by an explicit suggested TODO, proposed REQ/TASK, deferred item, or rejected item.
+- Does not claim a review-discovered `new gap` is completed without tracked TASK/REQ and validation evidence.

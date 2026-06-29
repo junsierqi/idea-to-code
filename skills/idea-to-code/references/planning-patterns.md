@@ -44,7 +44,13 @@ Use the chat session as the default ledger boundary. One session slug can contai
 
 Controlled Exploration is the bounded brainstorming step after Intake Gate and before Task Classification. It is also a required Exploration Visibility Gate before READY. It records whether exploration is needed, compares a small set of options only when needed, chooses one decision before implementation planning, and surfaces that decision to the user.
 
-Rendered exploration output must separate `Planned Scope` from `Decision Options`. `Planned Scope` lists what is required now, what is deferred, and what READY may cover. `Decision Options` lists only mutually exclusive route choices. This keeps multi-change ideas readable: required items such as A and C are not presented as choices, while route options such as 1, 2, or a revised 3 remain explicit decisions.
+Rendered exploration output must separate `Planned Scope` from `Decision Options`. `Planned Scope` lists what is required now, what is deferred, and what READY may cover. `Decision Options` lists only mutually exclusive route choices. This keeps multi-change ideas readable: required items such as A and C are not presented as choices, while route options such as 1, 2, or a revised 3 remain explicit decisions. Current bundles should record `Planned Scope` structurally; fallback text is only for legacy bundle compatibility.
+
+Use three display layers:
+
+- `Exploration Result` / `Exploration Decision Request`: scope and route decision.
+- `READY Focus`: current TASK/REQ execution info before edits.
+- `Full Plan`: full task list for audit or explicit `--full-plan` use.
 
 Use this shape in `00-idea.md`:
 
@@ -55,6 +61,10 @@ Use this shape in `00-idea.md`:
 - Trigger: <why exploration is needed or safely skipped>
 - Constraints:
   - <hard constraint from user, repository, governance, or runtime>
+- Planned Scope:
+  - Required Now: <scope included in the next READY output>
+  - Deferred: <scope explicitly excluded or postponed>
+  - What READY Will Cover: <TASK/REQ scope allowed after this exploration output>
 - Options Considered:
   - Option A: <approach>
     - Hypothesis:

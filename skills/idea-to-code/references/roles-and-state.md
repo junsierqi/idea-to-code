@@ -4,6 +4,10 @@
 
 Use this reference for role responsibilities, task states, state transitions, task classification, acceptance matrix, and REQ coverage.
 
+## Skill Objective
+
+The role system exists to make idea-to-code an intelligent, controllable delivery skill. Roles are not ceremonial labels: each role must preserve the user's real goal, improve weak ideas with evidence-backed recommendations, keep branches traceable, and close its own responsibility with concrete state. Future agent behavior should be derivable from these rules plus bundle records, not from informal chat memory.
+
 ## Role Order
 
 Record roles in this order for the current `plan_revision`:
@@ -48,6 +52,7 @@ Selection rules:
 - Use `same-agent` for small low-risk work, unavailable subagent tools, unclear delegation boundaries, or when delegation would create write conflicts.
 - Do not fabricate independent work. If a subagent did not actually run, evidence must say `same-agent` or explain the fallback.
 - If a subagent times out or returns no usable evidence, close it, record the timeout, split the task smaller or fall back to `same-agent`, and do not count that attempt as independent evidence.
+- Record delegated or fresh-agent attempts with `delegation record`. Only `status usable` can support an independent/subagent/fresh-agent role claim. `timeout`, `unusable`, `planned`, and `unverified` records are visible risk/evidence gaps, not proof. Close a non-usable finding with `delegation resolve` only when the fallback, supersession, accepted risk, or invalid-record reason is explicit; this closes the branch but does not create independent evidence.
 - Do not infer the cause of a timeout from convenience. If cause matters, run comparison tests such as ping, scoped review, and broader review. Record only observed results; leave the root cause `unverified` when the evidence does not isolate it.
 
 ## Delegation Healthcheck Protocol
@@ -89,29 +94,47 @@ For multi-agent implementation inside one session ledger, Planner evidence must 
 
 This section owns the role-by-role output matrix. `workflow.md` owns the lifecycle trigger for when to run the scenario and the `.idea-to-code/current.json` context boundary.
 
-After changing Exploration Visibility Gate output, READY visibility, role/source prefixes, validation status wording, noncompliance reporting, or final handoff formatting, run or update the multi-role output compliance scenario. The scenario covers Planner, Implementer, Validator, Reviewer, and Closer output expectations and records expected versus observed behavior so instruction drift is visible instead of guessed.
+After changing Exploration Visibility Gate output, READY visibility, role/source prefixes, validation status wording, noncompliance reporting, or final handoff formatting, run or update the multi-role output compliance scenario. The scenario covers Planner, Implementer, Validator, Reviewer, and Closer expectations, plus current-TASK entry, overview output, and ordinary-answer boundary checks, and records expected versus observed behavior so instruction drift is visible instead of guessed.
 
 The hard checks are:
 
-- Planner output shows `[idea-to-code][Planner/agent] Exploration Result | Bundle: <slug>` for autonomous work or `[idea-to-code][Planner/agent] Confirmation Required | Bundle: <slug>` for confirmation work before READY, with `Planned Scope` separated from `Decision Options`.
-- Planner output shows `[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: <slug>` and a visible focused TASK/REQ excerpt only after the Exploration Visibility Gate output is current; full READY output is reserved for `--full-plan` audit use.
-- Implementer output does not start tracked repository or artifact edits until the visible Exploration Visibility Gate output and READY excerpt have appeared.
+- Planner output shows `[idea-to-code][Planner/agent] Exploration Result | Bundle: <slug>` for autonomous work or `[idea-to-code][Planner/agent] Confirmation Required | Bundle: <slug>` for confirmation work before READY, with `Display Layer`, `Next Layer`, and `Planned Scope` separated from `Decision Options`.
+- Planner output preserves same-session continuity: for related follow-ups it audits prior related scope and classifies the message as `same scope`, `scope correction`, `new related scope`, or `unrelated ordinary answer` before changing the plan or claiming status.
+- Planner output creates and syncs a master backlog for multi-issue related work before READY; it must not collapse several MB items into one TASK unless the Deferred or Out-of-Scope mapping is visible.
+- Planner output shows `[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: <slug>` and a visible focused TASK/REQ excerpt only after the Exploration Visibility Gate output is current; full READY output is reserved for `--full-plan` audit use. Every current TASK transition needs visible task info for that TASK before edits begin, preferably through `implementation enter-task --task <TASK-ID>` so state records the current TASK.
+- Planner output records material same-session related follow-ups with `session audit` before planning, answering status, or claiming completion from long-session context.
+- Planner output records material related-vs-unrelated decisions with `scope classify`; a related correction cannot be handled as an ordinary unrelated answer without a classification record.
+- Planner output records material same-session ideas with `idea record` when they are introduced, corrected, deferred, rejected, completed, blocked, superseded, or reopened, and consults `idea status` before answering status about prior ideas.
+- Planner output preserves user-provided or agent-created numbered issue lists as stable scope IDs. If it reorganizes a prior list, it must show a mapping table with `Previous ID`, `Current ID`, and `Change Reason`; a fresh unrelated 1-7 list without mapping is noncompliant.
+- Implementer output does not start tracked repository or artifact edits until the visible Exploration Visibility Gate output and READY excerpt have appeared, `implementation enter-task --task <TASK-ID>` has recorded the current TASK, `implementation lease acquire --task <TASK-ID> --owner <owner> --file <path>` has acquired non-overlapping write ownership, and `implementation pre-edit --task <TASK-ID> --file <path>` has printed `PRE_EDIT_OK_ID`.
+- Implementer evidence names the current TASK/REQ, lines up with the latest `current_task_id` when `enter-task` was available, and cites the current `PRE_EDIT_OK_ID` when the pre-edit guard ran. The guard records must cover every file claimed for that TASK; partial guard coverage is noncompliant even if one file has a valid ID.
 - Validator output names validation type, command/evidence, and covered TASK/REQ IDs.
 - Reviewer output flags missing Exploration Visibility Gate output, missing READY visibility, late READY remediation, or missing fixed final status fields as noncompliance.
+- Reviewer output flags same-session drift, failure to audit related prior scope, or treating a related correction as an unrelated ordinary answer as continuity noncompliance.
+- Reviewer output flags missing, stale, or unmapped `IDEA-*` records when a formal status claims progress across multiple same-session ideas or a user asks about prior idea completion.
+- Reviewer output flags missing, stale, or incomplete master backlog coverage when a multi-issue request is reported as complete.
+- Reviewer output flags missing, stale, wrong-task, or incomplete pre-edit guard coverage, and flags open `implementation noncompliance` events instead of letting a late guard appear compliant.
+- Reviewer output flags missing or overlapping write leases for implementation edits. Read-only Validator/Reviewer subagents do not need write leases unless they edit files.
+- Reviewer output refuses independent/subagent/fresh-agent claims unless a current usable delegation record exists; timed-out, planned-only, unusable, or unverified delegation records must be carried as evidence gaps until resolved. Negated disclosures such as `independent review not run` or `subagent unavailable` are same-agent honesty statements, not independent-evidence claims.
+- Reviewer output flags unstable numbering, unmapped renumbering, or a second unrelated same-number list as traceability noncompliance.
+- Reviewer weakness reports must classify every listed weakness as one of `already hardened`, `residual risk`, `new gap`, or `external validation`. Repeating an older issue without saying which class it belongs to is ambiguous review output and must be corrected before planning another batch.
+- Reviewer output captures every review-discovered `new gap` as a TODO candidate, deferred item, or rejected item. It must not mention a `new gap` once and then drop it from follow-up planning, and it must not mark the gap completed without TASK/REQ and validation evidence.
 - Closer output runs `render-status` first for tracked final handoff; if unavailable or failed, it states the reason and uses the fixed Console Response Contract fields manually.
 - Formal tracked status MUST use render-status generated fields when `render-status` is available. The final response may replace placeholders with actual evidence, but it must not omit, rename, reorder, or hand-invent the fixed field set.
 - Closer formal tracked status fails compliance if it omits any fixed field (`Changes`, `Completed Items`, `Incomplete Items`, `Validation Results`, `Unverified Items`, `Residual Risks`, or `Key Technical Details`), drops TASK/REQ mapping from `Changes`, `Completed Items`, `Incomplete Items`, or `Validation Results`, drops IDEA/TASK/REQ mapping when multiple ideas exist in the session ledger, puts `No commit made` under `Incomplete Items`, or hand-writes a formal tracked handoff without first using `render-status` when it is available.
+- All roles preserve the language boundary: user-facing explanations, recommendations, and conclusions follow the user's language by default, while entries from `SKILL.md#Protocol Glossary / Do-Not-Translate List` remain English-only ASCII. Role/source prefixes, role names, fixed protocol fields, IDs, commands, bundle state, role evidence, and validation types must not be translated.
+- Reviewer output flags translated protocol glossary entries, such as localized role names, localized `Status` fields, localized `TASK-*` or `REQ-*` IDs, or localized command names, as language-boundary noncompliance.
 
 Ordinary untracked explanations remain concise and are scored separately so the compliance rules do not reintroduce over-templating. Over-templates ordinary untracked replies is a failure signal for this scenario.
 
-The ordinary-answer role check is explicit: a role simulation must fail if it adds READY output or fixed status fields to explanation-only, naming, clarification, or lightweight commentary messages that do not start file edits.
+The ordinary-answer role check is explicit: a role simulation must fail if it adds READY output, `render-status`, or fixed status fields to explanation-only, naming, clarification, or lightweight commentary messages that do not start file edits.
 
 Run protocol:
 
 1. Use the installed skill from `$HOME/.codex/skills/idea-to-code`.
 2. Require every role simulation or subagent to read installed `SKILL.md` as the behavior authority, then read only the relevant referenced files before inspecting output compliance.
 3. Ask separate role simulations or subagents to inspect the installed guidance without editing files.
-4. Capture PASS/FAIL for Planner, Implementer, Validator, Reviewer, Closer, and ordinary-answer boundary.
+4. Capture PASS/FAIL for Planner, Implementer, Validator, Reviewer, Closer, current-TASK entry, overview output, same-session continuity, stable enumeration traceability, and ordinary-answer boundary.
 5. Record exact drift, not guessed causes.
 6. If any role fails, revise guidance or tests before claiming output compliance.
 
@@ -146,6 +169,7 @@ Must include:
 
 - implemented TASK/IMP IDs
 - changed files or modules
+- latest `PRE_EDIT_OK_ID` when a pre-edit guard exists for the current plan revision
 - implementation verbs such as added, updated, changed, created, or refactored
 - implementation work, not planning, validation, review, or closeout work
 

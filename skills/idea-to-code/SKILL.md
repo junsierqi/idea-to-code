@@ -17,6 +17,22 @@ This skill is an execution workflow for idea-to-code delivery, not a replacement
 
 When this skill loads, understand its core as: turn an idea into a verified software change through a project-local bundle, not through chat memory. The bundle, script gates, and recorded evidence are the source of continuity.
 
+## Product Direction And Architecture
+
+The long-term objective is an intelligent, controllable idea-to-code delivery agent. The current product is a skill that hardens that agent behavior through explicit lifecycle rules, bundle state, script gates, evidence records, and regression tests. Do not treat this skill as a loose checklist or a chat style guide.
+
+Every tracked idea must move through a clear closed loop:
+
+- understand the user's real goal and restate it in implementation terms;
+- improve the idea when the requested path is weak, risky, incomplete, or unverifiable;
+- expose exploration and selected scope before READY;
+- execute only the visible TASK/REQ scope;
+- validate with named evidence;
+- review user-intent fit, counterexamples, non-goals, and branch closure;
+- close or defer every branch explicitly instead of leaving ambiguous conversation residue.
+
+Future agents must be able to recover the objective, architecture, current scope, and evidence path from installed skill instructions plus the project-local bundle. If a later answer would rely only on chat memory, old numbering, or a vague "as discussed" reference, first create or read the state-backed mapping. The implementation path is iterative: use idea-to-code to improve idea-to-code, make each control gap a TASK/REQ-backed change, install the latest skill code, and validate source plus installed behavior before claiming progress.
+
 This skill can:
 
 - capture rough ideas and convert them into requirements, acceptance, design, implementation tasks, validation, review, and closeout;
@@ -35,6 +51,15 @@ route/current -> intake gate -> controlled exploration -> Exploration Visibility
 ```
 
 Tool-owned gates are not optional and should not be inferred from chat: Intake Gate, Controlled Exploration shape, Exploration Visibility Gate, implementation ready, REQ coverage, Acceptance Matrix, role evidence, validation type, pre-close verify, finalize, and final verify are enforced by `idea_to_code_bundle.py` and guarded by the regression suite.
+
+Use the Branch Coverage Map when reviewing whether the lifecycle is controlled end to end:
+
+```bash
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" branch-map --json
+```
+
+The map is an observability and self-check aid. Each branch has `id`, `entry`, `exit`, `validation`, and `failure_handling`. It does not prove live agent compliance by itself; it shows what branch closure evidence should exist.
+The map mirrors the branch closure checks in `references/workflow.md`; each entry also exposes `workflow_branch` so reviewers can compare the CLI output to the workflow source text.
 
 This section orients the agent; it does not narrow ordinary coding capability. Use normal engineering judgment inside the confirmed plan, while respecting the gates that keep the idea from drifting.
 
@@ -62,6 +87,19 @@ Keep Fact / Hypothesis / Decision / Verification separate:
 - `Verification`: evidence that proves, disproves, or narrows a hypothesis or acceptance claim.
 
 Accepted evidence can use Facts and Verification. It cannot use an unverified Hypothesis as if it were a Fact. Unresolved hypotheses belong in `Unverified Items`, `Residual Risks`, or the next experiment plan.
+
+## Risk And Weakness Taxonomy
+
+When the agent reviews idea-to-code architecture, control gaps, or "what remains weak", it must classify every listed weakness with one of these statuses:
+
+- `already hardened`: the skill already has rules, commands, tests, or installed behavior that address the issue. Cite the evidence and do not present it as new work.
+- `residual risk`: the issue was hardened but the current skill/runtime cannot fully prevent it. State the remaining failure mode.
+- `new gap`: the issue lacks a current rule, command, test, benchmark, or state path. State the proposed next TASK/REQ direction.
+- `external validation`: the rule or artifact exists, but fresh-session, multi-agent, user acceptance, or environment validation has not been run.
+
+Do not mix old and new weaknesses in one unlabeled list. If the user asks why a repeated weakness is still listed, answer by mapping it to this taxonomy and the prior evidence.
+
+Review-discovered TODO capture rule: when a review, weakness list, architecture assessment, or mixed-response review identifies a `new gap`, the answer must state whether that gap should enter TODO/REQ/backlog, be deferred, or be rejected. Do not silently drop a `new gap` after mentioning it, and do not describe it as completed unless a TASK/REQ with validation evidence already covers it. When the user asks to continue implementation, convert accepted TODO candidates into tracked REQ/TASK scope before editing.
 
 ## When Is This Skill The Right One
 
@@ -123,14 +161,24 @@ Do not require slash commands. When this skill is triggered, default to autonomo
 For tracked idea-to-code work, these checks are mandatory, not style preferences:
 
 - **Rule loading**: every agent, subagent, or role simulation using idea-to-code must read `SKILL.md` as the behavior authority and then read only the relevant referenced files before acting. Do not rely on partial snippets, old chat memory, or historical bundle ledgers as the source of behavior rules.
+- **Delegation evidence rule**: claims about independent agents, subagents, fresh agents, hybrid-team, or independent-team evidence require a current usable `delegation record`. Planned, timed-out, unusable, or unverified attempts must be recorded as such and surfaced by `delegation status`, `verify`, and `render-status`; they are not evidence of compliance.
 - **Non-bypassable pre-edit self-check**: immediately before calling any file-editing tool for tracked work, stop and confirm in the agent's own working context that the current user-visible conversation already contains the focused READY TASK excerpt for the exact TASK/REQ and files about to be edited. If that visible excerpt is missing, do not edit. Run or reuse `implementation show-ready --task <TASK-ID>`, send the focused READY excerpt as a normal assistant message, then continue only after that message is visible.
 - **Before any tracked repository or artifact edit**: resolve the current bundle, run or reuse `implementation ready` / `implementation show-ready --task <TASK-ID>`, and paste the relevant READY TASK excerpt in a normal assistant message. This applies to code, docs, tests, config, scripts, and tracked bundle artifacts. Reusing a prior READY result still requires showing the relevant excerpt again before the current edit unless the user explicitly waived repeated visibility after an initial visible READY excerpt. Tool stdout, folded transcripts, and internal notes do not satisfy this requirement.
 - **Before implementation READY**: generate or reuse the current `exploration render` output and surface it in a normal assistant message before the READY TASK excerpt. `implementation ready` prints Exploration Visibility Gate output before READY when it must refresh it, but the agent must still make that output visible to the user. Tool stdout, folded transcripts, and internal notes are not enough by themselves.
 - **Before final tracked handoff**: for install, validation, commit, delivery, blocked, review, keep/revise/rollback, or final status responses, run `render-status` first. If `render-status` is unavailable or fails, state that reason and then use the fixed Console Response Contract fields manually.
 - **Mapping rule**: every formal tracked `Changes`, `Completed Items`, `Incomplete Items`, and `Validation Results` bullet must map to the visible Exploration Visibility Gate output and READY TASK/REQ excerpt that were shown before execution.
+- **Same-session continuity rule**: within one conversation session, related ideas, corrections, numbered lists, scope decisions, and completion claims must remain traceable and consistent across turns. Before answering or acting on a related follow-up, audit the prior related scope from the active bundle, visible READY/Exploration outputs, explicit conversation context, and `idea status`. Record material follow-ups with `session audit` and, when the follow-up changes or clarifies the idea itself, `idea record`. If the relationship is unclear, classify or ask; do not silently reinterpret it. Unrelated questions may stay ordinary concise answers and must not be forced into the active bundle.
+- **Idea record rule**: every material same-session idea, correction, deferral, rejection, or completion that later status may need to reference must have a stable `IDEA-*` record in `state.json`. Use `idea record --id IDEA-* --status active|completed|deferred|rejected|superseded|blocked|reference --summary "<English summary>" --related-reqs "<REQs>" --notes "<English trace notes>"`. Status, READY, and final handoff must preserve IDEA/TASK/REQ mapping when more than one idea record exists or when the user refers back to a prior idea.
+- **Scope classification rule**: material follow-ups must be classified as `same-scope`, `scope-correction`, `new-related-scope`, or `unrelated` before planning, editing, or claiming status. Use `scope classify` when the classification affects the active idea flow. Related corrections must not be treated as ordinary answers; unrelated answers must not be forced into tracked work.
+- **Master backlog rule**: when one user request contains multiple related issues, risks, ideas, or numbered work items, record them as stable master backlog IDs such as `MB-1..MB-N` before implementation. Run `backlog sync` so the IDs live in `state.json`. READY, status, checkpoint, and closeout must keep incomplete MB IDs visible; do not claim "all done" while any MB item is pending, active, blocked, or uncovered.
+- **Stable enumeration traceability rule**: when the user gives, asks about, or the agent creates a numbered issue list, treat those numbers as stable scope IDs for that discussion. Later references such as "the 1-7", "item 3", or "all seven" must use the same meanings or include an explicit mapping table with `Previous ID`, `Current ID`, and `Change Reason`. Do not create a fresh unrelated 1-7 list and imply it corresponds to the earlier list. If the mapping is unclear, answer with an audit/mapping clarification before planning or claiming progress.
 - **Noncompliance rule**: if the visible READY excerpt or fixed final status fields were missed, say so plainly, correct the process, and do not present the run as fully compliant.
 - **Late READY rule**: printing READY after edits have already started is remediation only. It does not make earlier edits compliant. Record the lapse in Reviewer or final status, tighten guidance or tests when the lapse exposed an instruction gap, and continue only after the corrected READY excerpt is visible.
-- **Multi-role regression rule**: after changing output-compliance guidance, run or update the multi-role output compliance scenario in `references/roles-and-state.md#multi-role-output-compliance`, covering Planner, Implementer, Validator, Reviewer, and Closer expectations, then record expected versus observed behavior and any instruction drift.
+- **Current TASK entry rule**: before editing files for each TASK/IMP, run or reuse `implementation enter-task --task <TASK-ID>` so the current TASK is machine-recorded and its READY Focus is visible. `implementation show-ready --task <TASK-ID>` is acceptable only as a display fallback when state mutation is impossible; record the reason.
+- **Implementation lease rule**: before any tracked implementation edit, acquire a write lease with `implementation lease acquire --task <TASK-ID> --owner <agent-or-session> --file <path>`, then run `implementation pre-edit`. The lease is required for same-agent and multi-agent implementation edits so the guard behavior is consistent. Overlapping active leases for different owners are refused. Validator/Reviewer/read-only subagents do not need write leases unless they edit files.
+- **Pre-edit guard rule**: immediately after `enter-task` and before tracked file edits, run `implementation pre-edit --task <TASK-ID> --file <path>` for every file about to be edited. It must print `PRE_EDIT_OK_ID`; Implementer evidence must cite that ID. The guard is recorded in `pre_edit_records`; missing, stale, wrong-task, or incomplete file coverage must be refused or surfaced by `implementation status`, `verify`, and `render-status`. If an edit already happened without the guard, record it with `implementation noncompliance` and do not present the run as fully compliant until the lapse is resolved or explicitly carried as risk.
+- **Tool-layer edit wrapper design**: the desired physical enforcement layer is a tracked-edit wrapper around file-editing tools. Before any write, that wrapper must resolve the active bundle, require visible Exploration and READY Focus for the current TASK, require a non-overlapping lease, run `implementation pre-edit`, check every file is inside the TASK file scope, capture `PRE_EDIT_OK_ID`, then pass the write to the edit tool and require Implementer evidence to cite the same guard. Current Codex edit tools are not physically blocked by this skill; until a wrapper or host pre-edit hook exists, missing wrapper enforcement remains a `residual risk` and must not be described as impossible to bypass.
+- **Multi-role regression rule**: after changing lifecycle, exploration, READY, validation, review, or output-compliance guidance, run or update the multi-role output compliance scenario in `references/roles-and-state.md#multi-role-output-compliance`, covering Planner, Implementer, Validator, Reviewer, Closer, and ordinary-answer boundary expectations, then record expected versus observed behavior and any instruction drift.
 
 This checklist does not apply to ordinary untracked explanations, naming discussions, or lightweight commentary updates; those remain concise while still using the required role/source prefix when this skill is active.
 
@@ -141,6 +189,9 @@ Action boundary for this checklist:
 - `read-only-status`: the user asks status/progress/where are we. Read allowed current bundle state and answer or use `render-status` for formal tracked status; do not run pre-edit READY because no edit is starting.
 - `ordinary-answer`: explanation, naming discussion, clarification, or lightweight working update without file edits. Keep the answer natural and concise; do not use the fixed status fields and do not run READY only for the answer.
 - `formal-tracked-handoff`: install, validation, commit, delivery, blocked, review, keep/revise/rollback, or final status for tracked work. Run `render-status` first, or state why unavailable and use the fixed field contract manually.
+- `related-session-follow-up`: the user refers to previous work, says "we", "this flow", "all tasks", "the earlier issue", "continue", "is it done", "you said", or otherwise ties the message to prior session context. First audit the related scope and state whether it is `same scope`, `scope correction`, `new related scope`, or `unrelated ordinary answer`. Do not answer from only the most recent local bundle if older related context in the same conversation is material.
+- `multi-issue-master-backlog`: the user gives several related problems or asks to fix a list such as "1-6". Create stable `MB-*` IDs, register matching REQ/TASK coverage, run `backlog sync`, and show which MB IDs are Required Now, pending, deferred, or out of scope before implementation.
+- `enumerated-scope-reference`: the user refers to a prior numbered list, such as "the 1-7", "number 4", "all seven", "A/B/C", or "the above points". First preserve or reconstruct the exact prior IDs. If a new grouping is useful, show a mapping table before using the new grouping. Do not continue with an unannounced renumbering.
 
 Stop after planning only when the user explicitly says "plan only", "implementation checklist only", "do not edit code", "proposal only", or equivalent. In that case, fill `00-idea.md`, print the implementation checklist, and stop before business-code edits.
 
@@ -169,6 +220,10 @@ Use this shape:
 - Trigger: <why exploration is needed or safely skipped>
 - Constraints:
   - <hard constraint from user, repository, governance, or runtime>
+- Planned Scope:
+  - Required Now: <scope included in the next READY output>
+  - Deferred: <scope explicitly excluded or postponed>
+  - What READY Will Cover: <TASK/REQ scope allowed after this exploration output>
 - Options Considered:
   - Option A: <approach>
     - Hypothesis:
@@ -194,7 +249,13 @@ Decision table:
 
 Controlled Exploration is not a hidden planning note. It must be surfaced through the Exploration Visibility Gate before READY.
 
-The Exploration Visibility Gate must separate `Planned Scope` from `Decision Options`. `Planned Scope` is the execution scope: required-now items, deferred items, and what READY may cover. `Decision Options` is only for mutually exclusive route choices or candidate approaches. Do not ask the user to choose among required scope items, and do not hide deferred or rejected scope inside option prose.
+The Exploration Visibility Gate must separate `Planned Scope` from `Decision Options`. `Planned Scope` is the execution scope: required-now items, deferred items, and what READY may cover. `Decision Options` is only for mutually exclusive route choices or candidate approaches. Do not ask the user to choose among required scope items, and do not hide deferred or rejected scope inside option prose. New or revised bundles must record `Planned Scope` structurally in `00-idea.md`; legacy bundles may render fallback text, but current work should not rely on fallback text when scope was discussed.
+
+Use three display layers:
+
+- `Exploration Result` / `Exploration Decision Request`: shows user goal, `Planned Scope`, route decision/options, and what can move to READY.
+- `READY Focus`: shows the current TASK/REQ info that is about to be edited or executed.
+- `Full Plan`: shows all TASK/IMP blocks only for audit, review, or explicit `--full-plan` use.
 
 When `Need Confirmation: no`, the Planner chooses and records the decision autonomously, then shows the `Planned Scope`, selected approach, and why it will proceed. Do not dump alternative routes or ask for routine approval.
 
@@ -218,6 +279,8 @@ The user-visible shapes are:
 ```text
 [idea-to-code][Planner/agent] Exploration Result | Bundle: <slug>
 EXPLORATION_OUTPUT_ID: <id>
+Display Layer: Exploration Result
+Next Layer: READY Focus after this output is visible; Full Plan only on --full-plan.
 Planned Scope:
 - Required Now: <scope included now>
 - Deferred: <scope excluded from this execution>
@@ -233,6 +296,8 @@ Implementation Will Proceed To:
 ```text
 [idea-to-code][Planner/agent] Confirmation Required | Bundle: <slug>
 EXPLORATION_OUTPUT_ID: <id>
+Display Layer: Exploration Decision Request
+Next Layer: READY Focus after this output is visible; Full Plan only on --full-plan.
 Planned Scope:
 - Required Now: <scope included now>
 - Deferred: <scope excluded from this execution>
@@ -275,7 +340,7 @@ Use `Need Confirmation: yes` when the idea is ambiguous, risky, architecture-sha
 
 Use `Need Confirmation: no` when the task is clear, low-risk, reversible, and the acceptance criteria can be stated concretely. In that case, restate the intake and proceed autonomously without asking a routine confirmation question.
 
-`Need Confirmation: no` skips the approval wait; it does not skip exploration and task-list visibility. `implementation ready` prints the generated Exploration Visibility Gate output when needed and then the `[idea-to-code][Planner/agent] Implementation Gate: READY` output, or `[idea-to-code/<profile>][Planner/agent] Implementation Gate: READY` when an upper-layer skill passes a profile, including `EXPLORATION_OUTPUT_ID` and `READY_TASK_OUTPUT_ID`; send both outputs to the user before any product-file edit, and only then continue implementation. By default, READY prints the focused first TASK/IMP excerpt and records `ready_task_output_scope: focused-default`; use `implementation ready --full-plan` or `implementation show-ready --full-plan` only when a full audit list is needed. The full READY plan remains in `00-idea.md`. Command stdout, tool output, or a folded transcript is not enough by itself; the Exploration Result plus READY TASK list or focused excerpt for the TASKs about to be executed must appear in normal assistant messages. Profile prefixes are display-only: they do not alter lifecycle gates, bundle state, requirements, role evidence, checkpoints, ledger semantics, finalize behavior, or permissions. This message is transparency, not an approval request, so continue implementation immediately after sending it unless the user interrupts.
+`Need Confirmation: no` skips the approval wait; it does not skip exploration and task-list visibility. `implementation ready` prints the generated Exploration Visibility Gate output when needed and then the `[idea-to-code][Planner/agent] Implementation Gate: READY` output, or `[idea-to-code/<profile>][Planner/agent] Implementation Gate: READY` when an upper-layer skill passes a profile, including `EXPLORATION_OUTPUT_ID` and `READY_TASK_OUTPUT_ID`; send both outputs to the user before any product-file edit, and only then continue implementation. By default, READY prints the focused first TASK/IMP excerpt and records `ready_task_output_scope: focused-default`; use `implementation ready --full-plan` or `implementation show-ready --full-plan` only when a full audit list is needed. The full READY plan remains in `00-idea.md`. Command stdout, tool output, or a folded transcript is not enough by itself; the Exploration Result plus READY TASK list or focused excerpt for the TASKs about to be executed must appear in normal assistant messages. Every time execution enters a different current TASK, show that TASK's focused READY info with `implementation show-ready --task TASK-N` before editing files for that TASK, unless the user explicitly waived repeated visibility after the first display. Profile prefixes are display-only: they do not alter lifecycle gates, bundle state, requirements, role evidence, checkpoints, ledger semantics, finalize behavior, or permissions. This message is transparency, not an approval request, so continue implementation immediately after sending it unless the user interrupts.
 
 For clear, low-risk, single-slice tasks such as a small README or documentation edit, prefer the lightweight quickstart path instead of manually drafting every bundle section:
 
@@ -599,7 +664,71 @@ Project-level state:
    - **Plan-level READY**: the full implementation plan remains in `00-idea.md` and full READY output for traceability.
    - **Execution-level READY**: before executing each TASK in multi-task work, send a normal assistant message with the current TASK's focused READY excerpt.
 
-   For multi-task work, default the user-visible execution message to the current TASK, not the entire long task list. `implementation ready` and `implementation show-ready` default to the first TASK/IMP focused excerpt; use `--task TASK-N` to print another focused READY TASK excerpt, and `--full-plan` only for a complete audit list. The generated READY output has a hard contract: every visible TASK/IMP block must include the `TASK-*` or `IMP-*` line, covered `REQ-*` or the script's covered REQ hint when inferable, `Files`, `Done Criteria`, and `Planned Verification`. If any of those fields are missing, the READY output is invalid and must be regenerated or fixed before product-file edits. Before moving from TASK-1 to TASK-2, show the TASK-2 focused READY excerpt / focused READY TASK excerpt unless the user explicitly asks to skip repeated visibility. The final formal result template must map each completed, incomplete, and validated item back to the same visible TASK/REQ excerpts.
+   For multi-task work, default the user-visible execution message to the current TASK, not the entire long task list. `implementation ready` and `implementation show-ready` default to the first TASK/IMP focused excerpt; use `--task TASK-N` to print another focused READY TASK excerpt, and `--full-plan` only for a complete audit list. The generated READY output has a hard contract: every visible TASK/IMP block must include the `TASK-*` or `IMP-*` line, covered `REQ-*` or the script's covered REQ hint when inferable, `Files`, `Done Criteria`, and `Planned Verification`. If any of those fields are missing, the READY output is invalid and must be regenerated or fixed before product-file edits. Before moving from TASK-1 to TASK-2, show the TASK-2 focused READY excerpt / focused READY TASK excerpt unless the user explicitly asks to skip repeated visibility. This is not only a full-list-once rule: every current TASK transition needs visible task info for that TASK. The final formal result template must map each completed, incomplete, and validated item back to the same visible TASK/REQ excerpts.
+
+   Preferred TASK entry command:
+   ```bash
+   python ".../idea_to_code_bundle.py" implementation enter-task --root "$(pwd)" --slug <slug> --task TASK-1
+   ```
+   `enter-task` records `current_task_id`, preserves the existing `READY_TASK_OUTPUT_ID`, and prints `Display Layer: READY Focus`. Use it before edits for TASK-1 and again before every TASK transition. Use `implementation overview` when the user asks where the work stands; it prints `Planned Scope`, current TASK, next TASKs, and the `--full-plan` audit hint without changing state.
+
+   Required implementation write lease:
+   ```bash
+   python ".../idea_to_code_bundle.py" implementation lease acquire --root "$(pwd)" --slug <slug> --task TASK-1 --owner agent --file <path>
+   python ".../idea_to_code_bundle.py" implementation lease status --root "$(pwd)" --slug <slug>
+   python ".../idea_to_code_bundle.py" implementation lease release --root "$(pwd)" --slug <slug> --id <LEASE_ID> --reason "<why>"
+   ```
+   `lease acquire` refuses overlapping active leases for different owners on the same current plan/READY/file scope. Acquire the lease before `pre-edit`; read-only Validator/Reviewer work does not require a write lease.
+
+   Required pre-edit guard:
+   ```bash
+   python ".../idea_to_code_bundle.py" implementation pre-edit --root "$(pwd)" --slug <slug> --task TASK-1 --file <path>
+   ```
+   `pre-edit` refuses when the bundle is not active, Exploration or READY is stale, `current_task_id` does not match, the current TASK entry is older than READY, or the requested file is not listed in that TASK's `Files`. A passing guard prints `PRE_EDIT_OK_ID`, appends a `pre_edit_records` entry, and must cover every file the current TASK will edit before Implementer evidence. Cite it in Implementer evidence together with `READY_TASK_OUTPUT_ID`.
+
+   If an edit begins without a valid guard, record the lapse instead of hiding it:
+   ```bash
+   python ".../idea_to_code_bundle.py" implementation noncompliance --root "$(pwd)" --slug <slug> --task TASK-1 --reason "<what happened>" --file <path>
+   ```
+   Open pre-edit noncompliance appears in `implementation status`, `verify`, and `render-status`; accepted closeout must not bury it in technical details.
+
+   Delegation evidence records:
+   ```bash
+   python ".../idea_to_code_bundle.py" delegation record --root "$(pwd)" --slug <slug> --role reviewer --status usable --scope "<scope>" --evidence-summary "<summary>" --agent-id "<id>"
+   python ".../idea_to_code_bundle.py" delegation record --root "$(pwd)" --slug <slug> --role reviewer --status timeout --scope "<scope>" --evidence-summary "<summary>" --reason "<why>"
+   python ".../idea_to_code_bundle.py" delegation resolve --root "$(pwd)" --slug <slug> --id <DELEGATION_ID> --resolution fallback-same-agent --reason "<why this closes the finding>"
+   python ".../idea_to_code_bundle.py" delegation status --root "$(pwd)" --slug <slug>
+   ```
+   Use `status usable` only when a real delegated or fresh-agent run returned usable evidence. Timed-out, planned-only, unusable, or unverified attempts must not be cited as independent evidence. They remain open findings until resolved as `fallback-same-agent`, `superseded`, `accepted-risk`, or `invalid-record`; resolving them closes the finding but never turns the attempt into independent evidence.
+
+   Same-session continuity audits:
+   ```bash
+   python ".../idea_to_code_bundle.py" session audit --root "$(pwd)" --slug <slug> --relation scope-correction --summary "<what changed>" --prior-scope "<prior scope>" --decision "<what this means>"
+   python ".../idea_to_code_bundle.py" session status --root "$(pwd)" --slug <slug>
+   ```
+   Use this before answering, planning, or claiming completion for material related follow-ups in long sessions. `implementation status` and `render-status` surface the latest audit.
+
+   Same-session idea records:
+   ```bash
+   python ".../idea_to_code_bundle.py" idea record --root "$(pwd)" --slug <slug> --id IDEA-1 --status active --summary "<English idea summary>" --related-reqs "REQ-1,REQ-2" --notes "<English trace notes>"
+   python ".../idea_to_code_bundle.py" idea status --root "$(pwd)" --slug <slug>
+   ```
+   Use this when the user introduces, corrects, rejects, defers, completes, or reopens a material idea in the same conversation. The record is the state-backed link between follow-up conversation, REQs, and formal IDEA/TASK/REQ status mapping.
+
+   Scope classification records:
+   ```bash
+   python ".../idea_to_code_bundle.py" scope classify --root "$(pwd)" --slug <slug> --classification scope-correction --summary "<message summary>" --rationale "<why>" --action "<next action>"
+   python ".../idea_to_code_bundle.py" scope status --root "$(pwd)" --slug <slug>
+   ```
+   Use this when a follow-up may be same-scope, a correction, a new related scope, or unrelated. The latest classification is visible in `implementation status` and `render-status`.
+
+   Master backlog commands for multi-issue work:
+   ```bash
+   python ".../idea_to_code_bundle.py" backlog sync --root "$(pwd)" --slug <slug>
+   python ".../idea_to_code_bundle.py" backlog status --root "$(pwd)" --slug <slug>
+   python ".../idea_to_code_bundle.py" backlog mark --root "$(pwd)" --slug <slug> --id MB-2 --status deferred --reason "<why>"
+   ```
+   `backlog sync` stores all `MB-*` IDs found in `00-idea.md` into `state.json`. `implementation ready` refuses stale or missing master backlog state when a plan contains multiple MB IDs. `checkpoint` updates covered MB items from covered REQs, and formal status output must keep incomplete MB IDs visible.
 
    Future extension point: exploration output and full READY lists can become noisy when one idea expands into many TASKs. Preserve this split for now: Exploration Visibility Gate explains why the plan was chosen, and focused READY excerpts explain what will be edited next. A later change may add a grouped or summarized READY overview, but it must keep per-TASK focused READY excerpts and final TASK/REQ mapping intact.
 
@@ -670,6 +799,8 @@ Project-level state:
 - Before code edits, resolve `.idea-to-code/current.json`, print the `00-idea.md` task list, and confirm the implementation gate is READY.
 - Record Controlled Exploration before implementation planning; use it to compare options only when needed, then choose one decision before coding.
 - Render and surface Exploration Visibility Gate output before READY; no tracked edit should begin from READY alone when the exploration decision was not visible.
+- Use `implementation enter-task --task <TASK-ID>` before each TASK/IMP edit slice so the current TASK has a machine-recorded entry event and visible READY Focus.
+- Use `implementation pre-edit --task <TASK-ID> --file <path>` before tracked edits; no tracked edit should begin without a visible `PRE_EDIT_OK_ID` unless the command is unavailable and the fallback is recorded as noncompliance.
 - Never mutate a non-current, paused, completed, or closed bundle to make progress.
 - Keep TASK/IMP IDs tied to files, done criteria, and planned verification.
 - Record Planner, Implementer, Validator, Reviewer, and Closer evidence in order for the current `plan_revision`.
@@ -684,6 +815,34 @@ For detailed role/state rules, read `references/roles-and-state.md`.
 For verification, evidence, and closeout rules, read `references/verification-and-evidence.md`.
 For milestone and implementation-plan patterns, read `references/planning-patterns.md`.
 
+When validating this skill itself, prefer the official chunked regression runner when the full unittest suite is too large for one command:
+
+```bash
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" test-batch --chunk-size 40 --timeout-seconds 180
+```
+
+### Installed Skill Parity Checklist
+
+When the tracked work changes this skill's source and the user expects the latest skill to be installed, install closeout is not complete after copying files alone. The formal install or final status must include TASK/REQ-mapped evidence for:
+
+- install target path, normally `$CODEX_HOME/skills/idea-to-code`;
+- installed focused tests run from the installed skill copy or against the installed script path;
+- source/installed SHA256 parity for the files changed by the batch, including `SKILL.md`, referenced guidance files, scripts, and tests;
+- `No commit made` under `Key Technical Details` when no commit was requested or made, not under `Incomplete Items`.
+
+If installed focused tests or source/installed SHA256 parity have not passed, do not claim the latest skill code is installed and verified. Put the missing install evidence under `Unverified Items` or the relevant unfinished TASK/REQ instead.
+
+For fresh-session validation, create a bundle-local artifact before running an external fresh session:
+
+```bash
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" fresh-benchmark init --root "$(pwd)" --slug <slug>
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" fresh-benchmark status --root "$(pwd)" --slug <slug>
+```
+
+`fresh-benchmark init` creates evidence scaffolding only. It is not proof that a fresh agent, multi-agent run, or new session actually followed the rules. Claim live fresh-session evidence only after raw outputs and scores are recorded in the artifact.
+
+`fresh-benchmark status` is the machine-readable lifecycle check for that artifact. Treat `state: missing` as no scaffold, `state: scaffolded` as template created but no live evidence, and `state: completed` as raw outputs, scores, and `External run status: completed` recorded. Use `next_required_action` to decide what remains; booleans such as `external_run_required` and `live_evidence_created` are compatibility fields, not the full lifecycle explanation.
+
 ---
 
 ## Execution Visibility
@@ -691,6 +850,41 @@ For milestone and implementation-plan patterns, read `references/planning-patter
 When this skill is active, every user-visible assistant message MUST start with an idea-to-code role/source prefix. Direct idea-to-code use uses `[idea-to-code][Role/source]`, such as `[idea-to-code][Planner/agent]`. When another skill explicitly uses idea-to-code as its lifecycle foundation, it may declare a profile and use `[idea-to-code/<profile-name>][Role/source]`. The profile name is caller-provided and display-only; any valid profile label is shown in the user-visible prefix but does not change lifecycle gates, state files, ledger semantics, permissions, or closeout rules. Do not infer trust, ownership, permissions, or scope from a profile name; it is only a user-visible label. This includes commentary updates, plans, status answers, blocker reports, verification summaries, final responses, and follow-up explanations. Do not drop the marker just because the work is editing the skill itself.
 
 `Role` must be the active lifecycle role: `Planner`, `Implementer`, `Validator`, `Reviewer`, or `Closer`. `source` must be `agent` when the current assistant is performing the role and `subagent` only when a real delegated subagent actually ran that role and returned usable evidence. Do not display `/subagent` as a plan or aspiration.
+
+## User-Facing Language Contract
+
+Meaningful user-facing prose follows the user's language by default. If the latest user request is primarily Chinese, answer the explanatory parts, recommendations, caveats, and conclusion in Chinese. If the user asks in English, answer those parts in English. If the user explicitly requests a different language, follow that request for user-facing prose.
+
+Protocol tokens and state remain stable English/ASCII unless the command itself intentionally prints localized content. Keep these in English: fixed field names, role/source prefixes, TASK/REQ/IDEA/MB IDs, CLI commands and arguments, file paths, bundle artifacts, role evidence, validation types, acceptance records, reports, and state JSON. Do not translate identifiers or fixed protocol fields.
+
+### Protocol Glossary / Do-Not-Translate List
+
+This glossary is the canonical maintenance point for protocol terms that must remain English. Add, remove, or rename entries here when the protocol changes, then update the regression test that checks representative entries. Do not scatter new do-not-translate terms only in prose.
+
+Never translate these categories in user-visible output, bundle artifacts, reports, state, role evidence, tests, or command examples:
+
+- Role/source prefixes: `[idea-to-code][Planner/agent]`, `[idea-to-code][Implementer/agent]`, `[idea-to-code][Validator/agent]`, `[idea-to-code][Reviewer/agent]`, `[idea-to-code][Closer/agent]`, `[idea-to-code][Validator/subagent]`.
+- Role names: `Planner`, `Implementer`, `Validator`, `Reviewer`, `Closer`.
+- Source names: `agent`, `subagent`.
+- Status labels: `Completed`, `Progress`, `Blocked`.
+- Formal status fields: `Status`, `Changes`, `Completed Items`, `Incomplete Items`, `Validation Results`, `Unverified Items`, `Residual Risks`, `Key Technical Details`.
+- Display and gate labels: `Exploration Result`, `Confirmation Required`, `Implementation Gate: READY`, `Display Layer`, `Next Layer`, `READY Focus`, `Full Plan`.
+- Scope and trace IDs: `TASK-*`, `REQ-*`, `IDEA-*`, `MB-*`, `IMP-*`.
+- Output and guard IDs: `EXPLORATION_OUTPUT_ID`, `READY_TASK_OUTPUT_ID`, `PRE_EDIT_OK_ID`, `LEASE_ID`.
+- CLI command names and arguments: `render-status`, `implementation ready`, `implementation enter-task`, `implementation pre-edit`, `implementation lease acquire`, `idea record`, `idea status`, `backlog sync`, `--root`, `--slug`, `--task`, `--file`, `--covers`.
+- File, artifact, and state names: `00-idea.md`, `01-progress.md`, `02-report.md`, `state.json`, `bundle`, `ledger`, `current.json`.
+- Validation types: `real-product-path`, `mock-only`, `fixture-only`, `source-only`, `dom-only`, `manual-inspection`, `unverified`.
+- Evidence and report content that is written to bundle state: role evidence, acceptance records, milestone records, final reports, validation evidence, and command output excerpts.
+
+Meaningful prose around those tokens should still follow the user's language. For example, keep `Changes` and `TASK-1 / REQ-1` in English, but write the explanatory sentence after the colon in the user's language when it is a user-facing response.
+
+For mixed-language responses, use this split:
+
+- user-facing meaning, reasoning, recommendations, status interpretation, and next-step explanation: user's language;
+- formal field labels, IDs, command snippets, evidence strings, and bundle/state content: English-only ASCII;
+- quoted user text may stay in the original language, but summarize it in English inside bundle state when state commands require ASCII.
+
+Do not use fixed status templates merely to satisfy language consistency. Ordinary explanation-only replies remain natural in the user's language while still keeping the required idea-to-code prefix.
 
 The first line SHOULD name mode, bundle, and gate/state when useful:
 
@@ -706,7 +900,9 @@ If the message is a short answer rather than a lifecycle update, still start wit
 
 Use the fixed field contract only for formal tracked delivery status: final closeout, blocked handoff, review handoff, keep/revise/rollback handoff, or when the user explicitly asks for progress, completion, summary, validation, or commit/publish state for work that entered todo/REQ/TASK accounting.
 
-Do not use the fixed field contract for ordinary questions, explanations, naming discussions, quick clarifications, or lightweight working updates, even when a bundle is active. Those replies should stay concise and natural while still starting with a role/source prefix such as `[idea-to-code][Planner/agent]` when this skill is active.
+Do not use the fixed field contract for ordinary questions, explanations, naming discussions, quick clarifications, or lightweight working updates, even when a bundle is active. Those replies should stay concise and natural while still starting with a role/source prefix such as `[idea-to-code][Planner/agent]` when this skill is active. The boundary is semantic: if no tracked delivery status, install, validation, commit, blocked handoff, review handoff, keep/revise/rollback decision, or final status is being reported, answer naturally and do not add READY, `render-status`, or fixed fields just because a bundle exists.
+
+Mixed-response split rule: when one user message combines a tracked status check with ordinary review, architecture evaluation, naming, "what is good/missing", or "what should we improve" discussion, do not let the fixed field contract swallow the whole answer. Answer the tracked status part first in one concise status sentence, using TASK/REQ IDs and `No commit made` when relevant. Then answer the review or discussion part naturally in the user's language with short sections such as "Current strengths", "Current gaps", and "Suggested TODO". Do not introduce a second fixed response template and do not run `render-status` merely for the ordinary review portion. Use full `render-status` fields only when the user asks for formal tracked delivery status as the primary request or when making a final tracked handoff.
 
 For formal tracked `Progress`, validation, install, or status responses, every `Changes`, `Completed Items`, `Incomplete Items`, and `Validation Results` bullet must name the relevant `TASK-*` and `REQ-*` IDs when the work entered bundle accounting. Those IDs must map back to the READY TASK list or focused READY excerpt surfaced in a normal assistant message before implementation. Do not report substantial check/install/validation work as tracked Progress unless that work is represented by a READY TASK. If a response cannot map to a TASK/REQ, answer naturally as an ordinary explanation or first update the bundle plan.
 
@@ -719,6 +915,7 @@ Decision table:
 | Response situation | Output shape |
 |---|---|
 | Formal tracked delivery status or final handoff | Use fixed fields. |
+| Mixed tracked status plus ordinary review/evaluation | Concise tracked status sentence, then natural review sections; no second fixed template. |
 | Ordinary question/explanation/naming discussion | Natural concise answer. |
 | In-progress commentary update | Short action-oriented update. |
 
@@ -731,7 +928,7 @@ python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" render-
   --root "$(pwd)" --slug <slug> --status Completed|Progress|Blocked
 ```
 
-The helper prints the fixed field skeleton with the idea-to-code role/source prefix, TASK/REQ mapping placeholders, `EXPLORATION_OUTPUT_ID`, `READY_TASK_OUTPUT_ID`, and `No commit made` under Key Technical Details by default. Formal tracked status MUST use render-status generated fields when the helper is available: edit the skeleton with actual evidence before sending it; do not remove fixed fields, rename them, reorder them, or hand-invent them; do not drop TASK/REQ mapping from `Changes`, `Completed Items`, `Incomplete Items`, or `Validation Results`; do not drop IDEA/TASK/REQ mapping when multiple ideas exist in the session ledger; and do not move no-commit state into `Incomplete Items`. Do not use it for ordinary untracked answers.
+The helper prints the fixed field skeleton with the idea-to-code role/source prefix, TASK/REQ mapping placeholders, `EXPLORATION_OUTPUT_ID`, `READY_TASK_OUTPUT_ID`, and `No commit made` under Key Technical Details by default. When milestone, IDEA ledger, backlog, session, scope, delegation, or noncompliance evidence exists, the helper should surface that evidence directly and keep placeholders only where evidence is genuinely missing. Formal tracked status MUST use render-status generated fields when the helper is available: edit the skeleton with actual evidence before sending it; do not remove fixed fields, rename them, reorder them, or hand-invent them; do not drop TASK/REQ mapping from `Changes`, `Completed Items`, `Incomplete Items`, or `Validation Results`; do not drop IDEA/TASK/REQ mapping when multiple ideas exist in the session ledger; and do not move no-commit state into `Incomplete Items`. Do not use it for ordinary untracked answers.
 
 ```text
 [idea-to-code][Closer/agent] Status: Completed | Progress | Blocked

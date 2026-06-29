@@ -4,6 +4,10 @@
 
 Use this reference when validating behavior, recording evidence, collecting screenshots or runtime artifacts, reviewing acceptance, or closing a task.
 
+## Acceptance Philosophy
+
+Validation is evidence that the skill stayed intelligent, controllable, and evidence-backed, not merely that a command exited zero. For idea-to-code itself, accepted changes must show that the user's idea was understood, improved where useful, executed through visible TASK/REQ scope, and closed without orphaned branches, contradictory numbering, or unverified independent-agent claims. The durable evidence must be recoverable from the installed skill guidance and bundle state.
+
 ## Validation Types
 
 Every validation claim must name one:
@@ -62,6 +66,8 @@ For UI or runtime-visible work:
 - Do not substitute DOM/source checks for available product-path behavior.
 
 For automated tests, confirm the command actually ran at least one relevant test. A command that exits successfully with `Ran 0 tests`, `0 passed`, no collected tests, or an empty filtered selection is not validation evidence; treat it as `unverified` or fix the command/test runner before claiming coverage.
+
+Branch coverage map: use `branch-map --json` when reviewing whether idea-to-code branch closure is visible. The map mirrors the branch closure checks in `workflow.md` and lists lifecycle branches with `id`, `workflow_branch`, `entry`, `exit`, `validation`, and `failure_handling`. Treat it as an observability/self-check contract; live compliance still requires actual bundle state, role evidence, validation output, and final verify.
 
 ## Generated Test Evidence
 
@@ -135,7 +141,32 @@ Independent review is stronger because it reduces implementation-confirmation bi
 
 For subagent evidence, include the delegation health check or recent successful subagent result, the delegated scope, the agent id/name when available, and whether the result returned before timeout. A timed-out or closed-without-result subagent is a risk record, not validation or review evidence.
 
+Machine-backed delegation evidence uses:
+
+```bash
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" delegation record --root "$(pwd)" --slug <slug> --role <role> --status usable --scope "<scope>" --evidence-summary "<summary>" --agent-id "<id>"
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" delegation resolve --root "$(pwd)" --slug <slug> --id <DELEGATION_ID> --resolution fallback-same-agent --reason "<why this closes the finding>"
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" delegation status --root "$(pwd)" --slug <slug>
+```
+
+Use `status usable` only when a real delegated or fresh-agent run returned usable evidence. Use `timeout`, `unusable`, `planned`, or `unverified` for attempts that cannot support an independent claim. Role evidence that says `independent review`, `subagent`, `fresh-agent`, `hybrid-team`, or `independent-team` must have a current usable delegation record; otherwise it is refused or reported as unverified.
+
+Non-usable delegation records are open findings, not permanent dead ends. Resolve them only after the fallback is explicit, such as `fallback-same-agent`, `superseded`, `accepted-risk`, or `invalid-record`. Resolution means the branch is closed and visible; it does not make the attempt usable evidence.
+
 Do not turn fallback into root-cause proof. If a broad delegation times out but a ping or scoped review succeeds, the only proven facts are those outcomes. The broad timeout cause remains `unverified` until comparison tests isolate it. Record unknown causes explicitly instead of saying the issue was prompt size, queue latency, tool health, or model behavior without evidence.
+
+## Weakness Report Taxonomy
+
+`SKILL.md#Risk And Weakness Taxonomy` is the top-level contract for this rule.
+
+When reviewing skill architecture, process gaps, or a list of "what is still weak", every weakness must include one status label:
+
+- `already hardened`: rules, commands, tests, or installed behavior already address the issue; mention the evidence and do not present it as new work.
+- `residual risk`: the issue was hardened but still cannot be fully prevented by the current skill/runtime, such as a tool-layer bypass that scripts can detect but not physically block.
+- `new gap`: the issue has no current rule, command, test, benchmark, or state path.
+- `external validation`: the rule or artifact exists, but real fresh-session, multi-agent, user acceptance, or environment validation has not been run.
+
+Reviewer output that repeats a prior weakness without one of these labels is ambiguous. Before turning such a weakness into a new TASK, map it to the earlier evidence or mark it as a new gap with a concrete reason.
 
 ## Console Response Check
 
@@ -151,9 +182,9 @@ Use:
 python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" exploration render --root "$(pwd)" --slug <slug>
 ```
 
-For `Need Confirmation: no`, the output must be `Exploration Result` and include `EXPLORATION_OUTPUT_ID`, `Planned Scope`, selected approach, why it was chosen, and that implementation proceeds to READY. It must not ask for routine approval.
+For `Need Confirmation: no`, the output must be `Exploration Result` and include `EXPLORATION_OUTPUT_ID`, `Display Layer`, `Next Layer`, `Planned Scope`, selected approach, why it was chosen, and that implementation proceeds to READY. It must not ask for routine approval.
 
-For `Need Confirmation: yes`, the output must be `Confirmation Required` and include `EXPLORATION_OUTPUT_ID`, `Planned Scope`, `Decision Options`, a recommended option, and reply choices including `approve`, `choose: <option>`, `change: <correction>`, `explore more: <direction>`, `pause`, and `cancel`.
+For `Need Confirmation: yes`, the output must be `Confirmation Required` and include `EXPLORATION_OUTPUT_ID`, `Display Layer`, `Next Layer`, `Planned Scope`, `Decision Options`, a recommended option, and reply choices including `approve`, `choose: <option>`, `change: <correction>`, `explore more: <direction>`, `pause`, and `cancel`.
 
 When the user revises exploration, the next output must use a new `EXPLORATION_OUTPUT_ID` and show `Required Now`, `Deferred`, `Rejected Options`, `New / Selected Option`, and `What READY Will Cover`. If the user only provides a direction for more exploration, keep the output as `Confirmation Required` with new candidate options; do not treat the direction as a selected route. Deferred scope must not appear in READY except as deferred/follow-up context, and rejected options must not remain the default route.
 
@@ -168,7 +199,9 @@ READY visibility has two layers:
 - `Plan-level READY`: the complete TASK list remains in `00-idea.md`; use `implementation ready --full-plan` or `implementation show-ready --full-plan` when full READY output is needed for traceability.
 - `Execution-level READY`: the current TASK excerpt is shown immediately before that TASK is executed.
 
-For multi-task work, default user-visible execution display to the current TASK's focused READY excerpt, not the full long TASK list. `implementation ready` and `implementation show-ready` default to the first TASK/IMP focused excerpt; before moving from one TASK to the next, show the next TASK's focused READY excerpt unless the user explicitly asks to skip repeated visibility.
+For multi-task work, default user-visible execution display to the current TASK's focused READY excerpt, not the full long TASK list. `implementation ready` and `implementation show-ready` default to the first TASK/IMP focused excerpt; before moving from one TASK to the next, show the next TASK's focused READY excerpt unless the user explicitly asks to skip repeated visibility. Every current TASK transition needs visible task info for that TASK before edits begin, not just one full list at the beginning.
+
+Use `implementation enter-task --task <TASK-ID>` as the normal transition command. It records `current_task_id`, preserves the current `READY_TASK_OUTPUT_ID`, and prints `Display Layer: READY Focus`. Use `implementation overview` for read-only progress questions; it must show `Planned Scope`, current TASK, next TASKs, and the `--full-plan` audit hint without mutating implementation evidence.
 
 Use the READY task filter when a long bundle would hide the current work:
 
@@ -176,7 +209,7 @@ Use the READY task filter when a long bundle would hide the current work:
 python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation show-ready --root "$(pwd)" --slug <slug> --task TASK-17
 ```
 
-Focused READY output is for user visibility only. It does not change bundle scope, requirements, gate state, or role evidence expectations.
+Focused READY output is for user visibility only. It does not change bundle scope, requirements, gate state, or role evidence expectations. The output should identify `Display Layer: READY Focus`; full audit output should identify `Display Layer: Full Plan`.
 
 The generated READY output has a hard excerpt contract. Every visible TASK/IMP block must include:
 
@@ -188,11 +221,68 @@ The generated READY output has a hard excerpt contract. Every visible TASK/IMP b
 
 If generated READY output omits any of these fields, it is invalid. Regenerate or fix the parser/formatter before product-file edits; do not treat a folded transcript, partial copy, or field-only snippet as sufficient READY visibility.
 
+Closed-loop verification should check both human-visible output and machine state: after `enter-task`, `implementation status` should expose the same current TASK ID that was shown in READY Focus.
+
+Before tracked implementation edits, acquire a write lease for the current TASK files:
+
+```bash
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation lease acquire --root "$(pwd)" --slug <slug> --task <TASK-ID> --owner <owner> --file <path>
+```
+
+The lease is valid only for the current plan revision and READY output. Overlapping active leases for different owners are refused, so parallel workers cannot silently claim the same file. Same-agent implementation still uses a lease so pre-edit behavior is consistent. `implementation lease status` must expose active and released leases, and finalize must close remaining active leases so completed bundles do not appear to retain live write ownership. Validator/Reviewer/read-only subagents do not need a write lease unless they edit files.
+
+Before tracked repository or artifact edits, run the machine pre-edit guard after `enter-task` and before the file-editing tool:
+
+```bash
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation pre-edit --root "$(pwd)" --slug <slug> --task <TASK-ID> --file <path>
+```
+
+The guard must print `PRE_EDIT_OK_ID`. It is valid only for the current bundle, current Exploration Visibility Gate output, current READY output, current TASK entry, and the files listed under that TASK. If it refuses, do not edit; refresh the failed gate or fix the plan first.
+
+Closed-loop verification should check that `implementation status` exposes `pre_edit_ok_id`, `pre_edit_task_id`, `pre_edit_files`, and `pre_edit_records` after a passing guard. Implementer evidence must cite the current `PRE_EDIT_OK_ID` when one exists for the current plan revision, and the guard records must cover every file claimed for the current TASK. Missing, stale, wrong-task, or incomplete guard coverage is a verification problem, not a cosmetic warning.
+
+If an edit happened before the guard, record it with `implementation noncompliance --task <TASK-ID> --reason "<reason>" --file <path>`. Open pre-edit noncompliance must be listed by `implementation status`, `verify`, and `render-status`; it cannot be moved only to Key Technical Details or omitted from formal tracked status.
+
+Tool-layer edit wrapper design: the future enforcement target is a tracked-edit wrapper or host pre-edit hook that physically sits before file writes. It must resolve the active bundle, confirm the visible Exploration Visibility Gate output and READY Focus for the current TASK, verify or acquire a non-overlapping lease, run `implementation pre-edit`, reject writes outside the TASK file scope, capture `PRE_EDIT_OK_ID`, and require Implementer evidence to cite that same guard after the write. Current Codex edit tools are not physically blocked by the skill itself, so the absence of that wrapper is a `residual risk`; do not describe current guidance as non-bypassable physical enforcement.
+
 The final formal `Progress` or `Completed` response must map `Changes`, `Completed Items`, `Incomplete Items`, and `Validation Results` back to the same visible Exploration Visibility Gate output plus TASK/REQ set for single-idea sessions, and to the same visible IDEA/TASK/REQ set when a session ledger contains multiple ideas. For single-idea sessions, TASK/REQ mapping plus the current `EXPLORATION_OUTPUT_ID` is enough when the idea scope is unambiguous.
+
+For same-session related follow-ups, final or status responses must also map back to the prior related session scope, not only the newest bundle or most recent local edit. If the user asks whether "everything", "the earlier issue", "the 1-7", or "what we discussed" is complete, first audit the prior related scope and state what is covered, deferred, superseded, or unverified. If unrelated, keep the answer ordinary and do not invent bundle accounting.
+
+Material same-session follow-ups should be recorded with:
+
+```bash
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" session audit --root "$(pwd)" --slug <slug> --relation <same-scope|scope-correction|new-related-scope|unrelated> --summary "<summary>" --prior-scope "<prior scope>" --decision "<decision>"
+```
+
+`session status`, `implementation status`, and `render-status` expose the latest audit so long conversations and compacted context can be re-anchored to state-backed scope records.
+
+Material same-session ideas that need durable continuity should also be recorded with:
+
+```bash
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" idea record --root "$(pwd)" --slug <slug> --id IDEA-1 --status active --summary "<English idea summary>" --related-reqs "REQ-1,REQ-2" --notes "<English trace notes>"
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" idea status --root "$(pwd)" --slug <slug>
+```
+
+Use `idea record` when the user introduces, corrects, rejects, defers, completes, blocks, or reopens a material idea. The fields are English-only ASCII so bundle state stays portable; user-facing explanation may still use the user's language. Formal tracked status with multiple idea records must map meaningful result bullets to IDEA/TASK/REQ.
+
+Material follow-ups that could be same-scope, scope-correction, new-related-scope, or unrelated should be classified with:
+
+```bash
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" scope classify --root "$(pwd)" --slug <slug> --classification <same-scope|scope-correction|new-related-scope|unrelated> --summary "<summary>" --rationale "<rationale>" --action "<action>"
+```
+
+`scope status`, `implementation status`, and `render-status` expose the latest classification. A related correction without a classification is a traceability gap; an unrelated ordinary answer should not be forced into TASK/REQ accounting.
+
+If the tracked scope came from a numbered issue list, the final response must preserve those original IDs or include a mapping table with `Previous ID`, `Current ID`, and `Change Reason`. Do not claim "1-7 completed", "item 3 fixed", or similar status unless the response maps to the same numbered meanings that were shown in Exploration/READY. If a later answer used a different numbering, record it as traceability noncompliance and correct the mapping before claiming progress.
+
+If the tracked scope has a master backlog, validation and final status must include the persisted `MB-*` state from `backlog status` or `implementation status`. `Completed` for a response-scoped slice does not mean the whole master backlog is complete; incomplete MB IDs must appear in `Incomplete Items` or `Unverified Items` unless they are explicitly deferred.
 
 For multi-task or multi-idea work, "same visible IDEA/TASK/REQ set" means each result bullet maps to the focused execution-level READY excerpt shown before that TASK and to the relevant IDEA scope when more than one idea exists in the session. The final summary may aggregate TASKs, but it must not introduce unshown or unmapped work.
 
 The final user-visible console/chat response is a closeout artifact. Use the fixed field contract only for formal tracked delivery status: final closeout, blocked handoff, review handoff, keep/revise/rollback handoff, or when the user explicitly asks for progress, completion, summary, validation, or commit/publish state for work that entered todo/REQ/TASK accounting. For tracked delivery-status work, it must start with an idea-to-code role/source prefix such as `[idea-to-code][Closer/agent]` and use these field names:
+
+Language boundary: entries from `SKILL.md#Protocol Glossary / Do-Not-Translate List` stay English-only ASCII. This includes fixed field names, role/source prefixes, role names, IDs, commands, evidence strings, validation types, and bundle state. The meaningful explanation around those fields, including caveats, interpretation, recommendations, and conclusion, should follow the user's language by default.
 
 - `Status`
 - `Changes`
@@ -209,7 +299,7 @@ Before sending formal tracked delivery status, run the read-only `render-status`
 python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" render-status --root "$(pwd)" --slug <slug> --status Completed|Progress|Blocked
 ```
 
-The helper does not finalize, verify, or mutate the bundle. It emits a fixed-field skeleton with TASK/REQ placeholders, `EXPLORATION_OUTPUT_ID`, `READY_TASK_OUTPUT_ID`, and default no-commit placement under `Key Technical Details`. Formal tracked status MUST use render-status generated fields when the helper is available: replace placeholders with actual evidence before sending, but do not omit, rename, reorder, or hand-invent the fixed field set. If `render-status` is unavailable or fails, state that reason and manually use the same fixed fields. Do not omit fields, do not drop TASK/REQ mapping from `Changes`, `Completed Items`, `Incomplete Items`, or `Validation Results`, do not drop IDEA/TASK/REQ mapping when multiple ideas exist in the session ledger, and do not move no-commit state into `Incomplete Items`. Do not use it for ordinary untracked answers.
+The helper does not finalize, verify, or mutate the bundle. It emits a fixed-field skeleton with TASK/REQ placeholders, `EXPLORATION_OUTPUT_ID`, `READY_TASK_OUTPUT_ID`, and default no-commit placement under `Key Technical Details`. When milestone, IDEA ledger, backlog, session, scope, delegation, or noncompliance evidence exists, the helper should surface that evidence directly and keep placeholders only where evidence is genuinely missing. Formal tracked status MUST use render-status generated fields when the helper is available: replace placeholders with actual evidence before sending, but do not omit, rename, reorder, or hand-invent the fixed field set. If `render-status` is unavailable or fails, state that reason and manually use the same fixed fields. Do not omit fields, do not drop TASK/REQ mapping from `Changes`, `Completed Items`, `Incomplete Items`, or `Validation Results`, do not drop IDEA/TASK/REQ mapping when multiple ideas exist in the session ledger, and do not move no-commit state into `Incomplete Items`. Do not use it for ordinary untracked answers.
 
 Allowed status labels are `Completed`, `Progress`, and `Blocked`. Status labels describe the scope of the current user-visible response. In session-ledger mode, state or imply the active scope, such as `Scope: IDEA-2 / TASK-4 / REQ-7`, whenever multiple ideas exist. Use `Completed` when every IDEA/TASK/REQ in that response's stated scope is implemented and validated. If `Incomplete Items` is `none` for the stated response scope and validation passed, default to `Status: Completed`; do not downgrade to `Progress` only because the session ledger remains open, no commit was made, fresh-session retest remains external, or user acceptance has not been separately collected. For an interim IDEA/TASK/REQ slice, `Completed` does not claim the whole session ledger is finalized, accepted, committed, or published; disclose those facts under `Key Technical Details` or `Unverified Items`. Use `Progress` when at least one in-scope IDEA/TASK/REQ is still being implemented or validated. Use `Blocked` when in-scope work cannot continue without an external dependency or decision. If there are no incomplete items, unverified items, or residual risks, write `none` under those fields instead of omitting them.
 
@@ -230,7 +320,22 @@ Do not list `No commit made`, `bundle not finalized`, `awaiting user review`, or
 
 If tracked local changes have not been committed, explicitly state `No commit made` in `Key Technical Details` unless commit was an explicit in-scope TASK/REQ and is therefore genuinely unfinished. Do not leave commit/publish state implicit.
 
-Do not use the fixed field contract for ordinary questions, short explanations, naming discussions, quick clarifications, or lightweight commentary updates, even when a bundle is active. These replies should stay concise and natural while still using the role/source prefix; the template is for formal tracked delivery status, not every message.
+### Installed Skill Parity Checklist
+
+When tracked work changes the idea-to-code skill itself and the user expects the latest code to be installed, installation is a validated TASK/REQ activity, not a copy-only statement. Formal install, validation, or final status must name the relevant TASK/REQ and show:
+
+- install target path, normally `$CODEX_HOME/skills/idea-to-code`;
+- installed focused tests executed against the installed copy or installed script path;
+- source/installed SHA256 parity for every changed skill file included in the batch;
+- `No commit made` under `Key Technical Details` when commit was not requested or performed.
+
+If any installed focused test or source/installed SHA256 parity check is missing or failing, the response must not claim "latest skill installed and verified." Report the gap in `Unverified Items` or in the incomplete TASK/REQ that owns installation evidence.
+
+Do not use the fixed field contract for ordinary questions, short explanations, naming discussions, quick clarifications, or lightweight commentary updates, even when a bundle is active. These replies should stay concise and natural while still using the role/source prefix; the template is for formal tracked delivery status, not every message. The boundary is semantic: if no tracked delivery status, install, validation, commit, blocked handoff, review handoff, keep/revise/rollback decision, or final status is being reported, answer naturally and do not add READY, `render-status`, or fixed fields just because a bundle exists.
+
+Mixed-response split rule: if the user asks both a tracked status question and an ordinary review/evaluation question in the same message, split the answer instead of creating a new fixed template. The status portion should be one concise sentence with relevant TASK/REQ IDs, validation/install state, and `No commit made` when relevant. The review portion should be natural prose in the user's language with lightweight headings such as current strengths, current gaps, and suggested TODO. Do not run or paste full `render-status` fields for the review portion, and do not add a second fixed response template to solve this case.
+
+Review-discovered TODO capture rule: when natural review or formal review identifies a `new gap`, the response must say whether it is a suggested TODO, a proposed REQ/TASK for the next bundle, deferred, or rejected. A `new gap` cannot disappear from the next planning step, and it cannot be counted as completed unless a tracked TASK/REQ and validation evidence cover it. If the user says to continue, convert accepted TODO candidates into explicit REQ/TASK scope before implementation.
 
 ### Response Mode Check
 
@@ -239,6 +344,7 @@ Before a user-facing response at the end of a turn, choose the output shape:
 | Response situation | Output shape |
 |---|---|
 | Formal tracked delivery status or final handoff | Fixed fields. |
+| Mixed tracked status plus ordinary review/evaluation | Concise tracked status sentence, then natural review sections. |
 | Ordinary question/explanation/naming discussion | Natural concise answer. |
 | In-progress commentary update | Short action-oriented update. |
 
