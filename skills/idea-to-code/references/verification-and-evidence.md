@@ -217,6 +217,10 @@ python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" impleme
 
 Focused READY output is for user visibility only. It does not change bundle scope, requirements, gate state, or role evidence expectations. The output should identify `Display Layer: READY Focus`; full audit output should identify `Display Layer: Full Plan`.
 
+Visibility evidence requires meaningful content, not just IDs. A valid execution handoff before tracked edits shows the Exploration summary fields (`Required Now`, `Deferred`, `Selected Option`, and `What READY Will Cover`) plus the focused TASK fields (`Files`, `Execution Details`, `Done Criteria`, and `Planned Verification`). Tool stdout, folded transcripts, internal notes, `EXPLORATION_OUTPUT_ID`, or `READY_TASK_OUTPUT_ID` alone do not prove the user saw the scope.
+
+When `00-idea.md` changes after Exploration or READY output is generated, the old IDs are stale. Execution gates should refuse until the agent refreshes Exploration/READY and surfaces the refreshed blocks to the user.
+
 The generated READY output has a hard excerpt contract. Every visible TASK/IMP block must include:
 
 - the `TASK-*` or `IMP-*` line
@@ -233,17 +237,19 @@ Before tracked implementation edits, acquire a write lease for the current TASK 
 
 ```bash
 python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation lease acquire --root "$(pwd)" --slug <slug> --task <TASK-ID> --owner <owner> --file <path>
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation lease acquire --root "$(pwd)" --slug <slug> --task <TASK-ID> --owner <owner> --files <path-a> <path-b>
 ```
 
-The lease is valid only for the current plan revision and READY output. Overlapping active leases for different owners are refused, so parallel workers cannot silently claim the same file. Same-agent implementation still uses a lease so pre-edit behavior is consistent. `implementation lease status` must expose active and released leases, and finalize must close remaining active leases so completed bundles do not appear to retain live write ownership. Validator/Reviewer/read-only subagents do not need a write lease unless they edit files.
+The lease is valid only for the current plan revision and READY output. Use repeated `--file` for compatibility or grouped `--files <path>...` for multi-file TASKs; prefer grouped `--files` when it keeps guard evidence concise. Overlapping active leases for different owners are refused, so parallel workers cannot silently claim the same file. Same-agent implementation still uses a lease so pre-edit behavior is consistent. `implementation lease status` must expose active and released leases, and finalize must close remaining active leases so completed bundles do not appear to retain live write ownership. Validator/Reviewer/read-only subagents do not need a write lease unless they edit files.
 
 Before tracked repository or artifact edits, run the machine pre-edit guard after `enter-task` and before the file-editing tool:
 
 ```bash
 python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation pre-edit --root "$(pwd)" --slug <slug> --task <TASK-ID> --file <path>
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation pre-edit --root "$(pwd)" --slug <slug> --task <TASK-ID> --files <path-a> <path-b>
 ```
 
-The guard must print `PRE_EDIT_OK_ID`. It is valid only for the current bundle, current Exploration Visibility Gate output, current READY output, current TASK entry, and the files listed under that TASK. If it refuses, do not edit; refresh the failed gate or fix the plan first.
+The guard must print `PRE_EDIT_OK_ID`. It is valid only for the current bundle, current Exploration Visibility Gate output, current READY output, current TASK entry, and the files listed under that TASK. Use repeated `--file` for compatibility or grouped `--files <path>...` for multi-file TASKs. If it refuses, do not edit; refresh the failed gate or fix the plan first.
 
 Closed-loop verification should check that `implementation status` exposes `pre_edit_ok_id`, `pre_edit_task_id`, `pre_edit_files`, and `pre_edit_records` after a passing guard. Implementer evidence must cite the current `PRE_EDIT_OK_ID` when one exists for the current plan revision, and the guard records must cover every file claimed for the current TASK. Missing, stale, wrong-task, or incomplete guard coverage is a verification problem, not a cosmetic warning.
 

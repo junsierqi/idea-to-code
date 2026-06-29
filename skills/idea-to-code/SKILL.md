@@ -21,6 +21,8 @@ When this skill loads, understand its core as: turn an idea into a verified soft
 
 The long-term objective is an intelligent, controllable idea-to-code delivery agent. The current product is a skill that hardens that agent behavior through explicit lifecycle rules, bundle state, script gates, evidence records, and regression tests. Do not treat this skill as a loose checklist or a chat style guide.
 
+Use `references/product-charter.md` as the maintainable product compass when reviewing architecture, drift, repeated weaknesses, or whether a proposed rule or workflow change fits the target. The charter does not replace runtime gates; it anchors why the gates exist and when to correct drift before continuing implementation.
+
 Every tracked idea must move through a clear closed loop:
 
 - understand the user's real goal and restate it in implementation terms;
@@ -173,6 +175,7 @@ For tracked idea-to-code work, these checks are mandatory, not style preferences
 - **Non-bypassable pre-edit self-check**: immediately before calling any file-editing tool for tracked work, stop and confirm in the agent's own working context that the current user-visible conversation already contains the focused READY TASK excerpt for the exact TASK/REQ and files about to be edited. If that visible excerpt is missing, do not edit. Run or reuse `implementation show-ready --task <TASK-ID>`, send the focused READY excerpt as a normal assistant message, then continue only after that message is visible.
 - **Before any tracked repository or artifact edit**: resolve the current bundle, run or reuse `implementation ready` / `implementation show-ready --task <TASK-ID>`, and paste the relevant READY TASK excerpt in a normal assistant message. This applies to code, docs, tests, config, scripts, and tracked bundle artifacts. Reusing a prior READY result still requires showing the relevant excerpt again before the current edit unless the user explicitly waived repeated visibility after an initial visible READY excerpt. Tool stdout, folded transcripts, and internal notes do not satisfy this requirement.
 - **Before implementation READY**: generate or reuse the current `exploration render` output and surface it in a normal assistant message before the READY TASK excerpt. `implementation ready` prints Exploration Visibility Gate output before READY when it must refresh it, but the agent must still make that output visible to the user. Tool stdout, folded transcripts, and internal notes are not enough by themselves.
+- **Execution visibility is content, not IDs only**: before tracked edits, the user-visible message must show the meaningful Exploration Result fields (`Required Now`, `Deferred`, `Selected Option`, and `What READY Will Cover`) and the focused READY TASK fields (`Files`, `Execution Details`, `Done Criteria`, and `Planned Verification`). Showing only `EXPLORATION_OUTPUT_ID`, `READY_TASK_OUTPUT_ID`, or a one-line "READY Focus" summary is noncompliant.
 - **Before final tracked handoff**: for install, validation, commit, delivery, blocked, review, keep/revise/rollback, or final status responses, run `render-status` first. If `render-status` is unavailable or fails, state that reason and then use the fixed Console Response Contract fields manually.
 - **Mapping rule**: every formal tracked `Changes`, `Completed Items`, `Incomplete Items`, and `Validation Results` bullet must map to the visible Exploration Visibility Gate output and READY TASK/REQ excerpt that were shown before execution.
 - **Same-session continuity rule**: within one conversation session, related ideas, corrections, numbered lists, scope decisions, and completion claims must remain traceable and consistent across turns. Before answering or acting on a related follow-up, audit the prior related scope from the active bundle, visible READY/Exploration outputs, explicit conversation context, and `idea status`. Record material follow-ups with `session audit` and, when the follow-up changes or clarifies the idea itself, `idea record`. If the relationship is unclear, classify or ask; do not silently reinterpret it. Unrelated questions may stay ordinary concise answers and must not be forced into the active bundle.
@@ -183,8 +186,8 @@ For tracked idea-to-code work, these checks are mandatory, not style preferences
 - **Noncompliance rule**: if the visible READY excerpt or fixed final status fields were missed, say so plainly, correct the process, and do not present the run as fully compliant.
 - **Late READY rule**: printing READY after edits have already started is remediation only. It does not make earlier edits compliant. Record the lapse in Reviewer or final status, tighten guidance or tests when the lapse exposed an instruction gap, and continue only after the corrected READY excerpt is visible.
 - **Current TASK entry rule**: before editing files for each TASK/IMP, run or reuse `implementation enter-task --task <TASK-ID>` so the current TASK is machine-recorded and its READY Focus is visible. `implementation show-ready --task <TASK-ID>` is acceptable only as a display fallback when state mutation is impossible; record the reason.
-- **Implementation lease rule**: before any tracked implementation edit, acquire a write lease with `implementation lease acquire --task <TASK-ID> --owner <agent-or-session> --file <path>`, then run `implementation pre-edit`. The lease is required for same-agent and multi-agent implementation edits so the guard behavior is consistent. Overlapping active leases for different owners are refused. Validator/Reviewer/read-only subagents do not need write leases unless they edit files.
-- **Pre-edit guard rule**: immediately after `enter-task` and before tracked file edits, run `implementation pre-edit --task <TASK-ID> --file <path>` for every file about to be edited. It must print `PRE_EDIT_OK_ID`; Implementer evidence must cite that ID. The guard is recorded in `pre_edit_records`; missing, stale, wrong-task, or incomplete file coverage must be refused or surfaced by `implementation status`, `verify`, and `render-status`. If an edit already happened without the guard, record it with `implementation noncompliance` and do not present the run as fully compliant until the lapse is resolved or explicitly carried as risk.
+- **Implementation lease rule**: before any tracked implementation edit, acquire a write lease with `implementation lease acquire --task <TASK-ID> --owner <agent-or-session> --file <path>` for one file or `--files <path>...` for grouped multi-file TASKs, then run `implementation pre-edit`. The lease is required for same-agent and multi-agent implementation edits so the guard behavior is consistent. Overlapping active leases for different owners are refused. Validator/Reviewer/read-only subagents do not need write leases unless they edit files.
+- **Pre-edit guard rule**: immediately after `enter-task` and before tracked file edits, run `implementation pre-edit --task <TASK-ID> --file <path>` for one file or `--files <path>...` for grouped multi-file TASKs. It must print `PRE_EDIT_OK_ID`; Implementer evidence must cite that ID. The guard is recorded in `pre_edit_records`; missing, stale, wrong-task, or incomplete file coverage must be refused or surfaced by `implementation status`, `verify`, and `render-status`. If an edit already happened without the guard, record it with `implementation noncompliance` and do not present the run as fully compliant until the lapse is resolved or explicitly carried as risk.
 - **Tool-layer edit wrapper rule**: `implementation guarded-apply --task <TASK-ID> --patch-file <path>` is the default tracked edit path when an edit can be represented as a git patch. The wrapper resolves the active bundle, checks patch paths, requires visible Exploration and READY Focus for the current TASK, requires a non-overlapping lease, runs `implementation pre-edit`, captures `PRE_EDIT_OK_ID`, verifies the patch with `git apply --check`, then applies it with `git apply`. If a tracked edit cannot use `guarded-apply`, record a fallback reason in Implementer evidence and still cite the current `READY_TASK_OUTPUT_ID` and `PRE_EDIT_OK_ID`; do not describe the fallback edit as wrapper-compliant. Current Codex-native edit tools are still not host-level blocked by this skill; until host pre-edit hooks exist, native-tool bypass remains a `residual risk` and must not be described as impossible.
 - **Multi-role regression rule**: after changing lifecycle, exploration, READY, validation, review, or output-compliance guidance, run or update the multi-role output compliance scenario in `references/roles-and-state.md#multi-role-output-compliance`, covering Planner, Implementer, Validator, Reviewer, Closer, and ordinary-answer boundary expectations, then record expected versus observed behavior and any instruction drift.
 
@@ -674,6 +677,8 @@ Project-level state:
 
    For multi-task work, default the user-visible execution message to the current TASK, not the entire long task list. `implementation ready` and `implementation show-ready` default to the first TASK/IMP focused excerpt; use `--task TASK-N` to print another focused READY TASK excerpt, and `--full-plan` only for a complete audit list. The generated READY output has a hard contract: every visible TASK/IMP block must include the `TASK-*` or `IMP-*` line, covered `REQ-*` or the script's covered REQ hint when inferable, `Files`, `Done Criteria`, and `Planned Verification`. If any of those fields are missing, the READY output is invalid and must be regenerated or fixed before product-file edits. Before moving from TASK-1 to TASK-2, show the TASK-2 focused READY excerpt / focused READY TASK excerpt unless the user explicitly asks to skip repeated visibility. This is not only a full-list-once rule: every current TASK transition needs visible task info for that TASK. The final formal result template must map each completed, incomplete, and validated item back to the same visible TASK/REQ excerpts.
 
+   Focused READY output must also replay enough Exploration context for the user to understand scope without opening bundle files: `Required Now`, `Deferred`, `Selected Option`, and `What READY Will Cover`. If `00-idea.md` changes after Exploration or READY is generated, the previous `EXPLORATION_OUTPUT_ID` and `READY_TASK_OUTPUT_ID` are stale and execution gates must refuse until refreshed.
+
    Preferred TASK entry command:
    ```bash
    python ".../idea_to_code_bundle.py" implementation enter-task --root "$(pwd)" --slug <slug> --task TASK-1
@@ -683,16 +688,18 @@ Project-level state:
    Required implementation write lease:
    ```bash
    python ".../idea_to_code_bundle.py" implementation lease acquire --root "$(pwd)" --slug <slug> --task TASK-1 --owner agent --file <path>
+   python ".../idea_to_code_bundle.py" implementation lease acquire --root "$(pwd)" --slug <slug> --task TASK-1 --owner agent --files <path-a> <path-b>
    python ".../idea_to_code_bundle.py" implementation lease status --root "$(pwd)" --slug <slug>
    python ".../idea_to_code_bundle.py" implementation lease release --root "$(pwd)" --slug <slug> --id <LEASE_ID> --reason "<why>"
    ```
-   `lease acquire` refuses overlapping active leases for different owners on the same current plan/READY/file scope. Acquire the lease before `pre-edit`; read-only Validator/Reviewer work does not require a write lease.
+   `lease acquire` refuses overlapping active leases for different owners on the same current plan/READY/file scope. Use repeated `--file` or grouped `--files <path>...`; prefer grouped `--files` for multi-file TASKs to keep output concise. Acquire the lease before `pre-edit`; read-only Validator/Reviewer work does not require a write lease.
 
    Required pre-edit guard:
    ```bash
    python ".../idea_to_code_bundle.py" implementation pre-edit --root "$(pwd)" --slug <slug> --task TASK-1 --file <path>
+   python ".../idea_to_code_bundle.py" implementation pre-edit --root "$(pwd)" --slug <slug> --task TASK-1 --files <path-a> <path-b>
    ```
-   `pre-edit` refuses when the bundle is not active, Exploration or READY is stale, `current_task_id` does not match, the current TASK entry is older than READY, or the requested file is not listed in that TASK's `Files`. A passing guard prints `PRE_EDIT_OK_ID`, appends a `pre_edit_records` entry, and must cover every file the current TASK will edit before Implementer evidence. Cite it in Implementer evidence together with `READY_TASK_OUTPUT_ID`.
+   `pre-edit` refuses when the bundle is not active, Exploration or READY is stale, `current_task_id` does not match, the current TASK entry is older than READY, or the requested file is not listed in that TASK's `Files`. Use repeated `--file` or grouped `--files <path>...`; prefer grouped `--files` for multi-file TASKs. A passing guard prints `PRE_EDIT_OK_ID`, appends a `pre_edit_records` entry, and must cover every file the current TASK will edit before Implementer evidence. Cite it in Implementer evidence together with `READY_TASK_OUTPUT_ID`.
 
    If an edit begins without a valid guard, record the lapse instead of hiding it:
    ```bash
@@ -879,7 +886,7 @@ Never translate these categories in user-visible output, bundle artifacts, repor
 - Display and gate labels: `Exploration Result`, `Confirmation Required`, `Implementation Gate: READY`, `Display Layer`, `Next Layer`, `READY Focus`, `Full Plan`.
 - Scope and trace IDs: `TASK-*`, `REQ-*`, `IDEA-*`, `MB-*`, `IMP-*`.
 - Output and guard IDs: `EXPLORATION_OUTPUT_ID`, `READY_TASK_OUTPUT_ID`, `PRE_EDIT_OK_ID`, `LEASE_ID`.
-- CLI command names and arguments: `render-status`, `implementation ready`, `implementation enter-task`, `implementation pre-edit`, `implementation lease acquire`, `idea record`, `idea status`, `backlog sync`, `--root`, `--slug`, `--task`, `--file`, `--covers`.
+- CLI command names and arguments: `render-status`, `implementation ready`, `implementation enter-task`, `implementation pre-edit`, `implementation lease acquire`, `idea record`, `idea status`, `backlog sync`, `--root`, `--slug`, `--task`, `--file`, `--files`, `--covers`.
 - File, artifact, and state names: `00-idea.md`, `01-progress.md`, `02-report.md`, `state.json`, `bundle`, `ledger`, `current.json`.
 - Validation types: `real-product-path`, `mock-only`, `fixture-only`, `source-only`, `dom-only`, `manual-inspection`, `unverified`.
 - Evidence and report content that is written to bundle state: role evidence, acceptance records, milestone records, final reports, validation evidence, and command output excerpts.
@@ -991,8 +998,29 @@ Use `partial`, `accepted-with-followup`, `fail`, or `not-accepted` when evidence
 
 ## Reference
 
+### Reference File Addition Rule
+
+Default to extending an existing reference file instead of adding a new one. A new file under `references/` is allowed only when the change includes evidence that the separate file improves agent understanding or compliance compared with placing the material in `SKILL.md` or an existing reference. Acceptable evidence can be a fresh-session output comparison, multi-role simulation result, benchmark score, or a concrete maintainer audit showing that the existing owner document would become misleading or too broad.
+
+When evidence is missing, keep the rule in the current owner document and add tests there. Do not add a new reference file only because it feels cleaner, might be useful later, or separates a small topic. If a new reference file is justified, update the Reference Ownership Map and reference-link tests in the same TASK/REQ.
+
+### Reference Ownership Map
+
+Use this map before opening references or adding new rules:
+
+| Reference | Owns | Does Not Own |
+|---|---|---|
+| `references/product-charter.md` | product target, anti-goals, drift signals, corrective actions | runtime lifecycle gates or command syntax |
+| `references/workflow.md` | lifecycle order, bundle contract, routing, branch closure, context boundary, command flow | reusable writing templates or role-specific evidence wording |
+| `references/planning-patterns.md` | intake, Controlled Exploration, TASK/REQ plan shape, milestone and report patterns | lifecycle enforcement or final acceptance checks |
+| `references/roles-and-state.md` | role responsibilities, role execution mode, delegation healthcheck, role evidence, task states, acceptance matrix, trace coverage | validation taxonomy or final response contract details |
+| `references/verification-and-evidence.md` | validation types, evidence quality, acceptance checks, READY/Exploration visibility checks, `render-status`, installed parity | initial planning templates or role-order ownership |
+| `references/controlled-exploration-benchmark.md` | prompt-level and fresh-session benchmark scenarios and scoring | runtime rule authority or fixed answer templates |
+| `references/fresh-session-live-benchmark-template.md` | copyable fresh-session result-recording template | benchmark policy or runtime behavior rules |
+
 Read only the reference needed for the current situation:
 
+- `references/product-charter.md` - product target, anti-goals, drift signals, and corrective actions for architecture or process review.
 - `references/workflow.md` - bundle contract, lifecycle commands, routing, preflight, pause/resume/archive, checkpoint, verify, finalize.
 - `references/roles-and-state.md` - role duties, task states, task classification, acceptance matrix, trace coverage, evidence quality, and multi-role output compliance.
 - `references/verification-and-evidence.md` - validation types, verification summaries, UI/runtime evidence, acceptance and closeout checks.

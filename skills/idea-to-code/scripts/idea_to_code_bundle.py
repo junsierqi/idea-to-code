@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import hashlib
 import json
 import os
 import re
@@ -76,6 +77,7 @@ READY_OUTPUT_FIELDS = (
     "ready_task_output_required",
     "ready_task_output_id",
     "ready_task_output_plan_revision",
+    "ready_task_output_plan_fingerprint",
     "ready_task_output_at_utc",
     "ready_task_output_event_sequence",
     "ready_task_output_scope",
@@ -84,6 +86,7 @@ EXPLORATION_OUTPUT_FIELDS = (
     "exploration_output_required",
     "exploration_output_id",
     "exploration_output_plan_revision",
+    "exploration_output_plan_fingerprint",
     "exploration_output_at_utc",
     "exploration_output_event_sequence",
     "exploration_output_mode",
@@ -264,6 +267,14 @@ BRANCH_COVERAGE_MAP = [
         "failure_handling": "reclassify vague weakness claims before planning work",
     },
     {
+        "id": "enforcement-boundary",
+        "workflow_branch": "Enforcement boundary branch",
+        "entry": "agent reviews a weakness, residual risk, or control boundary",
+        "exit": "the weakness is labeled repo-enforced, skill-enforced, or host-required",
+        "validation": "host-required risks are not repeatedly converted into repo-only TODOs",
+        "failure_handling": "separate repository fixes from host/tool integration requests before planning work",
+    },
+    {
         "id": "noncompliance",
         "workflow_branch": "Noncompliance branch",
         "entry": "READY, pre-edit, or other required control happened late or was missed",
@@ -280,6 +291,24 @@ LOCAL_RECORD_KINDS = {
     "V": "validation",
     "F": "follow-up",
 }
+QUICKSTART_INELIGIBLE_PATTERNS = (
+    (
+        re.compile(r"\b(workflow|lifecycle|process|policy|governance|compliance|rule|rules|guard|gate|ready|exploration)\b", re.I),
+        "workflow/rule/lifecycle control work needs structured planning",
+    ),
+    (
+        re.compile(r"\b(skill|agent foundation|product charter|product goal|self-hardening|self hardening)\b", re.I),
+        "skill or product-direction hardening needs structured planning",
+    ),
+    (
+        re.compile(r"\b(docs?|documentation|references?|test|tests|regression|install|installation|installed|hash|parity)\b", re.I),
+        "scope involving docs, tests, install, or runtime evidence needs structured planning",
+    ),
+    (
+        re.compile(r"\b(multi-file|multiple files|several files|more than one file)\b", re.I),
+        "multi-file work needs structured planning",
+    ),
+)
 
 FILES = {
     "00-idea.md": (
@@ -416,7 +445,7 @@ SECTION_HEADINGS = {
 }
 SECTION_END_HEADINGS = {
     "idea": "## Requirements",
-    "requirements": "## Design",
+    "requirements": ("## Intake Gate", "## Controlled Exploration", "## Task Classification", "## Acceptance Matrix", "## Design"),
     "design": "## Implementation Plan",
     "implementation": None,
     "verification": "## Risks",
@@ -1401,9 +1430,12 @@ def backup_if_edited(path: Path, default: str) -> Path | None:
     return None
 
 
-def replace_markdown_section(text: str, heading: str, content: str, append: bool, end_heading: str | None = None) -> str:
+def replace_markdown_section(text: str, heading: str, content: str, append: bool, end_heading: str | tuple[str, ...] | None = None) -> str:
     """Replace or append to a top-level bundle section without disturbing siblings."""
-    stop = rf"^{re.escape(end_heading)}\s*$" if end_heading else r"\Z"
+    if isinstance(end_heading, tuple):
+        stop = r"^(?:" + "|".join(re.escape(item) for item in end_heading) + r")\s*$"
+    else:
+        stop = rf"^{re.escape(end_heading)}\s*$" if end_heading else r"\Z"
     pattern = re.compile(rf"(?ms)^{re.escape(heading)}\s*\n(?P<body>.*?)(?={stop})")
     match = pattern.search(text)
     normalized = content.rstrip() + "\n"
@@ -1417,6 +1449,17 @@ def replace_markdown_section(text: str, heading: str, content: str, append: bool
     else:
         replacement_body = "\n" + normalized
     return text[: match.start("body")] + replacement_body + text[match.end("body") :]
+
+
+def update_section_end_heading(file_key: str, content: str) -> str | tuple[str, ...] | None:
+    end_heading = SECTION_END_HEADINGS[file_key]
+    if file_key == "requirements" and re.search(
+        r"^## (?:Intake Gate|Controlled Exploration|Task Classification|Acceptance Matrix)\s*$",
+        content,
+        re.MULTILINE,
+    ):
+        return "## Design"
+    return end_heading
 
 
 def read_content_arg(content: str | None, content_file: str | None) -> str:
@@ -1530,6 +1573,25 @@ def _markdown_table_cell(value: str) -> str:
     return " ".join(value.replace("|", "/").split())
 
 
+def quickstart_ineligibility_reason(
+    title: str,
+    idea: str,
+    file_path: str,
+    task: str,
+    verification: str,
+) -> str | None:
+    text = " ".join([title, idea, file_path, task, verification])
+    reasons: list[str] = []
+    if re.search(r"[,;]", file_path):
+        reasons.append("multi-file work needs structured planning")
+    for pattern, reason in QUICKSTART_INELIGIBLE_PATTERNS:
+        if pattern.search(text):
+            reasons.append(reason)
+    if not reasons:
+        return None
+    return "; ".join(sorted(set(reasons)))
+
+
 def quickstart_bundle(
     root: Path,
     slug: str,
@@ -1551,6 +1613,13 @@ def quickstart_bundle(
     }.items():
         if _weak_text_value(value, min_len=5):
             raise SystemExit(f"quickstart --{label} is too vague.")
+    ineligible = quickstart_ineligibility_reason(title, idea, file_path, task, verification)
+    if ineligible:
+        raise SystemExit(
+            "quickstart refused - task is not eligible for quickstart: "
+            f"{ineligible}. Use init plus structured requirements, design, implementation ready, "
+            "role evidence, validation, review, and closeout instead."
+        )
     if not re.search(r"\b(real-product-path|mock-only|fixture-only|source-only|dom-only|manual-inspection|unverified)\b", verification, re.I):
         verification = f"source-only {verification}"
 
@@ -1691,6 +1760,23 @@ def _parse_ids(raw: str | list[str] | None) -> list[str]:
     return parsed
 
 
+def _combined_file_args(files: list[str] | None, file_groups: list[list[str]] | None) -> list[str]:
+    combined: list[str] = []
+    seen: set[str] = set()
+    for item in files or []:
+        cleaned = item.strip()
+        if cleaned and cleaned not in seen:
+            combined.append(cleaned)
+            seen.add(cleaned)
+    for group in file_groups or []:
+        for item in group:
+            cleaned = item.strip()
+            if cleaned and cleaned not in seen:
+                combined.append(cleaned)
+                seen.add(cleaned)
+    return combined
+
+
 def checkpoint_bundle(
     root: Path,
     slug: str,
@@ -1717,7 +1803,7 @@ def checkpoint_bundle(
                 "checkpoint refused - implementation gate is not READY. "
                 f"Fill {IMPLEMENTATION_FILE} and run 'implementation ready' before recording executed work."
             )
-        ready_output_problem = _ready_output_problem(status)
+        ready_output_problem = _ready_output_problem(status, target)
         if ready_output_problem:
             raise SystemExit("checkpoint refused - " + ready_output_problem)
         known_ids = {r["id"] for r in status.get("requirements", [])}
@@ -1886,7 +1972,7 @@ def update_section(
         filename = EDITABLE_SECTIONS[file_key]
         path = target / filename
         heading = SECTION_HEADINGS[file_key]
-        end_heading = SECTION_END_HEADINGS[file_key]
+        end_heading = update_section_end_heading(file_key, content)
         existing = path.read_text(encoding="utf-8") if path.exists() else render_template(FILES[filename])
         if append:
             path.write_text(
@@ -2210,7 +2296,35 @@ def _profile_prefix(profile: str | None = None) -> str:
     return f"[idea-to-code/{profile}]"
 
 
-def _exploration_output_problem(status: dict) -> str | None:
+def _plan_fingerprint(target: Path) -> str:
+    path = target / IDEA_FILE
+    text = path.read_text(encoding="utf-8") if path.exists() else ""
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _plan_fingerprint_problem(
+    target: Path | None,
+    status: dict,
+    output_name: str,
+    state_key: str,
+    refresh_command: str,
+) -> str | None:
+    if target is None:
+        return None
+    recorded = status.get(state_key)
+    if not recorded:
+        return None
+    current = _plan_fingerprint(target)
+    if recorded != current:
+        return (
+            f"{output_name} stale because 00-idea.md changed after it was generated; "
+            f"run {refresh_command} and send the refreshed output to the user before continuing."
+        )
+    return None
+
+
+def _exploration_output_problem(status: dict, target: Path | None = None) -> str | None:
     if not status.get("exploration_output_required"):
         return (
             "Exploration output required: run exploration render --root <root> --slug <slug> "
@@ -2224,6 +2338,15 @@ def _exploration_output_problem(status: dict) -> str | None:
             "Exploration output refresh required: run exploration render --root <root> --slug <slug> "
             "and send its output to the user before implementation READY."
         )
+    fingerprint_problem = _plan_fingerprint_problem(
+        target,
+        status,
+        "Exploration output",
+        "exploration_output_plan_fingerprint",
+        "exploration render --root <root> --slug <slug>",
+    )
+    if fingerprint_problem:
+        return fingerprint_problem
     return None
 
 
@@ -2354,6 +2477,7 @@ def _record_exploration_output(
     status["exploration_output_required"] = True
     status["exploration_output_id"] = output_id
     status["exploration_output_plan_revision"] = plan_revision
+    status["exploration_output_plan_fingerprint"] = _plan_fingerprint(target)
     status["exploration_output_at_utc"] = timestamp
     status["exploration_output_event_sequence"] = _next_event_sequence(status)
     status["exploration_output_mode"] = "confirmation-required" if need_confirmation else "autonomous"
@@ -2394,7 +2518,7 @@ def mark_implementation_ready(
             )
         status = read_status(target)
         exploration_lines: list[str] = []
-        exploration_problem = _exploration_output_problem(status)
+        exploration_problem = _exploration_output_problem(status, target)
         if exploration_problem:
             _, exploration_lines = _record_exploration_output(target, slug, status, profile)
         status["phase"] = "ready_to_implement"
@@ -2478,7 +2602,7 @@ def _covered_req_hint(task_name: str) -> str | None:
     return f"REQ-{match.group(2)}"
 
 
-def _ready_output_problem(status: dict) -> str | None:
+def _ready_output_problem(status: dict, target: Path | None = None) -> str | None:
     if not status.get("ready_task_output_required"):
         return None
     plan_revision = int(status.get("plan_revision", 0))
@@ -2489,10 +2613,19 @@ def _ready_output_problem(status: dict) -> str | None:
             "READY output refresh required: run implementation show-ready --root <root> --slug <slug> "
             "and send its output to the user before implementation evidence."
         )
+    fingerprint_problem = _plan_fingerprint_problem(
+        target,
+        status,
+        "READY output",
+        "ready_task_output_plan_fingerprint",
+        "implementation ready --root <root> --slug <slug>",
+    )
+    if fingerprint_problem:
+        return fingerprint_problem
     return None
 
 
-def _implementer_ready_output_problem(status: dict, evidence: str | None = None) -> str | None:
+def _implementer_ready_output_problem(status: dict, evidence: str | None = None, target: Path | None = None) -> str | None:
     plan_revision = int(status.get("plan_revision", 0))
     output_id = status.get("ready_task_output_id")
     output_revision = status.get("ready_task_output_plan_revision")
@@ -2503,6 +2636,12 @@ def _implementer_ready_output_problem(status: dict, evidence: str | None = None)
             "READY output refresh required: run implementation show-ready --root <root> --slug <slug> "
             "and send its output to the user before implementation evidence."
         )
+    ready_problem = _ready_output_problem(status, target)
+    if ready_problem:
+        return ready_problem
+    exploration_problem = _exploration_output_problem(status, target)
+    if exploration_problem:
+        return exploration_problem
     if evidence is not None and f"{READY_TASK_OUTPUT_ID_LABEL} {output_id}" not in evidence:
         return f"cite the latest READY output as {READY_TASK_OUTPUT_ID_LABEL} {output_id}."
     pre_edit_id = status.get("pre_edit_ok_id")
@@ -2521,6 +2660,7 @@ def _format_ready_output(
     source: str = "agent",
     focused: bool = False,
     exploration_output_id: str | None = None,
+    exploration: dict[str, str] | None = None,
 ) -> list[str]:
     lines = [
         f"{_visibility_prefix(profile, 'planner', 'agent')} Implementation Gate: READY | Bundle: {slug}",
@@ -2534,6 +2674,15 @@ def _format_ready_output(
     if exploration_output_id:
         lines.append(f"{EXPLORATION_OUTPUT_ID_LABEL}: {exploration_output_id}")
     lines.append("")
+    if exploration:
+        lines.extend([
+            "Exploration Summary:",
+            f"- Required Now: {exploration.get('required_now') or 'See current requirements and implementation plan.'}",
+            f"- Deferred: {exploration.get('deferred') or 'See Controlled Exploration decision and acceptance notes.'}",
+            f"- Selected Option: {exploration.get('chosen_option') or 'See Controlled Exploration decision.'}",
+            f"- What READY Will Cover: {exploration.get('ready_coverage') or 'TASK/REQ items in the current implementation plan.'}",
+            "",
+        ])
     if focused:
         lines.extend([
             "Focused READY TASK excerpt: yes",
@@ -2562,6 +2711,9 @@ def _ready_output_contract_problems(lines: list[str], blocks: list[tuple[str, st
         problems.append("READY output missing Display Layer")
     if "Current TASK info must be shown before executing that TASK" not in text:
         problems.append("READY output missing current TASK visibility rule")
+    for required in ("Exploration Summary:", "Required Now:", "Deferred:", "Selected Option:", "What READY Will Cover:"):
+        if required not in text:
+            problems.append(f"READY output missing exploration context field {required}")
 
     task_line_indexes: dict[str, int] = {}
     for index, line in enumerate(lines):
@@ -2587,7 +2739,7 @@ def _ready_output_contract_problems(lines: list[str], blocks: list[tuple[str, st
         req_hint = _covered_req_hint(task_name)
         if req_hint and f"Covered REQ hint: {req_hint}" not in visible_block:
             problems.append(f"READY output missing covered REQ hint for {task_name}: {req_hint}")
-        for required in ("Files:", "Done Criteria:", "Planned Verification:"):
+        for required in ("Files:", "Execution Details:", "Done Criteria:", "Planned Verification:"):
             if not re.search(rf"^{re.escape(required)}\s*$", visible_block, re.MULTILINE):
                 problems.append(f"READY output missing {required} for {task_name}")
     return problems
@@ -2610,6 +2762,7 @@ def _record_ready_output(
     status["ready_task_output_required"] = True
     status["ready_task_output_id"] = output_id
     status["ready_task_output_plan_revision"] = plan_revision
+    status["ready_task_output_plan_fingerprint"] = _plan_fingerprint(target)
     status["ready_task_output_at_utc"] = timestamp
     status["ready_task_output_event_sequence"] = _next_event_sequence(status)
     all_blocks = _ready_task_blocks(target)
@@ -2625,7 +2778,18 @@ def _record_ready_output(
         blocks = _default_ready_task_blocks(all_blocks)
         focused = True
         status["ready_task_output_scope"] = "focused-default"
-    lines = _format_ready_output(slug, status.get("title", slug), output_id, blocks, profile, "planner", "agent", focused=focused, exploration_output_id=status.get("exploration_output_id"))
+    lines = _format_ready_output(
+        slug,
+        status.get("title", slug),
+        output_id,
+        blocks,
+        profile,
+        "planner",
+        "agent",
+        focused=focused,
+        exploration_output_id=status.get("exploration_output_id"),
+        exploration=_controlled_exploration_values(target),
+    )
     output_problems = _ready_output_contract_problems(lines, blocks)
     if output_problems:
         raise SystemExit("READY output contract failed:\n  - " + "\n  - ".join(output_problems))
@@ -2652,13 +2816,24 @@ def implementation_show_ready(
                 + "\n  - ".join(problems or [f"{STATE_FILE}: implementation_ready is not true"])
             )
         if task_filters or not full_plan:
-            ready_output_problem = _ready_output_problem(status)
+            ready_output_problem = _ready_output_problem(status, target)
             if ready_output_problem:
                 raise SystemExit("implementation show-ready refused - " + ready_output_problem)
             output_id = status["ready_task_output_id"]
             all_blocks = _ready_task_blocks(target)
             blocks = _filter_ready_task_blocks(all_blocks, task_filters) if task_filters else _default_ready_task_blocks(all_blocks)
-            lines = _format_ready_output(slug, status.get("title", slug), output_id, blocks, profile, "planner", "agent", focused=True, exploration_output_id=status.get("exploration_output_id"))
+            lines = _format_ready_output(
+                slug,
+                status.get("title", slug),
+                output_id,
+                blocks,
+                profile,
+                "planner",
+                "agent",
+                focused=True,
+                exploration_output_id=status.get("exploration_output_id"),
+                exploration=_controlled_exploration_values(target),
+            )
             output_problems = _ready_output_contract_problems(lines, blocks)
             if output_problems:
                 raise SystemExit("READY output contract failed:\n  - " + "\n  - ".join(output_problems))
@@ -2685,7 +2860,7 @@ def implementation_enter_task(
                 "implementation enter-task refused - implementation gate is not READY:\n  - "
                 + "\n  - ".join(problems or [f"{STATE_FILE}: implementation_ready is not true"])
             )
-        ready_output_problem = _ready_output_problem(status)
+        ready_output_problem = _ready_output_problem(status, target)
         if ready_output_problem:
             raise SystemExit("implementation enter-task refused - " + ready_output_problem)
         normalized_task_id = task_id.strip().upper()
@@ -2701,6 +2876,7 @@ def implementation_enter_task(
             "agent",
             focused=True,
             exploration_output_id=status.get("exploration_output_id"),
+            exploration=_controlled_exploration_values(target),
         )
         output_problems = _ready_output_contract_problems(lines, blocks)
         if output_problems:
@@ -3185,10 +3361,10 @@ def implementation_pre_edit(
                 "implementation pre-edit refused - implementation gate is not READY:\n  - "
                 + "\n  - ".join(problems or [f"{STATE_FILE}: implementation_ready is not true"])
             )
-        exploration_problem = _exploration_output_problem(status)
+        exploration_problem = _exploration_output_problem(status, target)
         if exploration_problem:
             raise SystemExit("implementation pre-edit refused - " + exploration_problem)
-        ready_output_problem = _ready_output_problem(status)
+        ready_output_problem = _ready_output_problem(status, target)
         if ready_output_problem:
             raise SystemExit("implementation pre-edit refused - " + ready_output_problem)
         current_task = (status.get("current_task_id") or "").strip().upper()
@@ -3416,10 +3592,10 @@ def implementation_status(root: Path, slug: str) -> int:
     target = ensure_bundle(root, slug)
     problems = implementation_gate_problems(target)
     status = read_status(target)
-    exploration_problem = _exploration_output_problem(status)
+    exploration_problem = _exploration_output_problem(status, target)
     if exploration_problem:
         problems.append(exploration_problem)
-    ready_problem = _ready_output_problem(status)
+    ready_problem = _ready_output_problem(status, target)
     if ready_problem:
         problems.append(ready_problem)
     problems.extend(_pre_edit_compliance_problems(target, status))
@@ -3847,7 +4023,7 @@ def role_record(root: Path, slug: str, role: str, evidence: str, covers: list[st
                     "closer evidence refused: pre-close verify is older than the latest Reviewer evidence."
                 )
         if role_key == "implementer":
-            ready_output_problem = _implementer_ready_output_problem(status, evidence)
+            ready_output_problem = _implementer_ready_output_problem(status, evidence, target)
             if ready_output_problem:
                 raise SystemExit("implementer evidence refused - " + ready_output_problem)
             pre_edit_problems = _pre_edit_compliance_problems(target, status)
@@ -4712,10 +4888,10 @@ def _bundle_integrity_problems(target: Path, require_closer: bool) -> list[str]:
         problems.append(f"{STATE_FILE}: no milestones recorded")
     if not status.get("implementation_ready"):
         problems.append(f"{STATE_FILE}: implementation_ready is not true")
-    exploration_output_problem = _exploration_output_problem(status)
+    exploration_output_problem = _exploration_output_problem(status, target)
     if exploration_output_problem:
         problems.append(exploration_output_problem)
-    ready_output_problem = _ready_output_problem(status)
+    ready_output_problem = _ready_output_problem(status, target)
     if ready_output_problem:
         problems.append(ready_output_problem)
     if not status.get("user_input_decisions"):
@@ -5884,7 +6060,8 @@ def build_parser() -> argparse.ArgumentParser:
     ila.add_argument("--slug", required=True)
     ila.add_argument("--task", required=True, help="TASK/IMP id about to be edited, such as TASK-3.")
     ila.add_argument("--owner", default="agent", help="Agent/session owner label for this write lease.")
-    ila.add_argument("--file", action="append", required=True, help="File path to own for editing. Repeat for multiple files.")
+    ila.add_argument("--file", action="append", default=[], help="File path to own for editing. Repeat for multiple files.")
+    ila.add_argument("--files", nargs="+", action="append", default=[], help="Grouped file paths to own for editing, e.g. --files a.py b.py.")
     ila.add_argument("--profile", default=None, help="Optional upper-layer profile label for lease output.")
     ils = lease_sub.add_parser("status", help="Print implementation write leases.")
     ils.add_argument("--root", required=True)
@@ -5898,7 +6075,8 @@ def build_parser() -> argparse.ArgumentParser:
     ipe.add_argument("--root", required=True)
     ipe.add_argument("--slug", required=True)
     ipe.add_argument("--task", required=True, help="TASK/IMP id about to be edited, such as TASK-2.")
-    ipe.add_argument("--file", action="append", required=True, help="File path about to be edited. Repeat for multiple files.")
+    ipe.add_argument("--file", action="append", default=[], help="File path about to be edited. Repeat for multiple files.")
+    ipe.add_argument("--files", nargs="+", action="append", default=[], help="Grouped file paths about to be edited, e.g. --files a.py b.py.")
     ipe.add_argument("--owner", default="agent", help="Agent/session owner label that must hold the write lease.")
     ipe.add_argument("--profile", default=None, help="Optional upper-layer profile label for pre-edit output.")
     iga = impl_sub.add_parser("guarded-apply", help="Apply a git patch only after lease, current TASK, and pre-edit checks pass.")
@@ -6171,14 +6349,14 @@ def main(argv: Iterable[str] | None = None) -> int:
             return implementation_overview(root, args.slug, args.profile)
         if args.implementation_command == "lease":
             if args.implementation_lease_command == "acquire":
-                return implementation_lease_acquire(root, args.slug, args.task, args.owner, args.file, args.profile)
+                return implementation_lease_acquire(root, args.slug, args.task, args.owner, _combined_file_args(args.file, args.files), args.profile)
             if args.implementation_lease_command == "status":
                 return implementation_lease_status(root, args.slug)
             if args.implementation_lease_command == "release":
                 print(implementation_lease_release(root, args.slug, args.id, args.reason))
                 return 0
         if args.implementation_command == "pre-edit":
-            return implementation_pre_edit(root, args.slug, args.task, args.file, args.owner, args.profile)
+            return implementation_pre_edit(root, args.slug, args.task, _combined_file_args(args.file, args.files), args.owner, args.profile)
         if args.implementation_command == "guarded-apply":
             return implementation_guarded_apply(root, args.slug, args.task, args.patch_file, args.owner, args.profile)
         if args.implementation_command == "noncompliance":

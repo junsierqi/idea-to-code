@@ -25,11 +25,13 @@ SKILL_MD = SKILL_DIR / "SKILL.md"
 WORKFLOW_MD = REFERENCES_DIR / "workflow.md"
 ROLES_STATE_MD = REFERENCES_DIR / "roles-and-state.md"
 VERIFICATION_MD = REFERENCES_DIR / "verification-and-evidence.md"
+PRODUCT_CHARTER_MD = REFERENCES_DIR / "product-charter.md"
 CONTROLLED_EXPLORATION_BENCHMARK_MD = REFERENCES_DIR / "controlled-exploration-benchmark.md"
 ALLOWED_REFERENCES = {
     "controlled-exploration-benchmark.md",
     "fresh-session-live-benchmark-template.md",
     "planning-patterns.md",
+    "product-charter.md",
     "roles-and-state.md",
     "verification-and-evidence.md",
     "workflow.md",
@@ -161,6 +163,72 @@ class BundleTest(unittest.TestCase):
         for ref in refs:
             self.assertTrue((REFERENCES_DIR / ref).exists(), ref)
 
+    def test_product_charter_is_documented_and_referenced(self) -> None:
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        charter_text = PRODUCT_CHARTER_MD.read_text(encoding="utf-8")
+        self.assertIn("references/product-charter.md", skill_text)
+        for required in [
+            "Product Target",
+            "Anti-Goals",
+            "Drift Signals",
+            "Corrective Actions",
+            "intelligent, controllable, traceable delivery workflow",
+            "quickstart compression of complex scope",
+            "classification",
+            "enforcement",
+            "source/installed hash parity",
+        ]:
+            self.assertIn(required, charter_text)
+
+    def test_reference_ownership_map_guides_first_read_routing(self) -> None:
+        text = SKILL_MD.read_text(encoding="utf-8")
+        self.assertIn("### Reference Ownership Map", text)
+        expected_rows = {
+            "references/product-charter.md": "product target, anti-goals, drift signals, corrective actions",
+            "references/workflow.md": "lifecycle order, bundle contract, routing, branch closure, context boundary, command flow",
+            "references/planning-patterns.md": "intake, Controlled Exploration, TASK/REQ plan shape, milestone and report patterns",
+            "references/roles-and-state.md": "role responsibilities, role execution mode, delegation healthcheck, role evidence, task states, acceptance matrix, trace coverage",
+            "references/verification-and-evidence.md": "validation types, evidence quality, acceptance checks, READY/Exploration visibility checks, `render-status`, installed parity",
+            "references/controlled-exploration-benchmark.md": "prompt-level and fresh-session benchmark scenarios and scoring",
+            "references/fresh-session-live-benchmark-template.md": "copyable fresh-session result-recording template",
+        }
+        for reference, owner_text in expected_rows.items():
+            self.assertIn(f"| `{reference}` | {owner_text}", text)
+        self.assertIn("Use this map before opening references or adding new rules", text)
+        self.assertIn("runtime rule authority or fixed answer templates", text)
+
+    def test_reference_file_addition_requires_evidence_over_existing_docs(self) -> None:
+        text = SKILL_MD.read_text(encoding="utf-8")
+        self.assertIn("### Reference File Addition Rule", text)
+        for required in [
+            "Default to extending an existing reference file instead of adding a new one",
+            "allowed only when the change includes evidence",
+            "improves agent understanding or compliance",
+            "compared with placing the material in `SKILL.md` or an existing reference",
+            "fresh-session output comparison",
+            "multi-role simulation result",
+            "benchmark score",
+            "When evidence is missing, keep the rule in the current owner document",
+            "update the Reference Ownership Map and reference-link tests in the same TASK/REQ",
+        ]:
+            self.assertIn(required, text)
+
+    def test_current_reference_filenames_match_document_ownership(self) -> None:
+        expected = {
+            "controlled-exploration-benchmark.md",
+            "fresh-session-live-benchmark-template.md",
+            "planning-patterns.md",
+            "product-charter.md",
+            "roles-and-state.md",
+            "verification-and-evidence.md",
+            "workflow.md",
+        }
+        actual = {path.name for path in REFERENCES_DIR.glob("*.md")}
+        self.assertEqual(expected, actual)
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        for name in expected:
+            self.assertIn(f"`references/{name}`", skill_text)
+
     def test_role_evidence_checklist_covers_all_roles(self) -> None:
         text = ROLES_STATE_MD.read_text(encoding="utf-8")
         self.assertIn("## Role Evidence Checklist", text)
@@ -195,6 +263,16 @@ class BundleTest(unittest.TestCase):
         self.assertIn("does not change state", text)
         self.assertIn("does not replace `role record`", text)
         self.assertIn("if `role record` rejects evidence", text)
+
+    def test_grouped_files_guard_guidance_is_documented(self) -> None:
+        combined = "\n".join([
+            SKILL_MD.read_text(encoding="utf-8"),
+            WORKFLOW_MD.read_text(encoding="utf-8"),
+            VERIFICATION_MD.read_text(encoding="utf-8"),
+        ])
+        self.assertIn("--files <path>...", combined)
+        self.assertIn("prefer grouped `--files`", combined)
+        self.assertIn("repeated `--file`", combined)
 
     def test_skill_text_does_not_embed_third_party_project_names(self) -> None:
         combined = "\n".join(
@@ -1105,7 +1183,7 @@ class BundleTest(unittest.TestCase):
             "code, docs, tests, config, scripts, and tracked bundle artifacts",
             "Exploration Visibility Gate output",
             "Validator output names validation type, command/evidence, and covered TASK/REQ IDs",
-            "Reviewer output flags missing Exploration Visibility Gate output, missing READY visibility, late READY remediation, or missing fixed final status fields as noncompliance",
+            "Reviewer output flags missing Exploration Visibility Gate output, incomplete Exploration scope fields, missing READY visibility, incomplete focused TASK fields, stale Exploration/READY after plan edits, late READY remediation, or missing fixed final status fields as noncompliance",
             "Planner output preserves user-provided or agent-created numbered issue lists as stable scope IDs",
             "Planner output preserves same-session continuity",
             "Planner output creates and syncs a master backlog for multi-issue related work before READY",
@@ -2070,6 +2148,7 @@ Planned Verification:
             text,
         )
         idea_path.write_text(text, encoding="utf-8")
+        self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
         self.record_roles_through_reviewer(slug)
         self.checkpoint(slug)
 
@@ -2355,6 +2434,177 @@ Planned Verification:
         self.assertIn("Execution Details:\nRecord one requirement and all role evidence.", ready_output.stdout)
         self.assertIn("Done Criteria:\nfinalize and verify succeed.", ready_output.stdout)
         self.assertIn("Planned Verification:\nsource-only python idea_to_code_bundle.py verify exits zero.", ready_output.stdout)
+
+    def test_ready_focus_replays_exploration_scope_fields(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+
+        ready_output = self.run_bundle("implementation", "show-ready", "--root", str(self.root), "--slug", slug)
+
+        self.assertIn("Display Layer: READY Focus", ready_output.stdout)
+        self.assertIn("Exploration Summary:", ready_output.stdout)
+        self.assertIn("Required Now: TASK-1 / REQ-1 source-only bundle command flow.", ready_output.stdout)
+        self.assertIn("Deferred: Production code changes and unrelated command behavior.", ready_output.stdout)
+        self.assertIn("Selected Option: Use the direct ready-bundle fixture.", ready_output.stdout)
+        self.assertIn("What READY Will Cover: TASK-1 / REQ-1 only.", ready_output.stdout)
+        self.assertIn("Files:\n- state.json", ready_output.stdout)
+        self.assertIn("Execution Details:\n- Record one requirement and all role evidence.", ready_output.stdout)
+        self.assertIn("Done Criteria:\n- finalize and verify succeed.", ready_output.stdout)
+        self.assertIn("Planned Verification:\n- source-only python idea_to_code_bundle.py verify exits zero.", ready_output.stdout)
+
+    def test_enter_task_replays_exploration_and_focused_task_fields(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+
+        entered = self.run_bundle("implementation", "enter-task", "--root", str(self.root), "--slug", slug, "--task", "TASK-1")
+
+        self.assertIn("Display Layer: READY Focus", entered.stdout)
+        self.assertIn("Exploration Summary:", entered.stdout)
+        self.assertIn("Selected Option: Use the direct ready-bundle fixture.", entered.stdout)
+        self.assertIn("TASK-1: Verify sample bundle flow", entered.stdout)
+        self.assertIn("Files:\n- state.json", entered.stdout)
+        self.assertIn("Execution Details:\n- Record one requirement and all role evidence.", entered.stdout)
+        self.assertIn("Done Criteria:\n- finalize and verify succeed.", entered.stdout)
+        self.assertIn("Planned Verification:\n- source-only python idea_to_code_bundle.py verify exits zero.", entered.stdout)
+
+    def test_enter_task_refuses_stale_ready_after_plan_file_changes(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        idea_path = self.root / ".idea-to-code" / slug / "00-idea.md"
+        idea_path.write_text(
+            idea_path.read_text(encoding="utf-8") + "\n<!-- plan changed after READY -->\n",
+            encoding="utf-8",
+        )
+
+        entered = self.run_bundle("implementation", "enter-task", "--root", str(self.root), "--slug", slug, "--task", "TASK-1", check=False)
+
+        self.assertNotEqual(0, entered.returncode)
+        self.assertIn("READY output stale because 00-idea.md changed after it was generated", entered.stderr)
+
+    def test_update_requirements_preserves_adjacent_lifecycle_sections(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        requirements = self.root / "requirements-updated.md"
+        requirements.write_text("- REQ-1: Updated requirement text remains scoped.\n", encoding="utf-8")
+
+        self.run_bundle("update", "--root", str(self.root), "--slug", slug, "--file", "requirements", "--content-file", str(requirements))
+
+        idea = (self.root / ".idea-to-code" / slug / "00-idea.md").read_text(encoding="utf-8")
+        for heading in (
+            "## Intake Gate",
+            "## Controlled Exploration",
+            "## Task Classification",
+            "## Acceptance Matrix",
+            "## Design",
+            "## Implementation Plan",
+        ):
+            self.assertIn(heading, idea)
+        self.assertLess(idea.index("## Requirements"), idea.index("## Intake Gate"))
+        self.assertLess(idea.index("## Acceptance Matrix"), idea.index("## Design"))
+
+    def test_update_requirements_with_lifecycle_sections_replaces_legacy_block(self) -> None:
+        slug = self.init_bundle()
+        replacement = f"""- REQ-1: Full planning content replaces the legacy requirements block.
+
+## Intake Gate
+
+- Understanding: Full planning content is supplied through requirements update.
+- Assumptions: Compatibility path replaces adjacent lifecycle sections.
+- Acceptance Criteria: Template task classification is removed.
+- Need Confirmation: no
+- Confirmation Reason: Test fixture.
+
+## Controlled Exploration
+
+- Exploration Needed: no
+- Trigger: Test fixture direct path.
+- Constraints:
+  - Keep scope local.
+- Planned Scope:
+  - Required Now: TASK-1 / REQ-1.
+  - Deferred: none.
+  - What READY Will Cover: TASK-1 / REQ-1.
+- Options Considered:
+  - Not required.
+- Decision:
+  - Chosen option: Direct fixture.
+  - Decision reason: No fork.
+  - Rejected options: none.
+  - Unverified items: none.
+
+## Task Classification
+
+- File changes: yes
+- Semantic impact: yes
+- Tracking required: yes
+- Reason: Replacement fixture.
+
+## Acceptance Matrix
+
+{TEST_ACCEPTANCE_HEADER}
+| REQ-1 | Replacement fits user intent. | command exits zero | missing replacement fails | Production code is out of scope. | command exits zero | invalid command reports a failure | empty input is outside scope | state.json records role evidence | no rollback state is created | stderr reports command failures | verify prints JSON output | temporary script path only | source-only |
+"""
+        req_path = self.root / "requirements-full-planning.md"
+        req_path.write_text(replacement, encoding="utf-8")
+
+        self.run_bundle("update", "--root", str(self.root), "--slug", slug, "--file", "requirements", "--content-file", str(req_path))
+
+        idea = (self.root / ".idea-to-code" / slug / "00-idea.md").read_text(encoding="utf-8")
+        self.assertIn("Full planning content is supplied through requirements update.", idea)
+        self.assertNotIn("- File changes: yes / no", idea)
+        self.assertIn("## Design", idea)
+
+    def test_grouped_files_work_for_lease_and_pre_edit(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        implementation = """# Implementation
+
+Gate Status: READY
+
+## TASK-1: Verify grouped guard flow
+
+Status: pending
+
+Files:
+- state.json
+- 01-progress.md
+
+Execution Details:
+- Record grouped lease and pre-edit evidence.
+
+Done Criteria:
+- both files are covered by one lease and one pre-edit guard.
+
+Planned Verification:
+- source-only implementation lease and pre-edit commands exit zero.
+"""
+        impl_path = self.root / "implementation-grouped-files.md"
+        impl_path.write_text(implementation, encoding="utf-8")
+        self.run_bundle("update", "--root", str(self.root), "--slug", slug, "--file", "implementation", "--content-file", str(impl_path))
+        self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("implementation", "enter-task", "--root", str(self.root), "--slug", slug, "--task", "TASK-1")
+
+        lease = self.run_bundle(
+            "implementation", "lease", "acquire",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--task", "TASK-1",
+            "--owner", "agent",
+            "--files", "state.json", "01-progress.md",
+        )
+        pre_edit = self.run_bundle(
+            "implementation", "pre-edit",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--task", "TASK-1",
+            "--owner", "agent",
+            "--files", "state.json", "01-progress.md",
+        )
+
+        self.assertIn("Files Owned For Edit:\n- state.json\n- 01-progress.md", lease.stdout)
+        self.assertIn("Files Approved For Edit:\n- state.json\n- 01-progress.md", pre_edit.stdout)
+        status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(status["pre_edit_files"], ["state.json", "01-progress.md"])
 
     def test_implementation_ready_rejects_placeholder_fields(self) -> None:
         slug = self.init_bundle()
@@ -3761,7 +4011,7 @@ Planned Verification:
         module = load_bundle_module()
         blocks = [(
             "TASK-1: Verify sample bundle flow",
-            "Files:\n- README.md\n\nDone Criteria:\n- Change is visible\n\nPlanned Verification:\n- source-only check",
+            "Files:\n- README.md\n\nExecution Details:\n- Update the visible sample output\n\nDone Criteria:\n- Change is visible\n\nPlanned Verification:\n- source-only check",
         )]
         lines = module._format_ready_output(
             "sample",
@@ -3769,6 +4019,12 @@ Planned Verification:
             "sample-r1-20260626000000",
             blocks,
             focused=True,
+            exploration={
+                "required_now": "TASK-1 / REQ-1 sample flow.",
+                "deferred": "none.",
+                "chosen_option": "Use focused READY output.",
+                "ready_coverage": "TASK-1 only.",
+            },
         )
         self.assertEqual(module._ready_output_contract_problems(lines, blocks), [])
 
@@ -3776,7 +4032,7 @@ Planned Verification:
         module = load_bundle_module()
         blocks = [(
             "TASK-1: Verify sample bundle flow",
-            "Files:\n- README.md\n\nDone Criteria:\n- Change is visible\n\nPlanned Verification:\n- source-only check",
+            "Files:\n- README.md\n\nExecution Details:\n- Update the visible sample output\n\nDone Criteria:\n- Change is visible\n\nPlanned Verification:\n- source-only check",
         )]
         lines = [
             "[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: sample",
@@ -3795,7 +4051,7 @@ Planned Verification:
         module = load_bundle_module()
         blocks = [(
             "TASK-1: Verify sample bundle flow",
-            "Files:\n- README.md\n\nDone Criteria:\n- Change is visible\n\nPlanned Verification:\n- source-only check",
+            "Files:\n- README.md\n\nExecution Details:\n- Update the visible sample output\n\nDone Criteria:\n- Change is visible\n\nPlanned Verification:\n- source-only check",
         )]
         lines = [
             "[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: sample",
@@ -3814,7 +4070,7 @@ Planned Verification:
         module = load_bundle_module()
         blocks = [(
             "TASK-1: Verify sample bundle flow",
-            "Files:\n- README.md\n\nDone Criteria:\n- Change is visible\n\nPlanned Verification:\n- source-only check",
+            "Files:\n- README.md\n\nExecution Details:\n- Update the visible sample output\n\nDone Criteria:\n- Change is visible\n\nPlanned Verification:\n- source-only check",
         )]
         lines = [
             "[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: sample",
@@ -3992,6 +4248,42 @@ Planned Verification:
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("too vague", result.stderr)
+
+    def test_quickstart_refuses_complex_skill_hardening_without_creating_bundle(self) -> None:
+        result = self.run_bundle(
+            "quickstart",
+            "--root", str(self.root),
+            "--slug", "complex-hardening",
+            "--title", "Harden skill workflow rules",
+            "--idea", "Harden idea-to-code workflow rules, docs, tests, install checks, and multi-file guards.",
+            "--file", "skills/idea-to-code/SKILL.md,skills/idea-to-code/scripts/idea_to_code_bundle.py",
+            "--task", "Add product charter and quickstart guard rules with regression tests.",
+            "--verification", "source-only regression tests and installed hash parity",
+            "--unique",
+            check=False,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("quickstart refused", result.stderr)
+        self.assertIn("structured requirements", result.stderr)
+        self.assertFalse((self.root / ".idea-to-code" / "current.json").exists())
+        self.assertFalse((self.root / ".idea-to-code" / "complex-hardening").exists())
+
+    def test_quickstart_allows_simple_one_file_task(self) -> None:
+        result = self.run_bundle(
+            "quickstart",
+            "--root", str(self.root),
+            "--slug", "simple-readme-typo",
+            "--title", "Fix README typo",
+            "--idea", "Fix one misspelled README heading.",
+            "--file", "README.md",
+            "--task", "Fix one misspelled README heading.",
+            "--verification", "source-only grep README heading",
+            "--unique",
+        )
+        payload = json.loads(result.stdout.split("\n\n", 1)[0])
+        self.assertTrue(payload["ready"])
+        self.assertTrue(payload["slug"].endswith("simple-readme-typo"))
 
     def test_implementer_evidence_requires_ready_output_and_id(self) -> None:
         slug = self.init_bundle()
