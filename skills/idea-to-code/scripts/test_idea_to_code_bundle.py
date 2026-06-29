@@ -1438,6 +1438,7 @@ class BundleTest(unittest.TestCase):
         tool_stdout = (
             "[idea-to-code][Planner/agent] Exploration Result | Bundle: sample\n"
             "Display Layer: Exploration Result\n"
+            "Next Layer: READY Focus after this output is visible; Full Plan only on --full-plan.\n"
             "Required Now: TASK-1 / REQ-1\n"
             "Deferred: none\n"
             "Selected Option: Option B\n"
@@ -1446,6 +1447,8 @@ class BundleTest(unittest.TestCase):
             "Display Layer: READY Focus\n"
             "READY_TASK_OUTPUT_ID: sample-ready\n"
             "EXPLORATION_OUTPUT_ID: sample-explore\n"
+            "Implementation Granularity: task-only\n"
+            "Trace Hierarchy: IDEA-* -> REQ-* -> TASK-* -> optional IMP-*\n"
             "Required Now: TASK-1 / REQ-1\n"
             "Deferred: none\n"
             "Selected Option: Option B\n"
@@ -1471,6 +1474,7 @@ class BundleTest(unittest.TestCase):
         assistant_body = (
             "[idea-to-code][Planner/agent] Exploration Result | Bundle: sample\n"
             "Display Layer: Exploration Result\n"
+            "Next Layer: READY Focus after this output is visible; Full Plan only on --full-plan.\n"
             "Required Now: TASK-1 / REQ-1\n"
             "Deferred: none\n"
             "Selected Option: Option B\n"
@@ -1479,6 +1483,8 @@ class BundleTest(unittest.TestCase):
             "Display Layer: READY Focus\n"
             "READY_TASK_OUTPUT_ID: sample-ready\n"
             "EXPLORATION_OUTPUT_ID: sample-explore\n"
+            "Implementation Granularity: task-only\n"
+            "Trace Hierarchy: IDEA-* -> REQ-* -> TASK-* -> optional IMP-*\n"
             "Required Now: TASK-1 / REQ-1\n"
             "Deferred: none\n"
             "Selected Option: Option B\n"
@@ -1490,6 +1496,76 @@ class BundleTest(unittest.TestCase):
         )
 
         self.assertEqual([], bundle.validate_visible_ready_output(tool_stdout, assistant_body))
+
+    def test_output_compliance_rejects_one_line_exploration_summary(self) -> None:
+        bundle = load_bundle_module()
+        assistant_body = (
+            "[idea-to-code][Planner/agent] Exploration Result: Required Now = TASK-1 / REQ-1, "
+            "Deferred = none, Selected Option = Option B, What READY Will Cover = TASK-1."
+        )
+
+        problems = bundle.validate_visible_ready_output(
+            "[idea-to-code][Planner/agent] Exploration Result | Bundle: sample\n",
+            assistant_body,
+        )
+
+        self.assertIn(
+            "assistant-visible Exploration Result is only a one-line summary; show the Display Layer block",
+            problems,
+        )
+        self.assertIn("assistant-visible Exploration body missing: Display Layer: Exploration Result", problems)
+
+    def test_output_compliance_rejects_one_line_ready_focus_summary(self) -> None:
+        bundle = load_bundle_module()
+        assistant_body = (
+            "[idea-to-code][Implementer/agent] READY Focus TASK-2 / REQ-2: files are sample.py; "
+            "done when tests pass."
+        )
+
+        problems = bundle.validate_visible_ready_output(
+            "[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: sample\n",
+            assistant_body,
+        )
+
+        self.assertIn(
+            "assistant-visible READY is only a one-line summary; show the READY Focus Display Layer block",
+            problems,
+        )
+        self.assertIn("assistant-visible READY body missing: Display Layer: READY Focus or Display Layer: Full Plan", problems)
+        self.assertIn("assistant-visible READY body missing: READY_TASK_OUTPUT_ID:", problems)
+
+    def test_output_compliance_accepts_visible_ready_full_plan_body(self) -> None:
+        bundle = load_bundle_module()
+        assistant_body = (
+            "[idea-to-code][Planner/agent] Exploration Result | Bundle: sample\n"
+            "Display Layer: Exploration Result\n"
+            "Next Layer: READY Focus after this output is visible; Full Plan only on --full-plan.\n"
+            "EXPLORATION_OUTPUT_ID: sample-explore\n"
+            "Required Now: TASK-1 / REQ-1\n"
+            "Deferred: none\n"
+            "Selected Option: Option B\n"
+            "What READY Will Cover: TASK-1\n\n"
+            "[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: sample\n"
+            "Display Layer: Full Plan\n"
+            "READY_TASK_OUTPUT_ID: sample-ready\n"
+            "EXPLORATION_OUTPUT_ID: sample-explore\n"
+            "Implementation Granularity: task-only\n"
+            "Trace Hierarchy: IDEA-* -> REQ-* -> TASK-* -> optional IMP-*\n"
+            "Required Now: TASK-1 / REQ-1\n"
+            "Deferred: none\n"
+            "Selected Option: Option B\n"
+            "What READY Will Cover: TASK-1\n"
+            "TASK-1: Sample\n"
+            "Files:\n- sample.py\n"
+            "Execution Details:\n- edit\n"
+            "Done Criteria:\n- done\n"
+            "Planned Verification:\n- source-only tests\n"
+        )
+
+        self.assertEqual([], bundle.validate_visible_ready_output(
+            "[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: sample\n",
+            assistant_body,
+        ))
 
     def test_output_compliance_detects_render_status_only_in_tool_stdout(self) -> None:
         bundle = load_bundle_module()
@@ -2948,6 +3024,39 @@ Planned Verification: x
         self.assertTrue(status["ready_task_output_required"])
         self.assertEqual(status["ready_task_output_plan_revision"], status["plan_revision"])
         self.assertTrue(status["ready_task_output_id"])
+
+    def test_ready_output_declares_task_only_trace_hierarchy_without_imp(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, need_confirmation="no", mark_ready=False)
+        result = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+
+        self.assertIn("Implementation Granularity: task-only", result.stdout)
+        self.assertIn("Trace Hierarchy: IDEA-* -> REQ-* -> TASK-* -> optional IMP-*", result.stdout)
+        self.assertIn("TASK-1: Verify sample bundle flow", result.stdout)
+        self.assertIn("Covered REQ hint: REQ-1", result.stdout)
+        self.assertIn("Files:", result.stdout)
+        self.assertIn("Execution Details:", result.stdout)
+        self.assertIn("Done Criteria:", result.stdout)
+        self.assertIn("Planned Verification:", result.stdout)
+
+    def test_ready_output_declares_task_plus_imp_when_imp_block_exists(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, need_confirmation="no", mark_ready=False)
+        idea_path = self.root / ".idea-to-code" / slug / "00-idea.md"
+        text = idea_path.read_text(encoding="utf-8")
+        text = text.replace(
+            "## TASK-1: Verify sample bundle flow",
+            "## IMP-1: Verify sample bundle flow",
+        )
+        idea_path.write_text(text, encoding="utf-8")
+
+        result = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+
+        self.assertIn("Implementation Granularity: task+imp", result.stdout)
+        self.assertIn("Trace Hierarchy: IDEA-* -> REQ-* -> TASK-* -> optional IMP-*", result.stdout)
+        self.assertIn("IMP-1: Verify sample bundle flow", result.stdout)
+        self.assertIn("Files:", result.stdout)
+        self.assertIn("Done Criteria:", result.stdout)
 
     def test_exploration_render_outputs_confirmation_required_options(self) -> None:
         slug = self.init_bundle()

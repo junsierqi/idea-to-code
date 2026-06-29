@@ -133,10 +133,17 @@ Large ideas usually split by:
 
 ## Implementation Plan Shape
 
-Use `TASK-*` or `IMP-*` entries in `00-idea.md`. During intake and discovery,
-the same entries are also the visible task list. It is acceptable for DRAFT
-plans to use placeholder values such as `...` when concrete files, execution
-details, done criteria, or verification commands are not known yet.
+Use `TASK-*` entries in `00-idea.md` as the normal execution-gate units. The
+trace hierarchy is `IDEA-* -> REQ-* -> TASK-* -> optional IMP-*`: `REQ-*`
+captures the user outcome, `TASK-*` captures the READY/edit gate, and `IMP-*`
+is optional lower-level implementation granularity inside a TASK. Do not force
+one-to-one numbering across those IDs. Do not add `IMP-*` merely to make a
+task-only plan look complete.
+
+During intake and discovery, the same `TASK-*` or chosen `IMP-*` entries are
+also the visible task list. It is acceptable for DRAFT plans to use placeholder
+values such as `...` when concrete files, execution details, done criteria, or
+verification commands are not known yet.
 
 ```text
 Gate Status: DRAFT

@@ -2722,6 +2722,9 @@ def _format_ready_output(
     exploration_output_id: str | None = None,
     exploration: dict[str, str] | None = None,
 ) -> list[str]:
+    implementation_granularity = "task+imp" if any(
+        task_name.strip().startswith("IMP-") for task_name, _ in blocks
+    ) else "task-only"
     lines = [
         f"{_visibility_prefix(profile, 'planner', 'agent')} Implementation Gate: READY | Bundle: {slug}",
         "",
@@ -2733,7 +2736,11 @@ def _format_ready_output(
     ]
     if exploration_output_id:
         lines.append(f"{EXPLORATION_OUTPUT_ID_LABEL}: {exploration_output_id}")
-    lines.append("")
+    lines.extend([
+        f"Implementation Granularity: {implementation_granularity}",
+        "Trace Hierarchy: IDEA-* -> REQ-* -> TASK-* -> optional IMP-*",
+        "",
+    ])
     if exploration:
         lines.extend([
             "Exploration Summary:",
@@ -2771,6 +2778,10 @@ def _ready_output_contract_problems(lines: list[str], blocks: list[tuple[str, st
         problems.append("READY output missing Display Layer")
     if "Current TASK info must be shown before executing that TASK" not in text:
         problems.append("READY output missing current TASK visibility rule")
+    if "Implementation Granularity:" not in text:
+        problems.append("READY output missing Implementation Granularity")
+    if "Trace Hierarchy: IDEA-* -> REQ-* -> TASK-* -> optional IMP-*" not in text:
+        problems.append("READY output missing Trace Hierarchy")
     for required in ("Exploration Summary:", "Required Now:", "Deferred:", "Selected Option:", "What READY Will Cover:"):
         if required not in text:
             problems.append(f"READY output missing exploration context field {required}")
@@ -5582,26 +5593,68 @@ def _section_between(text: str, start: str, end: str | None) -> str:
     return text[start_index:end_index]
 
 
+EXPLORATION_VISIBLE_FIELDS = [
+    "Display Layer: Exploration Result",
+    "Next Layer:",
+    "EXPLORATION_OUTPUT_ID:",
+    "Required Now:",
+    "Deferred:",
+    "Selected Option:",
+    "What READY Will Cover:",
+]
+
+READY_VISIBLE_FIELDS = [
+    "READY_TASK_OUTPUT_ID:",
+    "EXPLORATION_OUTPUT_ID:",
+    "Implementation Granularity:",
+    "Trace Hierarchy: IDEA-* -> REQ-* -> TASK-* -> optional IMP-*",
+    "Required Now:",
+    "Deferred:",
+    "Selected Option:",
+    "What READY Will Cover:",
+    "Files:",
+    "Execution Details:",
+    "Done Criteria:",
+    "Planned Verification:",
+]
+
+
+def _looks_like_exploration_summary(text: str) -> bool:
+    return bool(re.search(r"\bExploration Result\s*:", text)) and "Display Layer: Exploration Result" not in text
+
+
+def _looks_like_ready_summary(text: str) -> bool:
+    if "Display Layer: READY Focus" in text:
+        return False
+    return bool(
+        re.search(r"\bREADY Focus\s+TASK-\d+\s*/\s*REQ-\d+\s*:", text)
+        or re.search(r"\bRefreshed Implementation Gate:\s*READY\b", text)
+        or re.search(r"\bImplementation Gate:\s*READY[^\n]*(Required Now|Current READY focus|TASK-\d+)", text)
+    )
+
+
 def validate_visible_ready_output(tool_stdout: str, assistant_visible_body: str) -> list[str]:
     problems: list[str] = []
     if "Exploration Result | Bundle:" in tool_stdout and "Exploration Result | Bundle:" not in assistant_visible_body:
         problems.append("Exploration Result was only present in tool stdout, not assistant-visible body")
     if "Implementation Gate: READY | Bundle:" in tool_stdout and "Implementation Gate: READY | Bundle:" not in assistant_visible_body:
         problems.append("Implementation Gate: READY was only present in tool stdout, not assistant-visible body")
-    if "Implementation Gate: READY | Bundle:" in tool_stdout:
-        for required in [
-            "Display Layer: READY Focus",
-            "READY_TASK_OUTPUT_ID:",
-            "EXPLORATION_OUTPUT_ID:",
-            "Required Now:",
-            "Deferred:",
-            "Selected Option:",
-            "What READY Will Cover:",
-            "Files:",
-            "Execution Details:",
-            "Done Criteria:",
-            "Planned Verification:",
-        ]:
+    if _looks_like_exploration_summary(assistant_visible_body):
+        problems.append("assistant-visible Exploration Result is only a one-line summary; show the Display Layer block")
+    if _looks_like_ready_summary(assistant_visible_body):
+        problems.append("assistant-visible READY is only a one-line summary; show the READY Focus Display Layer block")
+    if "Exploration Result | Bundle:" in tool_stdout or "Exploration Result | Bundle:" in assistant_visible_body:
+        for required in EXPLORATION_VISIBLE_FIELDS:
+            if required not in assistant_visible_body:
+                problems.append(f"assistant-visible Exploration body missing: {required}")
+    if (
+        "Implementation Gate: READY | Bundle:" in tool_stdout
+        or "Implementation Gate: READY | Bundle:" in assistant_visible_body
+        or _looks_like_ready_summary(assistant_visible_body)
+    ):
+        if "Display Layer: READY Focus" not in assistant_visible_body and "Display Layer: Full Plan" not in assistant_visible_body:
+            problems.append("assistant-visible READY body missing: Display Layer: READY Focus or Display Layer: Full Plan")
+        for required in READY_VISIBLE_FIELDS:
             if required not in assistant_visible_body:
                 problems.append(f"assistant-visible READY body missing: {required}")
     return problems

@@ -237,12 +237,18 @@ python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" impleme
 
 Focused READY output is for user visibility only. It does not change bundle scope, requirements, gate state, or role evidence expectations. The output should identify `Display Layer: READY Focus`; full audit output should identify `Display Layer: Full Plan`.
 
-Visibility evidence requires meaningful content, not just IDs. A valid execution handoff before tracked edits shows the Exploration summary fields (`Required Now`, `Deferred`, `Selected Option`, and `What READY Will Cover`) plus the focused TASK fields (`Files`, `Execution Details`, `Done Criteria`, and `Planned Verification`). Tool stdout, folded transcripts, internal notes, `EXPLORATION_OUTPUT_ID`, or `READY_TASK_OUTPUT_ID` alone do not prove the user saw the scope.
+READY output must also show the trace hierarchy and implementation granularity. The required hierarchy is `IDEA-* -> REQ-* -> TASK-* -> optional IMP-*`. Use `Implementation Granularity: task-only` when the visible plan has no `IMP-*` blocks, and `Implementation Granularity: task+imp` when it does. This is an additive visibility rule, not a new mandatory layer: missing `IMP-*` in task-only work is acceptable, but missing `TASK-*` or `REQ-*` visibility is still a flow-control failure.
+
+Visibility evidence requires meaningful content, not just IDs. A valid execution handoff before tracked edits shows the Exploration summary fields (`Required Now`, `Deferred`, `Selected Option`, and `What READY Will Cover`), `Implementation Granularity`, `Trace Hierarchy`, plus the focused TASK fields (`Files`, `Execution Details`, `Done Criteria`, and `Planned Verification`). Tool stdout, folded transcripts, internal notes, `EXPLORATION_OUTPUT_ID`, or `READY_TASK_OUTPUT_ID` alone do not prove the user saw the scope.
+
+Friendly display is the compact required block, not a prose substitute. A line like `Exploration Result: Required Now = ...` or `READY Focus TASK-2 / REQ-2: files are ...` may be useful context, but it is not compliant gate visibility unless the same assistant-visible message also contains the required `Display Layer` block fields. Keep the block short by using focused READY, but do not collapse it into a single sentence.
 
 When `00-idea.md` changes after Exploration or READY output is generated, the old IDs are stale. Execution gates should refuse until the agent refreshes Exploration/READY and surfaces the refreshed blocks to the user.
 
 The generated READY output has a hard excerpt contract. Every visible TASK/IMP block must include:
 
+- `Implementation Granularity`
+- `Trace Hierarchy`
 - the `TASK-*` or `IMP-*` line
 - covered `REQ-*` or the script's covered REQ hint when inferable
 - `Files`
