@@ -2873,6 +2873,10 @@ def _ready_recovery_payload(target: Path, slug: str, task_id: str | None = None)
         and not ready_problem
         and not task_problem
     )
+    required_visible_outputs = [
+        "Display Layer: Exploration Result",
+        "Display Layer: READY Focus",
+    ]
     return {
         "schema": "idea-to-code.ready-recovery.v1",
         "ok": bool(ready_current),
@@ -2887,6 +2891,12 @@ def _ready_recovery_payload(target: Path, slug: str, task_id: str | None = None)
         "task": normalized_task,
         "task_current": task_problem is None,
         "can_continue_to_edit": bool(ready_current and normalized_task),
+        "assistant_visible_redisplay_required": True,
+        "required_visible_outputs": required_visible_outputs,
+        "redisplay_instruction": (
+            "Run the recommended commands, then paste the refreshed Exploration Result and READY Focus blocks "
+            "in the assistant-visible body before retrying pre-edit or editing tracked files."
+        ),
         "problems": problems,
         "recommended_commands": deduped_commands,
     }
@@ -2906,6 +2916,11 @@ def implementation_recover_ready(root: Path, slug: str, task_id: str | None, jso
         print(f"EXPLORATION_OUTPUT_ID: {payload.get('exploration_output_id') or 'missing'}")
         print(f"Current TASK: {payload.get('task') or 'not selected'}")
         print(f"Can Continue To Edit: {'yes' if payload.get('can_continue_to_edit') else 'no'}")
+        print("Visible Redisplay Required: yes")
+        print("Required Visible Outputs:")
+        for output_name in payload["required_visible_outputs"]:
+            print(f"- {output_name}")
+        print(f"Redisplay Instruction: {payload['redisplay_instruction']}")
         print()
         if payload["problems"]:
             print("Recovery Problems:")
@@ -2916,7 +2931,10 @@ def implementation_recover_ready(root: Path, slug: str, task_id: str | None, jso
         for command in payload["recommended_commands"]:
             print(f"- {command}")
         print()
-        print("Do not edit tracked files until READY Focus is visible and pre-edit guard passes.")
+        print(
+            "Do not edit tracked files until the required visible outputs are pasted in the assistant-visible "
+            "body and pre-edit guard passes."
+        )
     return 0 if payload["ok"] else 1
 
 

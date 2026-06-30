@@ -5110,6 +5110,12 @@ Planned Verification:
         self.assertEqual("idea-to-code.ready-recovery.v1", payload["schema"])
         self.assertFalse(payload["implementation_ready"])
         self.assertFalse(payload["can_continue_to_edit"])
+        self.assertTrue(payload["assistant_visible_redisplay_required"])
+        self.assertEqual(
+            ["Display Layer: Exploration Result", "Display Layer: READY Focus"],
+            payload["required_visible_outputs"],
+        )
+        self.assertIn("assistant-visible body", payload["redisplay_instruction"])
         self.assertIn(f"implementation ready --root <root> --slug {slug} --task TASK-1", payload["recommended_commands"])
 
     def test_implementation_recover_ready_reports_stale_ready(self) -> None:
@@ -5134,8 +5140,31 @@ Planned Verification:
         payload = json.loads(result.stdout)
         self.assertFalse(payload["ready_task_output_current"])
         self.assertFalse(payload["can_continue_to_edit"])
+        self.assertTrue(payload["assistant_visible_redisplay_required"])
+        self.assertEqual(
+            ["Display Layer: Exploration Result", "Display Layer: READY Focus"],
+            payload["required_visible_outputs"],
+        )
+        self.assertIn("before retrying pre-edit", payload["redisplay_instruction"])
         self.assertTrue(any("READY output stale" in problem for problem in payload["problems"]))
         self.assertIn(f"implementation ready --root <root> --slug {slug} --task TASK-1", payload["recommended_commands"])
+
+    def test_implementation_recover_ready_text_requires_visible_redisplay(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+
+        result = self.run_bundle(
+            "implementation", "recover-ready",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--task", "TASK-1",
+        )
+
+        self.assertIn("Display Layer: READY Recovery", result.stdout)
+        self.assertIn("Visible Redisplay Required: yes", result.stdout)
+        self.assertIn("- Display Layer: Exploration Result", result.stdout)
+        self.assertIn("- Display Layer: READY Focus", result.stdout)
+        self.assertIn("assistant-visible body", result.stdout)
 
     def test_implementation_recover_ready_reports_current_task_path(self) -> None:
         slug = self.init_bundle()
@@ -5153,6 +5182,11 @@ Planned Verification:
         self.assertTrue(payload["ok"])
         self.assertTrue(payload["ready_task_output_current"])
         self.assertTrue(payload["can_continue_to_edit"])
+        self.assertTrue(payload["assistant_visible_redisplay_required"])
+        self.assertEqual(
+            ["Display Layer: Exploration Result", "Display Layer: READY Focus"],
+            payload["required_visible_outputs"],
+        )
         self.assertIn(f"implementation show-ready --root <root> --slug {slug} --task TASK-1", payload["recommended_commands"])
         self.assertIn(f"implementation enter-task --root <root> --slug {slug} --task TASK-1", payload["recommended_commands"])
 
