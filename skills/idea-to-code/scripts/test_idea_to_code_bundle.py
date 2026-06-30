@@ -1661,6 +1661,32 @@ class BundleTest(unittest.TestCase):
         self.assertIn("Key Technical Details has placeholder EXPLORATION_OUTPUT_ID", problems)
         self.assertIn("Key Technical Details has placeholder READY_TASK_OUTPUT_ID", problems)
 
+    def test_output_compliance_rejects_unmapped_residual_risk(self) -> None:
+        bundle = load_bundle_module()
+        body = self.sample_formal_status_body().replace(
+            "Residual Risks:\n- none\n\n",
+            "Residual Risks:\n- Native edit tools may bypass the skill.\n\n",
+        )
+
+        problems = bundle.validate_formal_status_visible_output(body, body)
+
+        self.assertIn(
+            "Residual Risks: section has unmapped risk; use none or concrete TASK/REQ/MB/IDEA scope",
+            problems,
+        )
+
+    def test_output_compliance_accepts_scoped_residual_risks(self) -> None:
+        bundle = load_bundle_module()
+        body = self.sample_formal_status_body().replace(
+            "Residual Risks:\n- none\n\n",
+            "Residual Risks:\n"
+            "- TASK-1 / REQ-1: host-required native edit hook remains outside repo enforcement.\n"
+            "- MB-17: deferred fresh-agent evidence wording remains in the next batch.\n"
+            "- IDEA-1: user acceptance is pending outside this source-only validation.\n\n",
+        )
+
+        self.assertEqual([], bundle.validate_formal_status_visible_output(body, body))
+
     def test_output_compliance_self_test_reports_all_hard_output_scenarios(self) -> None:
         result = run_test_subprocess([
             sys.executable,

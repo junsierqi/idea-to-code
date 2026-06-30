@@ -5992,6 +5992,24 @@ def _section_between(text: str, start: str, end: str | None) -> str:
     return text[start_index:end_index]
 
 
+CONCRETE_SCOPE_ID_RE = re.compile(r"\b(?:TASK|REQ|MB|IDEA)-\d+\b")
+
+
+def _residual_risk_scope_problems(section: str) -> list[str]:
+    problems: list[str] = []
+    lines = [line.strip() for line in section.splitlines() if line.strip()]
+    risk_lines = [line for line in lines if line.startswith("-")]
+    if not lines:
+        return problems
+    for line in risk_lines or lines:
+        value = line[1:].strip() if line.startswith("-") else line
+        if value.lower() == "none":
+            continue
+        if not CONCRETE_SCOPE_ID_RE.search(value):
+            problems.append("Residual Risks: section has unmapped risk; use none or concrete TASK/REQ/MB/IDEA scope")
+    return problems
+
+
 EXPLORATION_VISIBLE_FIELDS = [
     "Display Layer: Exploration Result",
     "Next Layer:",
@@ -6092,6 +6110,8 @@ def validate_formal_status_visible_output(tool_stdout: str, assistant_visible_bo
         problems.append("Key Technical Details missing READY_TASK_OUTPUT_ID")
     elif ready_match.group(1) == "<READY_TASK_OUTPUT_ID>":
         problems.append("Key Technical Details has placeholder READY_TASK_OUTPUT_ID")
+    residual_risks = _section_between(assistant_visible_body, "Residual Risks:", "Key Technical Details:")
+    problems.extend(_residual_risk_scope_problems(residual_risks))
     if "No commit made" in tool_stdout and "No commit made" not in key_details:
         problems.append("Key Technical Details missing No commit made from render-status")
     return problems

@@ -990,7 +990,7 @@ python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" render-
   --root "$(pwd)" --slug <slug> --status Completed|Progress|Blocked
 ```
 
-The helper prints the fixed field skeleton with the idea-to-code role/source prefix, TASK/REQ mapping placeholders, `EXPLORATION_OUTPUT_ID`, `READY_TASK_OUTPUT_ID`, and `No commit made` under Key Technical Details by default. When milestone, IDEA ledger, backlog, session, scope, delegation, or noncompliance evidence exists, the helper should surface that evidence directly and keep placeholders only where evidence is genuinely missing. Formal tracked status MUST use render-status generated fields when the helper is available: edit the skeleton with actual evidence before sending it; do not remove fixed fields, rename them, reorder them, or hand-invent them; do not drop concrete `EXPLORATION_OUTPUT_ID` or `READY_TASK_OUTPUT_ID` from `Key Technical Details`; do not leave `<EXPLORATION_OUTPUT_ID>` or `<READY_TASK_OUTPUT_ID>` placeholders in a final body; do not drop TASK/REQ mapping from `Changes`, `Completed Items`, `Incomplete Items`, or `Validation Results`; do not drop IDEA/TASK/REQ mapping when multiple ideas exist in the session ledger; and do not move no-commit state into `Incomplete Items`. Do not use it for ordinary untracked answers.
+The helper prints the fixed field skeleton with the idea-to-code role/source prefix, TASK/REQ mapping placeholders, `EXPLORATION_OUTPUT_ID`, `READY_TASK_OUTPUT_ID`, and `No commit made` under Key Technical Details by default. When milestone, IDEA ledger, backlog, session, scope, delegation, or noncompliance evidence exists, the helper should surface that evidence directly and keep placeholders only where evidence is genuinely missing. Formal tracked status MUST use render-status generated fields when the helper is available: edit the skeleton with actual evidence before sending it; do not remove fixed fields, rename them, reorder them, or hand-invent them; do not drop concrete `EXPLORATION_OUTPUT_ID` or `READY_TASK_OUTPUT_ID` from `Key Technical Details`; do not leave `<EXPLORATION_OUTPUT_ID>` or `<READY_TASK_OUTPUT_ID>` placeholders in a final body; do not drop TASK/REQ mapping from `Changes`, `Completed Items`, `Incomplete Items`, or `Validation Results`; do not drop IDEA/TASK/REQ mapping when multiple ideas exist in the session ledger; do not write free-floating `Residual Risks`; every non-`none` residual risk bullet must name concrete `TASK-N`, `REQ-N`, `MB-N`, or `IDEA-N` scope; and do not move no-commit state into `Incomplete Items`. Do not use it for ordinary untracked answers.
 
 ```text
 [idea-to-code][Closer/agent] Status: Completed | Progress | Blocked
@@ -1011,7 +1011,7 @@ Unverified Items:
 - none | <item + concrete missing dependency/reason>
 
 Residual Risks:
-- none | <remaining risk>
+- none | <TASK/REQ/MB/IDEA-mapped remaining risk>
 
 Key Technical Details:
 - <paths, behavior contracts, generated tests, migration notes, or important implementation facts>
