@@ -784,7 +784,8 @@ class BundleTest(unittest.TestCase):
             "do not drop TASK/REQ mapping from `Changes`, `Completed Items`, `Incomplete Items`, or `Validation Results`",
             "do not drop IDEA/TASK/REQ mapping when multiple ideas exist in the session ledger",
             "do not move no-commit state into `Incomplete Items`",
-            "must name the relevant `TASK-*` and `REQ-*` IDs",
+            "must name the relevant concrete `TASK-N` and `REQ-N` IDs",
+            "Placeholder labels such as `TASK-*` or `REQ-*` are not compliant result mapping",
             "A formal tracked response that cannot map each result bullet to TASK/REQ",
             "represented by a READY TASK",
             "If a response cannot map to a TASK/REQ",
@@ -1595,6 +1596,31 @@ class BundleTest(unittest.TestCase):
             assistant_body,
         ))
 
+    def test_output_compliance_rejects_formal_status_task_placeholder_mapping(self) -> None:
+        bundle = load_bundle_module()
+        body = (
+            "[idea-to-code][Closer/agent] Status: Completed\n\n"
+            "Changes:\n- TASK-* / REQ-1: changed.\n\n"
+            "Completed Items:\n- TASK-* / REQ-1: complete.\n\n"
+            "Incomplete Items:\n- none\n\n"
+            "Validation Results:\n- TASK-* / REQ-1: source-only validation passed.\n\n"
+            "Unverified Items:\n- none\n\n"
+            "Residual Risks:\n- none\n\n"
+            "Key Technical Details:\n"
+            "- EXPLORATION_OUTPUT_ID: sample-explore\n"
+            "- READY_TASK_OUTPUT_ID: sample-ready\n"
+            "- No commit made.\n"
+        )
+
+        problems = bundle.validate_formal_status_visible_output(body, body)
+
+        self.assertIn("Changes: section missing concrete TASK/REQ mapping", problems)
+        self.assertIn("Changes: section contains placeholder TASK/REQ mapping", problems)
+        self.assertIn("Completed Items: section missing concrete TASK/REQ mapping", problems)
+        self.assertIn("Completed Items: section contains placeholder TASK/REQ mapping", problems)
+        self.assertIn("Validation Results: section missing concrete TASK/REQ mapping", problems)
+        self.assertIn("Validation Results: section contains placeholder TASK/REQ mapping", problems)
+
     def test_output_compliance_self_test_reports_all_hard_output_scenarios(self) -> None:
         result = run_test_subprocess([
             sys.executable,
@@ -1867,6 +1893,30 @@ class BundleTest(unittest.TestCase):
         result = self.run_bundle("render-status", "--root", str(self.root), "--slug", slug, "--status", "Completed")
 
         self.assertIn("TASK-1 / REQ-1: REQ-1 delivered for concrete task.", result.stdout)
+        self.assertNotIn("TASK-* / REQ-1", result.stdout)
+
+    def test_render_status_extracts_concrete_task_from_milestone_evidence(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        self.run_bundle(
+            "checkpoint",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--milestone", "Generic checkpoint",
+            "--delivered", "TASK-1 delivered concrete status mapping from evidence.",
+            "--verified", "source-only validation passed for TASK-1.",
+            "--next", "closeout",
+            "--focus", "Generic closeout focus.",
+            "--gate", "acceptance",
+            "--gate-status", "pass",
+            "--covers", "REQ-1",
+        )
+
+        result = self.run_bundle("render-status", "--root", str(self.root), "--slug", slug, "--status", "Completed")
+
+        self.assertIn("TASK-1 / REQ-1: TASK-1 delivered concrete status mapping from evidence.", result.stdout)
+        self.assertIn("TASK-1 / REQ-1: source-only validation passed for TASK-1.", result.stdout)
         self.assertNotIn("TASK-* / REQ-1", result.stdout)
 
     def test_multi_role_output_compliance_requires_render_status_fields_and_mapping(self) -> None:
@@ -4603,9 +4653,9 @@ Planned Verification:
 
         rendered = self.run_bundle("render-status", "--root", str(self.root), "--slug", slug, "--status", "Completed")
 
-        self.assertIn("IDEA-1 / TASK-* / REQ-1: TASK-1 delivered evidence-backed render-status bullets.", rendered.stdout)
-        self.assertIn("IDEA-1 / TASK-* / REQ-1: milestone Render evidence is recorded for this scope.", rendered.stdout)
-        self.assertIn("IDEA-1 / TASK-* / REQ-1: source-only render-status output checked.", rendered.stdout)
+        self.assertIn("IDEA-1 / TASK-1 / REQ-1: TASK-1 delivered evidence-backed render-status bullets.", rendered.stdout)
+        self.assertIn("IDEA-1 / TASK-1 / REQ-1: milestone Render evidence is recorded for this scope.", rendered.stdout)
+        self.assertIn("IDEA-1 / TASK-1 / REQ-1: source-only render-status output checked.", rendered.stdout)
         self.assertIn("Idea ledger: IDEA-1=active", rendered.stdout)
         self.assertNotIn("summarize the user-visible or workflow change", rendered.stdout)
         self.assertIn("Incomplete Items:\n- none", rendered.stdout)

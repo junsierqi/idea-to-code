@@ -5805,7 +5805,12 @@ def _render_status_evidence_lines(status: dict, req_hint: str) -> tuple[list[str
             [placeholder + "validation type + command/evidence + result>"],
         )
     covers = [item for item in latest.get("covers", []) if item]
-    scope = _status_scope_label(status, covers, latest.get("focus", "") or status.get("current_focus", ""))
+    scope_source = " ".join(
+        str(latest.get(key, ""))
+        for key in ("focus", "delivered", "verified", "name")
+    )
+    scope_source = " ".join([scope_source, str(status.get("current_focus", ""))]).strip()
+    scope = _status_scope_label(status, covers, scope_source)
     milestone_name = latest.get("name") or "<latest milestone>"
     delivered = latest.get("delivered") or "latest milestone recorded delivered work"
     verified = latest.get("verified") or "validation evidence not recorded"
@@ -6069,8 +6074,10 @@ def validate_formal_status_visible_output(tool_stdout: str, assistant_visible_bo
         next_fields = FORMAL_STATUS_FIELDS[FORMAL_STATUS_FIELDS.index(section_name) + 1:]
         next_field = next((field for field in next_fields if field in assistant_visible_body), None)
         section = _section_between(assistant_visible_body, section_name, next_field)
-        if "TASK-" not in section or "REQ-" not in section:
-            problems.append(f"{section_name} section missing TASK/REQ mapping")
+        if not re.search(r"\bTASK-\d+\b", section) or not re.search(r"\bREQ-\d+\b", section):
+            problems.append(f"{section_name} section missing concrete TASK/REQ mapping")
+        if "TASK-*" in section or "REQ-*" in section:
+            problems.append(f"{section_name} section contains placeholder TASK/REQ mapping")
     incomplete = _section_between(assistant_visible_body, "Incomplete Items:", "Validation Results:")
     if "No commit made" in incomplete:
         problems.append("No commit made must not appear under Incomplete Items")

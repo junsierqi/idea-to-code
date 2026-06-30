@@ -371,7 +371,7 @@ Allowed status labels are `Completed`, `Progress`, and `Blocked`. Status labels 
 
 Do not use `Completed` to claim final accepted closeout for the whole bundle until accepted closeout is supported by current role evidence, pre-close verify, finalize, and final verify.
 
-For formal tracked `Progress`, validation, install, or status responses, require TASK/REQ mapping in the user-visible bullets:
+For formal tracked `Progress`, validation, install, or status responses, require concrete TASK/REQ mapping in the user-visible bullets. Placeholder labels such as `TASK-*` or `REQ-*` are not compliant result mapping in a final assistant-visible body:
 
 - `Changes`: name the relevant `TASK-*` and `REQ-*`.
 - `Completed Items`: name the completed `TASK-*` and covered `REQ-*`.
