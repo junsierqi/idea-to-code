@@ -838,6 +838,7 @@ def _migrate_ready_output_fields(status: dict) -> None:
     status.setdefault("ready_task_output_at_utc", None)
     status.setdefault("ready_task_output_event_sequence", None)
     status.setdefault("ready_task_output_scope", None)
+    status.setdefault("ready_task_output_history", [])
     status.setdefault("event_sequence", 0)
     status.setdefault("last_verified_event_sequence", None)
 
@@ -3102,7 +3103,8 @@ def _record_ready_output(
     status["ready_task_output_plan_revision"] = plan_revision
     status["ready_task_output_plan_fingerprint"] = _plan_fingerprint(target)
     status["ready_task_output_at_utc"] = timestamp
-    status["ready_task_output_event_sequence"] = _next_event_sequence(status)
+    event_sequence = _next_event_sequence(status)
+    status["ready_task_output_event_sequence"] = event_sequence
     all_blocks = _ready_task_blocks(target)
     if task_filters:
         blocks = _filter_ready_task_blocks(all_blocks, task_filters)
@@ -3116,6 +3118,18 @@ def _record_ready_output(
         blocks = _default_ready_task_blocks(all_blocks)
         focused = True
         status["ready_task_output_scope"] = "focused-default"
+    history_entry = {
+        "id": output_id,
+        "timestamp_utc": timestamp,
+        "plan_revision": plan_revision,
+        "event_sequence": event_sequence,
+        "scope": status.get("ready_task_output_scope"),
+        "task_filters": task_filters or [],
+        "full_plan": bool(full_plan),
+    }
+    history = list(status.get("ready_task_output_history", []))
+    history.append(history_entry)
+    status["ready_task_output_history"] = history[-20:]
     lines = _format_ready_output(
         slug,
         status.get("title", slug),
@@ -3950,6 +3964,7 @@ def implementation_status(root: Path, slug: str) -> int:
         "ready_task_output_required": status.get("ready_task_output_required", False),
         "ready_task_output_id": status.get("ready_task_output_id"),
         "ready_task_output_plan_revision": status.get("ready_task_output_plan_revision"),
+        "ready_task_output_history": status.get("ready_task_output_history", []),
         "current_task_id": status.get("current_task_id"),
         "current_task_ready_output_id": status.get("current_task_ready_output_id"),
         "pre_edit_ok_id": status.get("pre_edit_ok_id"),
@@ -5842,6 +5857,20 @@ def _same_agent_only_unverified_lines(status: dict, req_ids: list[str]) -> list[
     ]
 
 
+def _ready_history_summary(status: dict, limit: int = 5) -> str:
+    history = [
+        item for item in status.get("ready_task_output_history", [])
+        if item.get("id")
+    ]
+    if not history:
+        return "none"
+    recent = history[-limit:]
+    return ", ".join(
+        f"{item.get('id')}@r{item.get('plan_revision')}:{item.get('scope', 'unknown')}"
+        for item in recent
+    )
+
+
 def _default_render_status_label(status: dict) -> str:
     if status.get("state") == "completed" and status.get("decision") == "accepted":
         return "Completed"
@@ -5943,6 +5972,7 @@ def render_status_response(
         "Key Technical Details:",
         f"- EXPLORATION_OUTPUT_ID: {exploration_id}",
         f"- READY_TASK_OUTPUT_ID: {ready_id}",
+        f"- READY_TASK_OUTPUT_HISTORY: {_ready_history_summary(status)}",
         f"- {commit_note}",
         "- Bundle finalization/commit/publish state belongs here unless explicitly in scope.",
     ]

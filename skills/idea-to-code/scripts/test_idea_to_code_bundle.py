@@ -2013,6 +2013,7 @@ class BundleTest(unittest.TestCase):
         slug = self.init_bundle()
         self.write_ready_bundle(slug)
         self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("implementation", "show-ready", "--root", str(self.root), "--slug", slug, "--full-plan")
         self.run_bundle(
             "checkpoint",
             "--root", str(self.root),
@@ -2031,6 +2032,8 @@ class BundleTest(unittest.TestCase):
 
         self.assertIn("TASK-1 / REQ-1: TASK-1 delivered concrete status mapping from evidence.", result.stdout)
         self.assertIn("TASK-1 / REQ-1: source-only validation passed for TASK-1.", result.stdout)
+        self.assertIn("READY_TASK_OUTPUT_HISTORY:", result.stdout)
+        self.assertIn("full-plan", result.stdout)
         self.assertNotIn("TASK-* / REQ-1", result.stdout)
 
     def test_render_status_discloses_same_agent_only_reviewer_evidence(self) -> None:
@@ -3658,6 +3661,21 @@ Planned Verification: x
         status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
         self.assertEqual(status["ready_task_output_plan_revision"], status["plan_revision"])
         self.assertTrue(status["ready_task_output_id"])
+        self.assertGreaterEqual(len(status["ready_task_output_history"]), 1)
+
+    def test_ready_output_history_tracks_refreshes_in_status(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+
+        self.run_bundle("implementation", "show-ready", "--root", str(self.root), "--slug", slug, "--full-plan")
+        status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        implementation_status = self.run_bundle("implementation", "status", "--root", str(self.root), "--slug", slug)
+        payload = json.loads(implementation_status.stdout)
+
+        self.assertGreaterEqual(len(status["ready_task_output_history"]), 2)
+        self.assertEqual(status["ready_task_output_history"], payload["ready_task_output_history"])
+        self.assertEqual(status["ready_task_output_history"][-1]["id"], status["ready_task_output_id"])
+        self.assertEqual("full-plan", status["ready_task_output_history"][-1]["scope"])
 
     def test_implementation_show_ready_can_reprint_ready_task_list(self) -> None:
         slug = self.init_bundle()
