@@ -6082,10 +6082,16 @@ def validate_formal_status_visible_output(tool_stdout: str, assistant_visible_bo
     if "No commit made" in incomplete:
         problems.append("No commit made must not appear under Incomplete Items")
     key_details = _section_between(assistant_visible_body, "Key Technical Details:", None)
-    if "EXPLORATION_OUTPUT_ID:" in tool_stdout and "EXPLORATION_OUTPUT_ID:" not in key_details:
-        problems.append("Key Technical Details missing EXPLORATION_OUTPUT_ID from render-status")
-    if "READY_TASK_OUTPUT_ID:" in tool_stdout and "READY_TASK_OUTPUT_ID:" not in key_details:
-        problems.append("Key Technical Details missing READY_TASK_OUTPUT_ID from render-status")
+    exploration_match = re.search(r"EXPLORATION_OUTPUT_ID:\s*(\S+)", key_details)
+    ready_match = re.search(r"READY_TASK_OUTPUT_ID:\s*(\S+)", key_details)
+    if not exploration_match:
+        problems.append("Key Technical Details missing EXPLORATION_OUTPUT_ID")
+    elif exploration_match.group(1) == "<EXPLORATION_OUTPUT_ID>":
+        problems.append("Key Technical Details has placeholder EXPLORATION_OUTPUT_ID")
+    if not ready_match:
+        problems.append("Key Technical Details missing READY_TASK_OUTPUT_ID")
+    elif ready_match.group(1) == "<READY_TASK_OUTPUT_ID>":
+        problems.append("Key Technical Details has placeholder READY_TASK_OUTPUT_ID")
     if "No commit made" in tool_stdout and "No commit made" not in key_details:
         problems.append("Key Technical Details missing No commit made from render-status")
     return problems

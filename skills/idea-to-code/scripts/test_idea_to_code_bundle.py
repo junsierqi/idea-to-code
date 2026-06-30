@@ -1621,6 +1621,46 @@ class BundleTest(unittest.TestCase):
         self.assertIn("Validation Results: section missing concrete TASK/REQ mapping", problems)
         self.assertIn("Validation Results: section contains placeholder TASK/REQ mapping", problems)
 
+    def test_output_compliance_rejects_formal_status_missing_output_ids_without_tool_stdout(self) -> None:
+        bundle = load_bundle_module()
+        body = (
+            "[idea-to-code][Closer/agent] Status: Completed\n\n"
+            "Changes:\n- TASK-1 / REQ-1: changed.\n\n"
+            "Completed Items:\n- TASK-1 / REQ-1: complete.\n\n"
+            "Incomplete Items:\n- none\n\n"
+            "Validation Results:\n- TASK-1 / REQ-1: source-only validation passed.\n\n"
+            "Unverified Items:\n- none\n\n"
+            "Residual Risks:\n- none\n\n"
+            "Key Technical Details:\n"
+            "- No commit made.\n"
+        )
+
+        problems = bundle.validate_formal_status_visible_output("", body)
+
+        self.assertIn("Key Technical Details missing EXPLORATION_OUTPUT_ID", problems)
+        self.assertIn("Key Technical Details missing READY_TASK_OUTPUT_ID", problems)
+
+    def test_output_compliance_rejects_formal_status_placeholder_output_ids(self) -> None:
+        bundle = load_bundle_module()
+        body = (
+            "[idea-to-code][Closer/agent] Status: Completed\n\n"
+            "Changes:\n- TASK-1 / REQ-1: changed.\n\n"
+            "Completed Items:\n- TASK-1 / REQ-1: complete.\n\n"
+            "Incomplete Items:\n- none\n\n"
+            "Validation Results:\n- TASK-1 / REQ-1: source-only validation passed.\n\n"
+            "Unverified Items:\n- none\n\n"
+            "Residual Risks:\n- none\n\n"
+            "Key Technical Details:\n"
+            "- EXPLORATION_OUTPUT_ID: <EXPLORATION_OUTPUT_ID>\n"
+            "- READY_TASK_OUTPUT_ID: <READY_TASK_OUTPUT_ID>\n"
+            "- No commit made.\n"
+        )
+
+        problems = bundle.validate_formal_status_visible_output(body, body)
+
+        self.assertIn("Key Technical Details has placeholder EXPLORATION_OUTPUT_ID", problems)
+        self.assertIn("Key Technical Details has placeholder READY_TASK_OUTPUT_ID", problems)
+
     def test_output_compliance_self_test_reports_all_hard_output_scenarios(self) -> None:
         result = run_test_subprocess([
             sys.executable,
@@ -1722,7 +1762,7 @@ class BundleTest(unittest.TestCase):
             "Implementation Gate: READY was only present in tool stdout, not assistant-visible body",
             messages,
         )
-        self.assertIn("Key Technical Details missing READY_TASK_OUTPUT_ID from render-status", messages)
+        self.assertIn("Key Technical Details missing READY_TASK_OUTPUT_ID", messages)
         self.assertIn("MB-1", payload["backlog_hits"])
         self.assertIn("MB-2", payload["backlog_hits"])
         self.assertIn("MB-3", payload["backlog_hits"])
