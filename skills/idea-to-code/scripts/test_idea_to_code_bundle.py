@@ -4058,6 +4058,56 @@ Planned Verification:
             payload["problems"],
         )
 
+    def test_implementation_plan_check_rejects_planned_verification_without_validation_type(self) -> None:
+        slug = self.init_bundle()
+        bad_plan = """# Implementation
+
+Gate Status: READY
+
+### TASK-1: Missing validation type
+
+Files:
+- state.json
+
+Execution Details:
+- Record one requirement and evidence.
+
+Done Criteria:
+- verify succeeds.
+
+Planned Verification:
+- run the focused tests before closeout.
+"""
+        plan_path = self.root / "missing-validation-type.md"
+        plan_path.write_text(bad_plan, encoding="utf-8")
+        self.run_bundle("update", "--root", str(self.root), "--slug", slug, "--file", "implementation", "--content-file", str(plan_path))
+
+        result = self.run_bundle("implementation", "plan-check", "--root", str(self.root), "--slug", slug, "--json", check=False)
+
+        self.assertNotEqual(0, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertIn(
+            "00-idea.md: TASK-1: Missing validation type Planned Verification: missing approved validation type "
+            "(real-product-path, mock-only, fixture-only, source-only, dom-only, manual-inspection, unverified)",
+            payload["problems"],
+        )
+
+    def test_implementation_ready_rejects_planned_verification_without_validation_type(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        idea_path = self.root / ".idea-to-code" / slug / "00-idea.md"
+        idea_text = idea_path.read_text(encoding="utf-8")
+        idea_path.write_text(
+            idea_text.replace("Planned Verification:\n- source-only python idea_to_code_bundle.py verify exits zero.", "Planned Verification:\n- run focused tests."),
+            encoding="utf-8",
+        )
+
+        result = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug, check=False)
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("Planned Verification: missing approved validation type", result.stderr)
+
     def test_implementation_ready_rejects_polluted_task_sections(self) -> None:
         slug = self.init_bundle()
         self.write_ready_bundle(slug, mark_ready=False)

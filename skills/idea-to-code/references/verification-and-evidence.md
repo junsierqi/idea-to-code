@@ -22,6 +22,8 @@ Every validation claim must name one:
 
 Use `real-product-path` for real product behavior when locally available. Lower-level evidence can support it but should not be claimed as equivalent.
 
+Every TASK/IMP `Planned Verification` section must name one approved validation type before READY. This makes validation strength explicit during planning and prevents missing-type failures from being discovered only at checkpoint or finalize.
+
 ## Verification Summary
 
 Before checkpointing or finalizing, summarize:

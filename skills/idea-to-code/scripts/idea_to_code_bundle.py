@@ -68,6 +68,7 @@ TASK_SECTION_RESERVED_HEADINGS = {
     "## Risks And Follow-Up",
 }
 TASK_SECTION_PLACEHOLDER_RE = re.compile(r"<(?![!/?])(?:[^>\n]{1,80})>")
+VALIDATION_TYPE_RE = re.compile(r"\b(" + "|".join(re.escape(kind) for kind in VALIDATION_TYPES) + r")\b", re.I)
 ACCEPTANCE_MATRIX_COLUMNS = (
     "ID",
     "User Goal Fit",
@@ -191,6 +192,14 @@ BRANCH_COVERAGE_MAP = [
         "exit": "implementation enter-task records current_task_id and prints READY Focus",
         "validation": "current task state matches the TASK being edited",
         "failure_handling": "use show-ready only as a fallback with a recorded reason",
+    },
+    {
+        "id": "validation-type-preflight",
+        "workflow_branch": "Validation type preflight branch",
+        "entry": "TASK or IMP Planned Verification is written before READY",
+        "exit": "implementation plan-check and READY reject missing approved validation types",
+        "validation": "plan-check tests cover missing and accepted validation type cases",
+        "failure_handling": "add an approved validation type before retrying READY",
     },
     {
         "id": "ready-recovery",
@@ -2211,6 +2220,11 @@ def _task_sections_quality_problems(task_name: str, sections: dict[str, str]) ->
         if not meaningful:
             task_problems.append(f"{task_name} has empty {required}")
         task_problems.extend(_task_section_pollution_problems(task_name, required, value))
+        if required == "Planned Verification:" and not VALIDATION_TYPE_RE.search(value):
+            task_problems.append(
+                f"{task_name} Planned Verification: missing approved validation type "
+                f"({', '.join(VALIDATION_TYPES)})"
+            )
     return task_problems
 
 
