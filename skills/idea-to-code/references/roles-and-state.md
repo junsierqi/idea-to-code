@@ -20,6 +20,8 @@ Record roles in this order for the current `plan_revision`:
 
 The same agent may perform all roles, but each role requires separate evidence. Do not claim another person or subagent performed a role unless that actually happened and evidence was recorded.
 
+Role evidence recording is an ordered mutation sequence. Do not run `role record` commands in parallel; record Planner, Implementer, Validator, Reviewer, and Closer one at a time so each command sees the state written by the previous role.
+
 ## User-Visible Role Display
 
 Every user-visible idea-to-code message must identify the active role and execution source in its prefix:

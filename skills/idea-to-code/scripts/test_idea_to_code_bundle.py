@@ -339,6 +339,7 @@ class BundleTest(unittest.TestCase):
         self.assertIn("role explain --role <planner|implementer|validator|reviewer|closer>", text)
         self.assertIn("not a state transition", text)
         self.assertIn("not a replacement for `role record`", text)
+        self.assertIn("Do not run `role record` commands in parallel", text)
         for role in ["Planner", "Implementer", "Validator", "Reviewer", "Closer"]:
             self.assertIn(f"### {role} Evidence", text)
             section = text.split(f"### {role} Evidence", 1)[1].split("\n### ", 1)[0]
@@ -4091,6 +4092,24 @@ Planned Verification:
         commands = "\n".join(item["command"] for item in payload["flows"]["planning-update"])
         self.assertIn("implementation plan-check --root", commands)
         self.assertIn("--json", commands)
+
+    def test_command_guide_evidence_requires_serial_role_records(self) -> None:
+        result = run_test_subprocess([
+            sys.executable,
+            str(SCRIPT),
+            "command-guide",
+            "--flow",
+            "evidence",
+            "--json",
+        ])
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        payload = json.loads(result.stdout)
+        evidence_steps = payload["flows"]["evidence"]
+        combined = "\n".join(f"{item['step']}\n{item['command']}\n{item['notes']}" for item in evidence_steps)
+        self.assertIn("Record role evidence serially", combined)
+        self.assertIn("Do not run role record commands in parallel", combined)
+        self.assertIn("Planner, Implementer, Validator, Reviewer, then Closer", combined)
 
     def test_delegation_resolve_closes_non_usable_finding_without_making_evidence(self) -> None:
         slug = self.init_bundle()

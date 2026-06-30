@@ -6734,6 +6734,11 @@ COMMAND_GUIDE_FLOWS: dict[str, list[dict[str, str]]] = {
     ],
     "evidence": [
         {
+            "step": "Record role evidence serially",
+            "command": "Do not run role record commands in parallel; record Planner, Implementer, Validator, Reviewer, then Closer one at a time.",
+            "notes": "Role evidence is an ordered mutation sequence. Parallel role record calls can race the plan_revision and role-order gates.",
+        },
+        {
             "step": "Inspect role evidence requirements",
             "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" role explain --role implementer',
             "notes": "Run after a role record rejection instead of guessing wording.",
