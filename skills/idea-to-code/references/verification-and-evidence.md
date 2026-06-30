@@ -180,13 +180,15 @@ Reviewer output that repeats a prior weakness without one of these labels is amb
 
 Formal tracked handoff validation treats the final assistant message as the artifact under test. The command output that generated `render-status` is supporting evidence only. A closeout is noncompliant when `tool_stdout` contains a valid `render-status` block but `assistant_visible_body` omits it, summarizes it casually, or drops fixed fields.
 
+Profile-prefixed formal status is still idea-to-code formal status. Validate `[idea-to-code/<profile-name>][Closer/agent] Status: ...` with the same fixed-field contract as `[idea-to-code][Closer/agent] Status: ...`; the profile label is display-only and must not weaken field order, TASK/REQ mapping, output ID, `Unverified Items`, or `Residual Risks` checks.
+
 Use the output compliance helper when checking this failure mode:
 
 ```bash
 python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" output-compliance check --kind formal-status --tool-stdout-file <render-status-output.txt> --assistant-body-file <final-message.txt>
 ```
 
-The helper must fail when the final body does not start with `[idea-to-code][Closer/agent] Status: Completed|Progress|Blocked`, omits any fixed field, drops TASK/REQ mapping, moves `No commit made` under `Incomplete Items`, or loses `EXPLORATION_OUTPUT_ID` / `READY_TASK_OUTPUT_ID` that were present in `render-status`.
+The helper must fail when the final body does not start with `[idea-to-code][Closer/agent] Status: Completed|Progress|Blocked` or `[idea-to-code/<profile-name>][Closer/agent] Status: Completed|Progress|Blocked`, omits any fixed field, drops TASK/REQ mapping, moves `No commit made` under `Incomplete Items`, or loses `EXPLORATION_OUTPUT_ID` / `READY_TASK_OUTPUT_ID` that were present in `render-status`.
 
 For final closeout of tracked work, run this check whenever the assistant-visible final body is available as text before handoff or review. If the host cannot expose the final body before sending, record that as `host-required` rather than silently skipping the check. Running `render-status` alone is generation evidence; passing `output-compliance check --kind formal-status` is body-compliance evidence.
 

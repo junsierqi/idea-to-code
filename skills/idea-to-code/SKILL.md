@@ -911,6 +911,8 @@ python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" fresh-b
 
 When this skill is active, every user-visible assistant message MUST start with an idea-to-code role/source prefix. Direct idea-to-code use uses `[idea-to-code][Role/source]`, such as `[idea-to-code][Planner/agent]`. When another skill explicitly uses idea-to-code as its lifecycle foundation, it may declare a profile and use `[idea-to-code/<profile-name>][Role/source]`. The profile name is caller-provided and display-only; any valid profile label is shown in the user-visible prefix but does not change lifecycle gates, state files, ledger semantics, permissions, or closeout rules. Do not infer trust, ownership, permissions, or scope from a profile name; it is only a user-visible label. This includes commentary updates, plans, status answers, blocker reports, verification summaries, final responses, and follow-up explanations. Do not drop the marker just because the work is editing the skill itself.
 
+Formal status output compliance treats `[idea-to-code/<profile-name>][Closer/agent] Status: ...` as the same idea-to-code fixed-field contract as `[idea-to-code][Closer/agent] Status: ...`. The profile prefix does not relax fixed field order, TASK/REQ mapping, output ID, `Unverified Items`, or `Residual Risks` rules.
+
 `Role` must be the active lifecycle role: `Planner`, `Implementer`, `Validator`, `Reviewer`, or `Closer`. `source` must be `agent` when the current assistant is performing the role and `subagent` only when a real delegated subagent actually ran that role and returned usable evidence. Do not display `/subagent` as a plan or aspiration.
 
 ## User-Facing Language Contract

@@ -5986,6 +5986,8 @@ FORMAL_STATUS_FIELDS = [
     "Key Technical Details:",
 ]
 
+FORMAL_STATUS_PREFIX_PATTERN = r"\[idea-to-code(?:/[^\]]+)?\]\[Closer/(?:agent|subagent)\] Status: (Completed|Progress|Blocked)"
+
 
 def _fields_in_order(text: str, fields: list[str]) -> list[str]:
     problems: list[str] = []
@@ -6110,8 +6112,8 @@ def validate_visible_ready_output(tool_stdout: str, assistant_visible_body: str)
 
 def validate_formal_status_visible_output(tool_stdout: str, assistant_visible_body: str) -> list[str]:
     problems: list[str] = []
-    helper_available = "[idea-to-code][Closer/agent] Status:" in tool_stdout
-    body_has_status = bool(re.search(r"^\[idea-to-code(?:/[^\]]+)?\]\[Closer/(?:agent|subagent)\] Status: (Completed|Progress|Blocked)", assistant_visible_body))
+    helper_available = bool(re.search(FORMAL_STATUS_PREFIX_PATTERN, tool_stdout))
+    body_has_status = bool(re.search(r"^" + FORMAL_STATUS_PREFIX_PATTERN, assistant_visible_body))
     if helper_available and not body_has_status:
         problems.append("render-status output was only present in tool stdout, not assistant-visible body")
     if not helper_available and "render-status unavailable" not in assistant_visible_body and "render-status failed" not in assistant_visible_body:

@@ -1903,6 +1903,30 @@ class BundleTest(unittest.TestCase):
         self.assertIn("render-status output was only present in tool stdout, not assistant-visible body", problems)
         self.assertIn("assistant-visible body missing fixed field: Changes:", problems)
 
+    def test_output_compliance_accepts_profile_prefixed_formal_status(self) -> None:
+        bundle = load_bundle_module()
+        body = self.sample_formal_status_body().replace(
+            "[idea-to-code][Closer/agent]",
+            "[idea-to-code/design-to-code][Closer/agent]",
+            1,
+        )
+
+        self.assertEqual([], bundle.validate_formal_status_visible_output(body, body))
+
+    def test_output_compliance_detects_profile_prefixed_render_status_only_in_tool_stdout(self) -> None:
+        bundle = load_bundle_module()
+        tool_stdout = self.sample_formal_status_body().replace(
+            "[idea-to-code][Closer/agent]",
+            "[idea-to-code/design-to-code][Closer/agent]",
+            1,
+        )
+        assistant_body = "[idea-to-code/design-to-code][Closer/agent] 完成了，测试通过。"
+
+        problems = bundle.validate_formal_status_visible_output(tool_stdout, assistant_body)
+
+        self.assertIn("render-status output was only present in tool stdout, not assistant-visible body", problems)
+        self.assertIn("assistant-visible body missing fixed field: Changes:", problems)
+
     def test_output_compliance_accepts_formal_status_body_and_rejects_missing_field(self) -> None:
         bundle = load_bundle_module()
         tool_stdout = self.sample_formal_status_body()
