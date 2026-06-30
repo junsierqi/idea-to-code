@@ -4378,6 +4378,118 @@ def role_explain(role: str | None = None) -> int:
     return 0
 
 
+def _role_draft_task_files(target: Path, task_id: str | None) -> list[str]:
+    if not task_id:
+        return []
+    try:
+        return _task_files_for_id(target, task_id)
+    except SystemExit:
+        return []
+
+
+def _role_draft_payload(target: Path, slug: str, role: str, covers: list[str], task_id: str | None) -> dict[str, Any]:
+    role_key = role.lower()
+    if role_key not in ROLE_NAMES:
+        raise SystemExit(f"Unknown role: {role}. Expected one of: {', '.join(ROLE_NAMES)}")
+    status = read_status(target)
+    plan_revision = int(status.get("plan_revision", 0))
+    known_reqs = {item.get("id") for item in status.get("requirements", [])}
+    cover_ids = covers or sorted(item for item in known_reqs if item)
+    task = (task_id or status.get("current_task_id") or "TASK-1").strip().upper()
+    files = _role_draft_task_files(target, task)
+    files_text = ", ".join(files) if files else "files listed in " + task
+    covers_text = ", ".join(cover_ids) if cover_ids else "REQ-IDS"
+    ready_id = status.get("ready_task_output_id") or "READY_TASK_OUTPUT_ID missing"
+    exploration_id = status.get("exploration_output_id") or "EXPLORATION_OUTPUT_ID missing"
+    pre_edit_id = status.get("pre_edit_ok_id") or "PRE_EDIT_OK_ID missing"
+    blockers: list[str] = []
+    if not cover_ids:
+        blockers.append("no requirement IDs supplied and no requirements are registered")
+    unknown = [item for item in cover_ids if known_reqs and item not in known_reqs]
+    if unknown:
+        blockers.append("unknown requirement IDs: " + ", ".join(unknown))
+    if role_key in {"planner", "implementer"} and not status.get("ready_task_output_id"):
+        blockers.append("READY_TASK_OUTPUT_ID missing; run implementation ready before recording this role")
+    if role_key == "implementer" and status.get("pre_edit_guard_required") and not status.get("pre_edit_ok_id"):
+        blockers.append("PRE_EDIT_OK_ID missing; run implementation pre-edit before recording implementer evidence")
+    if role_key == "closer" and not status.get("last_verify_ok"):
+        blockers.append("pre-close verify has not passed")
+
+    if role_key == "planner":
+        evidence = (
+            f"{task} / {covers_text} planner evidence: requirements and Acceptance Matrix in 00-idea.md define "
+            f"{covers_text}; implementation plan covers {task} files {files_text}. "
+            f"EXPLORATION_OUTPUT_ID {exploration_id}. READY_TASK_OUTPUT_ID {ready_id}."
+        )
+    elif role_key == "implementer":
+        evidence = (
+            f"{task} / {covers_text} source-only implementation updated {files_text}. "
+            f"READY_TASK_OUTPUT_ID {ready_id}. PRE_EDIT_OK_ID {pre_edit_id}."
+        )
+    elif role_key == "validator":
+        evidence = (
+            f"{task} / {covers_text} validation type source-only passed. Commands: name the exact command output "
+            "or inspection evidence before recording this draft."
+        )
+    elif role_key == "reviewer":
+        evidence = (
+            f"{task} / {covers_text} same-agent review checked scope, diff, acceptance matrix, validation strength, "
+            "boundary conditions, and residual risks."
+        )
+    else:
+        evidence = (
+            f"{task} / {covers_text} closeout work: pre-close verify passed; prior role evidence is current; "
+            f"{covers_text} covered by passing milestone evidence; final decision pass accepted or accepted-with-followup."
+        )
+
+    command = (
+        f'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" role record '
+        f'--root . --slug {slug} --role {role_key} --covers {",".join(cover_ids) if cover_ids else "REQ-1"} '
+        '--evidence "EVIDENCE_FROM_DRAFT"'
+    )
+    return {
+        "schema": "idea-to-code.role-evidence-draft.v1",
+        "bundle": slug,
+        "role": role_key,
+        "task": task,
+        "covers": cover_ids,
+        "plan_revision": plan_revision,
+        "ready_task_output_id": status.get("ready_task_output_id"),
+        "exploration_output_id": status.get("exploration_output_id"),
+        "pre_edit_ok_id": status.get("pre_edit_ok_id"),
+        "files": files,
+        "ready_to_record": not blockers,
+        "blockers": blockers,
+        "evidence": evidence,
+        "record_command": command,
+    }
+
+
+def role_draft(root: Path, slug: str, role: str, covers: list[str], task_id: str | None, json_only: bool) -> int:
+    target = ensure_active_bundle(root, slug)
+    payload = _role_draft_payload(target, slug, role, covers, task_id)
+    if json_only:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return 0 if payload["ready_to_record"] else 1
+    role_label = payload["role"].capitalize()
+    print(f"[idea-to-code][{role_label}/agent] Role Evidence Draft | Bundle: {slug}")
+    print()
+    print("Display Layer: Role Evidence Draft")
+    print(f"Role: {payload['role']}")
+    print(f"Task: {payload['task']}")
+    print("Covers: " + (", ".join(payload["covers"]) if payload["covers"] else "none"))
+    print("Ready To Record: " + ("yes" if payload["ready_to_record"] else "no"))
+    if payload["blockers"]:
+        print("Blockers:")
+        for blocker in payload["blockers"]:
+            print(f"- {blocker}")
+    print("Evidence Draft:")
+    print(payload["evidence"])
+    print("Record Command:")
+    print(payload["record_command"])
+    return 0 if payload["ready_to_record"] else 1
+
+
 def current_status(root: Path) -> int:
     current = read_current(root)
     if not current:
@@ -7097,6 +7209,13 @@ def build_parser() -> argparse.ArgumentParser:
     rr.add_argument("--covers", default="", help="Comma-separated requirement IDs this role evidence covers.")
     rexp = role_sub.add_parser("explain", help="Print read-only role evidence guidance as JSON.")
     rexp.add_argument("--role", choices=ROLE_NAMES, help="Limit guidance to one role.")
+    rdraft = role_sub.add_parser("draft", help="Print a read-only role evidence draft for the current bundle state.")
+    rdraft.add_argument("--root", required=True)
+    rdraft.add_argument("--slug", required=True)
+    rdraft.add_argument("--role", required=True, choices=ROLE_NAMES)
+    rdraft.add_argument("--covers", default="", help="Comma-separated requirement IDs this evidence should cover.")
+    rdraft.add_argument("--task", default=None, help="TASK/IMP id to draft evidence for, such as TASK-1.")
+    rdraft.add_argument("--json", action="store_true", help="Print machine-readable draft output.")
 
     p = sub.add_parser("implementation", help="Check or mark the implementation gate.")
     impl_sub = p.add_subparsers(dest="implementation_command", required=True)
@@ -7437,6 +7556,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         if args.role_command == "record":
             print(role_record(root, args.slug, args.role, args.evidence, _parse_ids(args.covers)))
             return 0
+        if args.role_command == "draft":
+            return role_draft(root, args.slug, args.role, _parse_ids(args.covers), args.task, args.json)
 
     if args.command == "implementation":
         if args.implementation_command == "ready":

@@ -150,9 +150,10 @@ Use this checklist before recording role evidence. If `role record` rejects evid
 
 ```bash
 python ".../idea_to_code_bundle.py" role explain --role <planner|implementer|validator|reviewer|closer>
+python ".../idea_to_code_bundle.py" role draft --root "$(pwd)" --slug <slug> --role <role> --covers <REQ-IDS> --task <TASK-ID>
 ```
 
-`role explain` is not a state transition, not a role gate, and not a replacement for `role record`. It only prints the evidence expectations in a machine-readable shape.
+`role explain` is not a state transition, not a role gate, and not a replacement for `role record`. `role draft` follows the same read-only boundary: it does not change state and does not replace `role record`. `role explain` prints evidence expectations; `role draft` reads current bundle state and prints a role-specific evidence draft plus blockers. Edit the draft if needed, then record it with `role record`.
 
 ### Planner Evidence
 

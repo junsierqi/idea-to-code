@@ -2636,6 +2636,80 @@ Planned Verification:
         self.assertEqual(payload["roles"][0]["role"], "validator")
         self.assertIn("validation type", " ".join(payload["roles"][0]["must_include"]))
 
+    def test_role_draft_json_is_read_only(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        before = (self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8")
+
+        result = self.run_bundle(
+            "role", "draft",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--role", "planner",
+            "--covers", "REQ-1",
+            "--task", "TASK-1",
+            "--json",
+        )
+
+        after = (self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8")
+        payload = json.loads(result.stdout)
+        self.assertEqual(before, after)
+        self.assertEqual("idea-to-code.role-evidence-draft.v1", payload["schema"])
+        self.assertEqual("planner", payload["role"])
+        self.assertEqual(["REQ-1"], payload["covers"])
+        self.assertEqual("TASK-1", payload["task"])
+        self.assertIn("READY_TASK_OUTPUT_ID", payload["evidence"])
+        self.assertIn("role record", payload["record_command"])
+
+    def test_role_draft_implementer_includes_ready_and_pre_edit_ids(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("implementation", "enter-task", "--root", str(self.root), "--slug", slug, "--task", "TASK-1")
+        self.acquire_lease(slug)
+        pre_edit = self.run_bundle("implementation", "pre-edit", "--root", str(self.root), "--slug", slug, "--task", "TASK-1", "--file", "state.json")
+        pre_edit_id = re.search(r"PRE_EDIT_OK_ID: (\S+)", pre_edit.stdout).group(1)
+        status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        ready_id = status["ready_task_output_id"]
+
+        result = self.run_bundle(
+            "role", "draft",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--role", "implementer",
+            "--covers", "REQ-1",
+            "--task", "TASK-1",
+            "--json",
+        )
+
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["ready_to_record"], payload)
+        self.assertEqual(ready_id, payload["ready_task_output_id"])
+        self.assertEqual(pre_edit_id, payload["pre_edit_ok_id"])
+        self.assertIn(f"READY_TASK_OUTPUT_ID {ready_id}", payload["evidence"])
+        self.assertIn(f"PRE_EDIT_OK_ID {pre_edit_id}", payload["evidence"])
+        self.assertIn("state.json", payload["evidence"])
+
+    def test_role_draft_reports_missing_implementer_prerequisites(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+
+        result = self.run_bundle(
+            "role", "draft",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--role", "implementer",
+            "--covers", "REQ-1",
+            "--task", "TASK-1",
+            "--json",
+            check=False,
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["ready_to_record"])
+        self.assertIn("READY_TASK_OUTPUT_ID missing; run implementation ready before recording this role", payload["blockers"])
+
     def test_verify_rejects_weak_acceptance_matrix(self) -> None:
         slug = self.init_bundle()
         self.write_ready_bundle(slug, weak_matrix=True)
