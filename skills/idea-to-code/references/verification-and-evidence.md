@@ -387,6 +387,8 @@ Do not list `No commit made`, `bundle not finalized`, `awaiting user review`, or
 
 If tracked local changes have not been committed, explicitly state `No commit made` in `Key Technical Details` unless commit was an explicit in-scope TASK/REQ and is therefore genuinely unfinished. Do not leave commit/publish state implicit.
 
+If a formal tracked response mentions `same-agent review`, `same-agent validation`, or same-agent-only role evidence, `Unverified Items` must not be `none` unless usable independent subagent/fresh-agent delegation evidence exists for that role. Disclose the boundary with concrete `TASK-N`/`REQ-N`, `MB-N`, or `IDEA-N` scope, for example: `TASK-1 / REQ-1: independent subagent/fresh-agent reviewer evidence not run; current reviewer evidence is same-agent only.`
+
 ### Installed Skill Parity Checklist
 
 When tracked work changes the idea-to-code skill itself and the user expects the latest code to be installed, installation is a validated TASK/REQ activity, not a copy-only statement. Formal install, validation, or final status must name the relevant TASK/REQ and show:

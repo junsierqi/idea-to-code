@@ -1687,6 +1687,30 @@ class BundleTest(unittest.TestCase):
 
         self.assertEqual([], bundle.validate_formal_status_visible_output(body, body))
 
+    def test_output_compliance_rejects_same_agent_unverified_none(self) -> None:
+        bundle = load_bundle_module()
+        body = self.sample_formal_status_body().replace(
+            "Completed Items:\n- TASK-1 / REQ-1: display checks completed.\n\n",
+            "Completed Items:\n- TASK-1 / REQ-1: same-agent review completed.\n\n",
+        )
+
+        problems = bundle.validate_formal_status_visible_output(body, body)
+
+        self.assertIn("Unverified Items must disclose same-agent-only independent evidence gap", problems)
+
+    def test_output_compliance_accepts_same_agent_scoped_unverified_item(self) -> None:
+        bundle = load_bundle_module()
+        body = self.sample_formal_status_body().replace(
+            "Completed Items:\n- TASK-1 / REQ-1: display checks completed.\n\n",
+            "Completed Items:\n- TASK-1 / REQ-1: same-agent review completed.\n\n",
+        ).replace(
+            "Unverified Items:\n- none\n\n",
+            "Unverified Items:\n"
+            "- TASK-1 / REQ-1: independent subagent/fresh-agent reviewer evidence not run; current reviewer evidence is same-agent only.\n\n",
+        )
+
+        self.assertEqual([], bundle.validate_formal_status_visible_output(body, body))
+
     def test_output_compliance_self_test_reports_all_hard_output_scenarios(self) -> None:
         result = run_test_subprocess([
             sys.executable,
@@ -1984,6 +2008,43 @@ class BundleTest(unittest.TestCase):
         self.assertIn("TASK-1 / REQ-1: TASK-1 delivered concrete status mapping from evidence.", result.stdout)
         self.assertIn("TASK-1 / REQ-1: source-only validation passed for TASK-1.", result.stdout)
         self.assertNotIn("TASK-* / REQ-1", result.stdout)
+
+    def test_render_status_discloses_same_agent_only_reviewer_evidence(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        self.run_bundle(
+            "checkpoint",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--milestone", "Same-agent review checkpoint",
+            "--delivered", "TASK-1 delivered same-agent disclosure.",
+            "--verified", "source-only validation passed for TASK-1.",
+            "--next", "closeout",
+            "--focus", "TASK-1 / REQ-1 same-agent focus",
+            "--gate", "acceptance",
+            "--gate-status", "pass",
+            "--covers", "REQ-1",
+        )
+        status_path = self.root / ".idea-to-code" / slug / "state.json"
+        status = json.loads(status_path.read_text(encoding="utf-8"))
+        status["role_evidence"].setdefault("reviewer", []).append({
+            "timestamp_utc": "2026-06-30T00:00:00+00:00",
+            "event_sequence": 100,
+            "role": "reviewer",
+            "evidence": "TASK-1 / REQ-1 same-agent review checked scope and residual risk.",
+            "covers": ["REQ-1"],
+            "plan_revision": status["plan_revision"],
+        })
+        status_path.write_text(json.dumps(status, indent=2), encoding="utf-8")
+
+        result = self.run_bundle("render-status", "--root", str(self.root), "--slug", slug, "--status", "Completed")
+
+        self.assertIn(
+            "Unverified Items:\n- TASK-1 / REQ-1: independent subagent/fresh-agent reviewer evidence not run; current reviewer evidence is same-agent only.",
+            result.stdout,
+        )
+        self.assertNotIn("Unverified Items:\n- none", result.stdout)
 
     def test_multi_role_output_compliance_requires_render_status_fields_and_mapping(self) -> None:
         skill_text = SKILL_MD.read_text(encoding="utf-8")

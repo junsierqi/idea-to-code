@@ -5821,6 +5821,27 @@ def _render_status_evidence_lines(status: dict, req_hint: str) -> tuple[list[str
     )
 
 
+def _same_agent_only_unverified_lines(status: dict, req_ids: list[str]) -> list[str]:
+    plan_revision = int(status.get("plan_revision", 0))
+    reviewer_entries = [
+        entry for entry in status.get("role_evidence", {}).get("reviewer", [])
+        if entry.get("plan_revision") == plan_revision
+        and "same-agent review" in str(entry.get("evidence", "")).lower()
+    ]
+    if not reviewer_entries or _usable_delegation_records(status, "reviewer"):
+        return []
+    latest = _latest_milestone_entry(status) or {}
+    scope_source = " ".join(
+        str(latest.get(key, ""))
+        for key in ("focus", "delivered", "verified", "name")
+    )
+    scope_source = " ".join([scope_source, str(status.get("current_focus", ""))]).strip()
+    scope = _status_scope_label(status, req_ids, scope_source)
+    return [
+        f"- {scope}: independent subagent/fresh-agent reviewer evidence not run; current reviewer evidence is same-agent only."
+    ]
+
+
 def _default_render_status_label(status: dict) -> str:
     if status.get("state") == "completed" and status.get("decision") == "accepted":
         return "Completed"
@@ -5895,6 +5916,7 @@ def render_status_response(
             f"{item.get('id')} ({item.get('title', '').strip() or 'untitled'})" for item in next_batch_items
         )
     change_lines, completed_lines, validation_lines = _render_status_evidence_lines(status, req_hint)
+    unverified_lines = _same_agent_only_unverified_lines(status, requirements) or ["- none"]
     idea_records = status.get("idea_records", [])
 
     lines = [
@@ -5913,7 +5935,7 @@ def render_status_response(
         *validation_lines,
         "",
         "Unverified Items:",
-        "- none",
+        *unverified_lines,
         "",
         "Residual Risks:",
         "- none",
@@ -6010,6 +6032,15 @@ def _residual_risk_scope_problems(section: str) -> list[str]:
     return problems
 
 
+def _section_is_none(section: str) -> bool:
+    values = [
+        (line.strip()[1:].strip() if line.strip().startswith("-") else line.strip()).lower()
+        for line in section.splitlines()
+        if line.strip()
+    ]
+    return bool(values) and all(value == "none" for value in values)
+
+
 EXPLORATION_VISIBLE_FIELDS = [
     "Display Layer: Exploration Result",
     "Next Layer:",
@@ -6099,6 +6130,12 @@ def validate_formal_status_visible_output(tool_stdout: str, assistant_visible_bo
     incomplete = _section_between(assistant_visible_body, "Incomplete Items:", "Validation Results:")
     if "No commit made" in incomplete:
         problems.append("No commit made must not appear under Incomplete Items")
+    unverified = _section_between(assistant_visible_body, "Unverified Items:", "Residual Risks:")
+    if re.search(r"\bsame-agent\b|\bsame agent\b", assistant_visible_body, re.I):
+        if _section_is_none(unverified):
+            problems.append("Unverified Items must disclose same-agent-only independent evidence gap")
+        elif not CONCRETE_SCOPE_ID_RE.search(unverified):
+            problems.append("Unverified Items same-agent disclosure must use concrete TASK/REQ/MB/IDEA scope")
     key_details = _section_between(assistant_visible_body, "Key Technical Details:", None)
     exploration_match = re.search(r"EXPLORATION_OUTPUT_ID:\s*(\S+)", key_details)
     ready_match = re.search(r"READY_TASK_OUTPUT_ID:\s*(\S+)", key_details)

@@ -972,6 +972,8 @@ Status labels describe the scope of the current user-visible response. Use `Comp
 
 `Incomplete Items` must contain only unfinished in-scope TASK/REQ work. Do not list `No commit made`, `bundle not finalized`, `awaiting user review`, or fresh-session/user acceptance retest as incomplete unless commit, finalize, review, or retest is itself an explicit in-scope TASK/REQ. Put no-commit and bundle-finalization state in `Key Technical Details`; put fresh-session checks, user acceptance, or other external checks in `Unverified Items`.
 
+If formal tracked status mentions `same-agent review`, `same-agent validation`, or same-agent-only role evidence and there is no usable independent subagent/fresh-agent delegation record for that role, `Unverified Items` must disclose the evidence boundary with concrete `TASK-N`/`REQ-N` or `MB-N`/`IDEA-N` scope. Do not write `Unverified Items: - none` for same-agent-only evidence when the user could reasonably read it as independent or fresh-session proof.
+
 Decision table:
 
 | Response situation | Output shape |
