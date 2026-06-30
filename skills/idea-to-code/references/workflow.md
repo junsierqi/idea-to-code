@@ -19,7 +19,7 @@ After manually editing `00-idea.md`, run a read-only structure check before READ
 python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation plan-check --root "$(pwd)" --slug "<slug>" --json
 ```
 
-If `ok` is false, fix the TASK/IMP markdown sections before running `implementation ready` or editing files.
+If `ok` is false, fix the TASK/IMP markdown sections before running `implementation ready` or editing files. Treat pollution failures as hard blockers: copied bundle headings, unresolved placeholders, or template residue inside `Files`, `Execution Details`, `Done Criteria`, or `Planned Verification` can make READY Focus misleading even when the section is non-empty.
 
 ## Skill Architecture Goal
 

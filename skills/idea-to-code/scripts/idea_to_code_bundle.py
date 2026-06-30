@@ -55,6 +55,19 @@ VALIDATION_TYPES = (
 DELEGATION_STATUSES = ("usable", "timeout", "unusable", "planned", "unverified")
 ENFORCEMENT_BOUNDARIES = ("repo-enforced", "skill-enforced", "host-required")
 TASK_REQUIRED_SECTIONS = ("Files:", "Execution Details:", "Done Criteria:", "Planned Verification:")
+TASK_SECTION_RESERVED_HEADINGS = {
+    "## Requirements",
+    "## Intake Gate",
+    "## Controlled Exploration",
+    "## Task Classification",
+    "## Acceptance Matrix",
+    "## Design",
+    "## Implementation Plan",
+    "## Verification",
+    "## Visual Evidence",
+    "## Risks And Follow-Up",
+}
+TASK_SECTION_PLACEHOLDER_RE = re.compile(r"<(?![!/?])(?:[^>\n]{1,80})>")
 ACCEPTANCE_MATRIX_COLUMNS = (
     "ID",
     "User Goal Fit",
@@ -2168,6 +2181,39 @@ def _task_section_blocks(text: str) -> list[tuple[str, dict[str, str]]]:
     return blocks
 
 
+def _task_section_pollution_problems(task_name: str, section: str, value: str) -> list[str]:
+    problems: list[str] = []
+    for raw_line in value.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line in TASK_SECTION_RESERVED_HEADINGS:
+            problems.append(f"{task_name} {section} contains reserved bundle heading: {line}")
+        elif re.match(r"^##\s+(?!TASK-\d+:|IMP-\d+:).+", line):
+            problems.append(f"{task_name} {section} contains unexpected top-level heading: {line}")
+        if TASK_SECTION_PLACEHOLDER_RE.search(line):
+            problems.append(f"{task_name} {section} contains unresolved placeholder: {line}")
+    return problems
+
+
+def _task_sections_quality_problems(task_name: str, sections: dict[str, str]) -> list[str]:
+    task_problems: list[str] = []
+    for required in TASK_REQUIRED_SECTIONS:
+        value = sections.get(required, "")
+        if not value:
+            task_problems.append(f"{task_name} missing {required}")
+            continue
+        meaningful = [
+            line.strip()
+            for line in value.splitlines()
+            if line.strip() and not _weak_text_value(line.strip(), min_len=8)
+        ]
+        if not meaningful:
+            task_problems.append(f"{task_name} has empty {required}")
+        task_problems.extend(_task_section_pollution_problems(task_name, required, value))
+    return task_problems
+
+
 def implementation_gate_problems(target: Path, ignore_pending_plan_update: bool = False) -> list[str]:
     path = target / IMPLEMENTATION_FILE
     if not path.exists():
@@ -2187,18 +2233,7 @@ def implementation_gate_problems(target: Path, ignore_pending_plan_update: bool 
         problems.append(f"{IMPLEMENTATION_FILE}: no TASK or IMP items found")
         return problems
     for task_name, sections in task_blocks:
-        for required in TASK_REQUIRED_SECTIONS:
-            value = sections.get(required, "")
-            if not value:
-                problems.append(f"{IMPLEMENTATION_FILE}: {task_name} missing {required}")
-                continue
-            meaningful = [
-                line.strip()
-                for line in value.splitlines()
-                if line.strip() and not _weak_text_value(line.strip(), min_len=8)
-            ]
-            if not meaningful:
-                problems.append(f"{IMPLEMENTATION_FILE}: {task_name} has empty {required}")
+        problems.extend(f"{IMPLEMENTATION_FILE}: {problem}" for problem in _task_sections_quality_problems(task_name, sections))
     return problems
 
 
@@ -2236,20 +2271,8 @@ def _implementation_plan_check_payload(target: Path) -> dict[str, Any]:
     if not blocks:
         problems.append(f"{IMPLEMENTATION_FILE}: no TASK or IMP items found")
     for task_name, sections in blocks:
-        task_problems: list[str] = []
         task_id = _task_id_from_name(task_name)
-        for required in TASK_REQUIRED_SECTIONS:
-            value = sections.get(required, "")
-            if not value:
-                task_problems.append(f"{task_name} missing {required}")
-                continue
-            meaningful = [
-                line.strip()
-                for line in value.splitlines()
-                if line.strip() and not _weak_text_value(line.strip(), min_len=8)
-            ]
-            if not meaningful:
-                task_problems.append(f"{task_name} has empty {required}")
+        task_problems = _task_sections_quality_problems(task_name, sections)
         files = _task_files_from_section(sections.get("Files:", ""))
         tasks.append({
             "id": task_id,

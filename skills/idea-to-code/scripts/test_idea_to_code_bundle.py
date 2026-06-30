@@ -3942,6 +3942,66 @@ Done Criteria:
         self.assertIn("00-idea.md: TASK-1: Corrupted manual edit missing Execution Details:", payload["problems"])
         self.assertIn("00-idea.md: TASK-1: Corrupted manual edit missing Planned Verification:", payload["problems"])
 
+    def test_implementation_plan_check_rejects_polluted_task_sections(self) -> None:
+        slug = self.init_bundle()
+        bad_plan = """# Implementation
+
+Gate Status: READY
+
+### TASK-1: Polluted manual edit
+
+Status: pending
+
+Files:
+- state.json
+
+Execution Details:
+- Record one requirement and all role evidence.
+## Acceptance Matrix
+
+Done Criteria:
+- finalize and verify succeed.
+
+Planned Verification:
+- Run <new focused tests> before closeout.
+"""
+        plan_path = self.root / "polluted-implementation.md"
+        plan_path.write_text(bad_plan, encoding="utf-8")
+        self.run_bundle("update", "--root", str(self.root), "--slug", slug, "--file", "implementation", "--content-file", str(plan_path))
+
+        result = self.run_bundle("implementation", "plan-check", "--root", str(self.root), "--slug", slug, "--json", check=False)
+
+        self.assertNotEqual(0, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertIn(
+            "00-idea.md: TASK-1: Polluted manual edit Execution Details: contains reserved bundle heading: ## Acceptance Matrix",
+            payload["problems"],
+        )
+        self.assertIn(
+            "00-idea.md: TASK-1: Polluted manual edit Planned Verification: contains unresolved placeholder: - Run <new focused tests> before closeout.",
+            payload["problems"],
+        )
+
+    def test_implementation_ready_rejects_polluted_task_sections(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        idea_path = self.root / ".idea-to-code" / slug / "00-idea.md"
+        idea_text = idea_path.read_text(encoding="utf-8")
+        polluted = idea_text.replace(
+            "- Record one requirement and all role evidence.",
+            "- Record one requirement and all role evidence.\n## Design",
+        )
+        idea_path.write_text(polluted, encoding="utf-8")
+
+        result = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug, check=False)
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn(
+            "00-idea.md: TASK-1: Verify sample bundle flow Execution Details: contains reserved bundle heading: ## Design",
+            result.stderr,
+        )
+
     def test_command_guide_planning_update_includes_plan_check(self) -> None:
         result = run_test_subprocess([
             sys.executable,
