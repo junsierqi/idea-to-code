@@ -96,6 +96,8 @@ This section owns the role-by-role output matrix. `workflow.md` owns the lifecyc
 
 After changing Exploration Visibility Gate output, READY visibility, role/source prefixes, validation status wording, noncompliance reporting, or final handoff formatting, run or update the multi-role output compliance scenario. The scenario covers Planner, Implementer, Validator, Reviewer, and Closer expectations, plus current-TASK entry, overview output, and ordinary-answer boundary checks, and records expected versus observed behavior so instruction drift is visible instead of guessed.
 
+For any output-rule or lifecycle-display change, Reviewer evidence must include Output Acceptance Gate results: `output-compliance self-test`, focused output tests, `output-compliance transcript-audit` for any available real transcript/exported conversation, and clean subagent/fresh-agent style review when available. A same-agent review alone is insufficient to claim fresh-agent behavior or live-transcript behavior. If the transcript audit or independent clean-context review reports malformed hard output, missing Display Layer fields, hidden tool-only READY/Exploration, malformed final status, or over-templated ordinary answers, Closer must not mark the TASK accepted until the issue is fixed and retested.
+
 The hard checks are:
 
 - Planner output shows `[idea-to-code][Planner/agent] Exploration Result | Bundle: <slug>` for autonomous work or `[idea-to-code][Planner/agent] Confirmation Required | Bundle: <slug>` for confirmation work before READY, with `Display Layer`, `Next Layer`, `Required Now`, `Deferred`, `Selected Option`, and `What READY Will Cover` visible to the user. Showing only `EXPLORATION_OUTPUT_ID`, folded command output, or a one-line exploration summary such as `Exploration Result: Required Now = ...` is noncompliant.
@@ -112,6 +114,7 @@ The hard checks are:
 - Validator output names validation type, command/evidence, and covered TASK/REQ IDs.
 - Reviewer output flags missing Exploration Visibility Gate output, incomplete Exploration scope fields, missing READY visibility, incomplete focused TASK fields, stale Exploration/READY after plan edits, late READY remediation, or missing fixed final status fields as noncompliance.
 - Reviewer output distinguishes `tool_stdout` from `assistant_visible_body`; a generated READY or `render-status` block is not considered shown unless the assistant-visible message body contains it.
+- Reviewer output runs or cites `output-compliance transcript-audit` when a real transcript is available. A review that only says the tool generated READY/render-status, without auditing the assistant-visible transcript body, is incomplete for output-rule changes.
 - Reviewer output flags same-session drift, failure to audit related prior scope, or treating a related correction as an unrelated ordinary answer as continuity noncompliance.
 - Reviewer output flags missing, stale, or unmapped `IDEA-*` records when a formal status claims progress across multiple same-session ideas or a user asks about prior idea completion.
 - Reviewer output flags missing, stale, or incomplete master backlog coverage when a multi-issue request is reported as complete.

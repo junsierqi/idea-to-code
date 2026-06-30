@@ -243,6 +243,28 @@ Visibility evidence requires meaningful content, not just IDs. A valid execution
 
 Friendly display is the compact required block, not a prose substitute. A line like `Exploration Result: Required Now = ...` or `READY Focus TASK-2 / REQ-2: files are ...` may be useful context, but it is not compliant gate visibility unless the same assistant-visible message also contains the required `Display Layer` block fields. Keep the block short by using focused READY, but do not collapse it into a single sentence.
 
+## Output Acceptance Gate
+
+When a TASK changes lifecycle display, output compliance checks, READY or Exploration formatting, final status formatting, role/source prefixes, language-boundary behavior, or ordinary-answer boundaries, validation must include the output acceptance gate before the TASK can be accepted:
+
+```bash
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" output-compliance self-test --json
+```
+
+The self-test must pass from the source copy and, after installation, from the installed skill copy when the skill itself changed. Focused output tests must also pass.
+
+When a real transcript or exported conversation is available, validation must also audit the actual visible flow:
+
+```bash
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" output-compliance transcript-audit --transcript-file <path> --json
+```
+
+This audit is required evidence for output-rule or lifecycle-display changes because self-tests only prove constructed fixtures. Transcript audit must fail closed when `Exploration Result`, `Implementation Gate: READY`, or `render-status` appears only in tool stdout, folded transcript output, or one-line summaries while the assistant-visible body lacks the required Display Layer or fixed status fields. If a real transcript shows malformed hard output, the TASK must remain incomplete until the output path is fixed and the transcript audit is rerun.
+
+The JSON result includes `backlog_hits` when the audit can map observed output failures to the master backlog. Validation must use those IDs explicitly: covered IDs belong in the current TASK/REQ evidence; uncovered IDs remain in Remaining Backlog / Next Batch. A passing source fixture is not enough when a real transcript still reports `backlog_hits` for in-scope failures.
+
+Reviewer evidence must say whether a clean subagent/fresh-agent style review ran. If such a clean review is available and reports malformed hard output, hidden tool-only output, missing Display Layer fields, or ordinary-answer over-templating, the TASK must remain incomplete until fixed. If no clean review tool or no real transcript artifact is available, record that as `Unverified Items`; do not claim independent, fresh-agent, or live-transcript validation.
+
 When `00-idea.md` changes after Exploration or READY output is generated, the old IDs are stale. Execution gates should refuse until the agent refreshes Exploration/READY and surfaces the refreshed blocks to the user.
 
 The generated READY output has a hard excerpt contract. Every visible TASK/IMP block must include:
@@ -315,6 +337,10 @@ python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" scope c
 If the tracked scope came from a numbered issue list, the final response must preserve those original IDs or include a mapping table with `Previous ID`, `Current ID`, and `Change Reason`. Do not claim "1-7 completed", "item 3 fixed", or similar status unless the response maps to the same numbered meanings that were shown in Exploration/READY. If a later answer used a different numbering, record it as traceability noncompliance and correct the mapping before claiming progress.
 
 If the tracked scope has a master backlog, validation and final status must include the persisted `MB-*` state from `backlog status` or `implementation status`. `Completed` for a response-scoped slice does not mean the whole master backlog is complete; incomplete MB IDs must appear in `Incomplete Items` or `Unverified Items` unless they are explicitly deferred.
+
+Compressed master backlog ranges must be expanded before acceptance. Validation should reject state where `MB-6..MB-19` leaves out `MB-7..MB-18`; use `backlog status` or `render-status` to confirm every intermediate `MB-*` remains visible.
+
+Deferred MB items are still remaining work. When a formal tracked result closes one batch of a larger backlog, `render-status` must surface `Remaining Backlog` and `Next Batch` in the fixed-field response details until every MB item is `completed` or `covered`. Do not hide deferred next-batch work merely because the current TASK has no incomplete items.
 
 For multi-task or multi-idea work, "same visible IDEA/TASK/REQ set" means each result bullet maps to the focused execution-level READY excerpt shown before that TASK and to the relevant IDEA scope when more than one idea exists in the session. The final summary may aggregate TASKs, but it must not introduce unshown or unmapped work.
 

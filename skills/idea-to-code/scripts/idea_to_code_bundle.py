@@ -180,6 +180,14 @@ BRANCH_COVERAGE_MAP = [
         "failure_handling": "use show-ready only as a fallback with a recorded reason",
     },
     {
+        "id": "ready-recovery",
+        "workflow_branch": "READY recovery branch",
+        "entry": "READY, show-ready, enter-task, or pre-edit refuses because READY or Exploration is missing or stale",
+        "exit": "implementation recover-ready prints concrete problems and exact recovery commands without mutating state",
+        "validation": "missing, stale, and current READY recovery cases are covered by tests",
+        "failure_handling": "follow recover-ready recommended commands before retrying lifecycle gates",
+    },
+    {
         "id": "implementation-lease",
         "workflow_branch": "Implementation lease branch",
         "entry": "tracked implementation edit needs file ownership",
@@ -940,11 +948,22 @@ def _pending_plan_update_problem(status: dict) -> str | None:
 
 
 def _master_backlog_ids_from_text(text: str) -> list[str]:
-    ids = sorted(
-        {match.group(0).upper() for match in re.finditer(r"\bMB-\d+\b", text, re.I)},
+    ids = {match.group(0).upper() for match in re.finditer(r"\bMB-\d+\b", text, re.I)}
+    range_pattern = re.compile(
+        r"\bMB-(?P<start>\d+)\b\s*(?:\.\.|through|to)\s*\bMB-(?P<end>\d+)\b",
+        re.I,
+    )
+    for match in range_pattern.finditer(text):
+        start = int(match.group("start"))
+        end = int(match.group("end"))
+        low, high = sorted((start, end))
+        if high - low > 200:
+            continue
+        ids.update(f"MB-{index}" for index in range(low, high + 1))
+    return sorted(
+        ids,
         key=lambda value: int(value.split("-", 1)[1]),
     )
-    return ids
 
 
 def _master_backlog_label_from_text(text: str, mb_id: str) -> str:
@@ -952,7 +971,7 @@ def _master_backlog_label_from_text(text: str, mb_id: str) -> str:
         if "|" not in line:
             continue
         cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        if not cells or not re.search(rf"\b{re.escape(mb_id)}\b", cells[0], re.I):
+        if not cells or mb_id not in _master_backlog_ids_from_text(cells[0]):
             continue
         cleaned_cells = [re.sub(r"\s+", " ", cell) for cell in cells[:3] if cell]
         cleaned = " | ".join(cleaned_cells)[:120].strip()
@@ -960,7 +979,7 @@ def _master_backlog_label_from_text(text: str, mb_id: str) -> str:
             return cleaned
     fallback = ""
     for line in text.splitlines():
-        if "|" not in line or not re.search(rf"\b{re.escape(mb_id)}\b", line, re.I):
+        if "|" not in line or mb_id not in _master_backlog_ids_from_text(line):
             continue
         line_mb_ids = _master_backlog_ids_from_text(line)
         if len(line_mb_ids) == 1:
@@ -969,15 +988,16 @@ def _master_backlog_label_from_text(text: str, mb_id: str) -> str:
             if cleaned:
                 return cleaned
     for line in text.splitlines():
-        if re.search(rf"\b{re.escape(mb_id)}\b", line, re.I):
-            line_mb_ids = _master_backlog_ids_from_text(line)
-            if len(line_mb_ids) > 1:
-                fallback = fallback or re.sub(r"\s+", " ", line.strip(" |-"))[:120].strip()
-                continue
-            cleaned = re.sub(r"\s+", " ", line.strip(" |-"))
-            cleaned = cleaned[:120].strip()
-            if cleaned:
-                return cleaned
+        line_mb_ids = _master_backlog_ids_from_text(line)
+        if mb_id not in line_mb_ids:
+            continue
+        if len(line_mb_ids) > 1:
+            fallback = fallback or re.sub(r"\s+", " ", line.strip(" |-"))[:120].strip()
+            continue
+        cleaned = re.sub(r"\s+", " ", line.strip(" |-"))
+        cleaned = cleaned[:120].strip()
+        if cleaned:
+            return cleaned
     return fallback or mb_id
 
 
@@ -1013,6 +1033,14 @@ def _master_backlog_incomplete_items(status: dict) -> list[dict]:
         if item.get("status") not in {"covered", "completed", "deferred"}:
             incomplete.append(item)
     return incomplete
+
+
+def _master_backlog_remaining_items(status: dict) -> list[dict]:
+    remaining = []
+    for item in status.get("master_backlog", []):
+        if item.get("status") not in {"covered", "completed"}:
+            remaining.append(item)
+    return remaining
 
 
 def _master_backlog_problems(target: Path, status: dict) -> list[str]:
@@ -2174,6 +2202,90 @@ def implementation_gate_problems(target: Path, ignore_pending_plan_update: bool 
     return problems
 
 
+def _task_id_from_name(task_name: str) -> str:
+    match = re.match(r"((?:TASK|IMP)-\d+):", task_name)
+    return match.group(1) if match else task_name.split(":", 1)[0].strip()
+
+
+def _task_files_from_section(files_text: str) -> list[str]:
+    files: list[str] = []
+    for raw_line in files_text.splitlines():
+        cleaned = raw_line.strip()
+        if not cleaned:
+            continue
+        cleaned = cleaned.lstrip("-").strip()
+        if cleaned and cleaned not in {"...", "<path>", "<paths>"}:
+            files.append(cleaned)
+    return files
+
+
+def _implementation_plan_check_payload(target: Path) -> dict[str, Any]:
+    path = target / IMPLEMENTATION_FILE
+    if not path.exists():
+        return {
+            "schema": "idea-to-code.implementation-plan-check.v1",
+            "ok": False,
+            "path": str(path),
+            "tasks": [],
+            "problems": [f"missing: {IMPLEMENTATION_FILE}"],
+        }
+    text = path.read_text(encoding="utf-8")
+    blocks = _task_section_blocks(text)
+    problems: list[str] = []
+    tasks: list[dict[str, Any]] = []
+    if not blocks:
+        problems.append(f"{IMPLEMENTATION_FILE}: no TASK or IMP items found")
+    for task_name, sections in blocks:
+        task_problems: list[str] = []
+        task_id = _task_id_from_name(task_name)
+        for required in TASK_REQUIRED_SECTIONS:
+            value = sections.get(required, "")
+            if not value:
+                task_problems.append(f"{task_name} missing {required}")
+                continue
+            meaningful = [
+                line.strip()
+                for line in value.splitlines()
+                if line.strip() and not _weak_text_value(line.strip(), min_len=8)
+            ]
+            if not meaningful:
+                task_problems.append(f"{task_name} has empty {required}")
+        files = _task_files_from_section(sections.get("Files:", ""))
+        tasks.append({
+            "id": task_id,
+            "name": task_name,
+            "files": files,
+            "sections_present": [section for section in TASK_REQUIRED_SECTIONS if sections.get(section)],
+            "missing_sections": [section for section in TASK_REQUIRED_SECTIONS if not sections.get(section)],
+            "problems": task_problems,
+        })
+        problems.extend(f"{IMPLEMENTATION_FILE}: {problem}" for problem in task_problems)
+    return {
+        "schema": "idea-to-code.implementation-plan-check.v1",
+        "ok": not problems,
+        "path": str(path),
+        "task_count": len(tasks),
+        "tasks": tasks,
+        "problems": problems,
+    }
+
+
+def implementation_plan_check(root: Path, slug: str, json_only: bool) -> int:
+    target = ensure_bundle(root, slug)
+    payload = _implementation_plan_check_payload(target)
+    if json_only:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    elif payload["ok"]:
+        print(f"implementation plan-check: PASS tasks={payload['task_count']}")
+        for task in payload["tasks"]:
+            print(f"- {task['id']}: files={', '.join(task['files']) if task['files'] else 'none'}")
+    else:
+        print("implementation plan-check: FAIL")
+        for problem in payload["problems"]:
+            print(f"- {problem}")
+    return 0 if payload["ok"] else 1
+
+
 def _section_text(text: str, heading: str) -> str | None:
     match = re.search(rf"^{re.escape(heading)}\s*$([\s\S]*?)(?=^## |\Z)", text, re.MULTILINE)
     if not match:
@@ -2683,6 +2795,106 @@ def _ready_output_problem(status: dict, target: Path | None = None) -> str | Non
     if fingerprint_problem:
         return fingerprint_problem
     return None
+
+
+def _ready_recovery_payload(target: Path, slug: str, task_id: str | None = None) -> dict[str, Any]:
+    status = read_status(target)
+    gate_problems = implementation_gate_problems(target)
+    exploration_problem = _exploration_output_problem(status, target)
+    ready_problem = _ready_output_problem(status, target)
+    normalized_task = task_id.strip().upper() if task_id and task_id.strip() else None
+    task_problem = None
+    if normalized_task:
+        try:
+            _filter_ready_task_blocks(_ready_task_blocks(target), [normalized_task])
+        except SystemExit as exc:
+            task_problem = str(exc)
+
+    problems: list[str] = []
+    if gate_problems:
+        problems.extend(gate_problems)
+    if exploration_problem:
+        problems.append(exploration_problem)
+    if ready_problem:
+        problems.append(ready_problem)
+    if task_problem:
+        problems.append(task_problem)
+
+    commands: list[str] = []
+    if exploration_problem:
+        commands.append(f"implementation plan-check --root <root> --slug {slug} --json")
+        commands.append(f"exploration render --root <root> --slug {slug}")
+    if gate_problems or not status.get("implementation_ready") or ready_problem:
+        commands.append(f"backlog sync --root <root> --slug {slug}")
+        ready_command = f"implementation ready --root <root> --slug {slug}"
+        if normalized_task and not task_problem:
+            ready_command += f" --task {normalized_task}"
+        commands.append(ready_command)
+    elif normalized_task and not task_problem:
+        commands.append(f"implementation show-ready --root <root> --slug {slug} --task {normalized_task}")
+        commands.append(f"implementation enter-task --root <root> --slug {slug} --task {normalized_task}")
+    else:
+        commands.append(f"implementation show-ready --root <root> --slug {slug}")
+
+    seen: set[str] = set()
+    deduped_commands = []
+    for command in commands:
+        if command not in seen:
+            seen.add(command)
+            deduped_commands.append(command)
+
+    ready_current = (
+        status.get("implementation_ready")
+        and not gate_problems
+        and not exploration_problem
+        and not ready_problem
+        and not task_problem
+    )
+    return {
+        "schema": "idea-to-code.ready-recovery.v1",
+        "ok": bool(ready_current),
+        "slug": slug,
+        "phase": status.get("phase"),
+        "plan_revision": status.get("plan_revision"),
+        "implementation_ready": bool(status.get("implementation_ready")),
+        "exploration_output_id": status.get("exploration_output_id"),
+        "exploration_output_current": exploration_problem is None,
+        "ready_task_output_id": status.get("ready_task_output_id"),
+        "ready_task_output_current": ready_problem is None,
+        "task": normalized_task,
+        "task_current": task_problem is None,
+        "can_continue_to_edit": bool(ready_current and normalized_task),
+        "problems": problems,
+        "recommended_commands": deduped_commands,
+    }
+
+
+def implementation_recover_ready(root: Path, slug: str, task_id: str | None, json_only: bool) -> int:
+    target = ensure_active_bundle(root, slug)
+    payload = _ready_recovery_payload(target, slug, task_id)
+    if json_only:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        prefix = _visibility_prefix(None, "planner", "agent")
+        print(f"{prefix} READY Recovery | Bundle: {slug}")
+        print()
+        print("Display Layer: READY Recovery")
+        print(f"READY_TASK_OUTPUT_ID: {payload.get('ready_task_output_id') or 'missing'}")
+        print(f"EXPLORATION_OUTPUT_ID: {payload.get('exploration_output_id') or 'missing'}")
+        print(f"Current TASK: {payload.get('task') or 'not selected'}")
+        print(f"Can Continue To Edit: {'yes' if payload.get('can_continue_to_edit') else 'no'}")
+        print()
+        if payload["problems"]:
+            print("Recovery Problems:")
+            for problem in payload["problems"]:
+                print(f"- {problem}")
+            print()
+        print("Recommended Commands:")
+        for command in payload["recommended_commands"]:
+            print(f"- {command}")
+        print()
+        print("Do not edit tracked files until READY Focus is visible and pre-edit guard passes.")
+    return 0 if payload["ok"] else 1
 
 
 def _implementer_ready_output_problem(status: dict, evidence: str | None = None, target: Path | None = None) -> str | None:
@@ -5473,6 +5685,7 @@ def render_status_response(
     commit_note = "No commit made unless a commit was explicitly completed outside this bundle."
     backlog = status.get("master_backlog", [])
     incomplete_backlog = _master_backlog_incomplete_items(status)
+    remaining_backlog = _master_backlog_remaining_items(status)
     open_pre_edit_noncompliance = _open_pre_edit_noncompliance(status)
     open_delegation_findings = _open_delegation_findings(status)
     session_audits = status.get("session_continuity_audits", [])
@@ -5498,6 +5711,16 @@ def render_status_response(
     if backlog:
         backlog_line = "Master backlog: " + ", ".join(
             f"{item.get('id')}={item.get('status', 'pending')}" for item in backlog
+        )
+    remaining_backlog_line = None
+    next_batch_line = None
+    if remaining_backlog:
+        remaining_backlog_line = "Remaining Backlog: " + ", ".join(
+            f"{item.get('id')}={item.get('status', 'pending')}" for item in remaining_backlog
+        )
+        next_batch_items = remaining_backlog[:5]
+        next_batch_line = "Next Batch: " + ", ".join(
+            f"{item.get('id')} ({item.get('title', '').strip() or 'untitled'})" for item in next_batch_items
         )
     change_lines, completed_lines, validation_lines = _render_status_evidence_lines(status, req_hint)
     idea_records = status.get("idea_records", [])
@@ -5531,6 +5754,10 @@ def render_status_response(
     ]
     if backlog_line:
         lines.append(f"- {backlog_line}")
+    if remaining_backlog_line:
+        lines.append(f"- {remaining_backlog_line}")
+    if next_batch_line:
+        lines.append(f"- {next_batch_line}")
     if idea_records:
         lines.append(
             "- Idea ledger: "
@@ -5724,6 +5951,321 @@ def output_compliance_check(kind: str, tool_stdout: str, assistant_visible_body:
     else:
         print("output-compliance: PASS")
     return 0 if not problems else 1
+
+
+TOOL_ACTION_PREFIXES = (
+    "• Ran ",
+    "• Running ",
+    "• Edited ",
+    "• Added ",
+    "• Deleted ",
+)
+
+
+def _is_visible_assistant_start(line: str) -> bool:
+    stripped = line.lstrip()
+    if not stripped.startswith("• "):
+        return False
+    return not stripped.startswith(TOOL_ACTION_PREFIXES)
+
+
+def extract_visible_assistant_messages(transcript: str) -> list[str]:
+    messages: list[str] = []
+    current: list[str] = []
+    in_message = False
+    for raw_line in transcript.splitlines():
+        line = raw_line.rstrip()
+        stripped = line.lstrip()
+        if stripped.startswith("› ") or stripped.startswith("────────────────"):
+            if current:
+                messages.append("\n".join(current).strip())
+                current = []
+            in_message = False
+            continue
+        if stripped.startswith("• "):
+            if current:
+                messages.append("\n".join(current).strip())
+                current = []
+            if _is_visible_assistant_start(line):
+                current.append(stripped[2:].strip())
+                in_message = True
+            else:
+                in_message = False
+            continue
+        if not in_message:
+            continue
+        continuation = stripped
+        if (
+            continuation.startswith("└")
+            or continuation.startswith("│")
+            or continuation.startswith("…")
+            or continuation.startswith("◦ ")
+            or continuation.startswith("⚠")
+        ):
+            if current:
+                messages.append("\n".join(current).strip())
+                current = []
+            in_message = False
+            continue
+        current.append(continuation)
+    if current:
+        messages.append("\n".join(current).strip())
+    return [message for message in messages if message]
+
+
+def _transcript_problem(kind: str, message: str, mb_id: str | None = None) -> dict[str, str]:
+    problem = {"kind": kind, "message": message}
+    if mb_id:
+        problem["mb_id"] = mb_id
+    return problem
+
+
+def _ready_problem_mb_id(problem: str) -> str | None:
+    if "Exploration Result was only present in tool stdout" in problem:
+        return "MB-1"
+    if "Implementation Gate: READY was only present in tool stdout" in problem:
+        return "MB-2"
+    if "assistant-visible READY body missing" in problem or "assistant-visible READY is only" in problem:
+        return "MB-3"
+    if "assistant-visible Exploration body missing" in problem or "assistant-visible Exploration Result is only" in problem:
+        return "MB-4"
+    return None
+
+
+def _first_line_index(lines: list[str], patterns: tuple[str, ...]) -> int | None:
+    for index, line in enumerate(lines):
+        if any(pattern in line for pattern in patterns):
+            return index
+    return None
+
+
+def detect_late_active_bundle_binding(transcript: str) -> str | None:
+    lines = transcript.splitlines()
+    trigger_index = _first_line_index(lines, ("使用idea-to-code", "use idea-to-code", "idea-to-code"))
+    if trigger_index is None:
+        return None
+    first_bundle_index = _first_line_index(lines, (
+        " init --root ",
+        " quickstart --root ",
+        " current set ",
+        " current resume ",
+        "current bundle",
+        "Bundle 已创建",
+        "Bundle:",
+    ))
+    if first_bundle_index is None:
+        return "idea-to-code work is present but no active bundle creation/resume is visible in the transcript"
+    pre_bundle = lines[trigger_index:first_bundle_index]
+    assistant_updates = sum(1 for line in pre_bundle if _is_visible_assistant_start(line))
+    tool_actions = sum(1 for line in pre_bundle if line.lstrip().startswith(TOOL_ACTION_PREFIXES))
+    current_null_seen = any('"current": null' in line or "active_bundle" in line and "null" in line for line in pre_bundle)
+    if assistant_updates >= 3 or tool_actions >= 8 or current_null_seen:
+        return (
+            "extended idea-to-code analysis occurred before active bundle creation/resume "
+            f"({assistant_updates} assistant updates, {tool_actions} tool actions before first bundle signal)"
+        )
+    return None
+
+
+def audit_transcript_output(transcript: str) -> dict[str, Any]:
+    messages = extract_visible_assistant_messages(transcript)
+    visible_body = "\n\n".join(messages)
+    problems: list[dict[str, str]] = []
+
+    for index, message in enumerate(messages, start=1):
+        if "idea-to-code" in message and not re.match(r"^\[idea-to-code(?:/[^\]]+)?\]\[(Planner|Implementer|Validator|Reviewer|Closer)/(agent|subagent)\]", message):
+            problems.append(_transcript_problem(
+                "visible-prefix",
+                f"assistant message {index} mentions idea-to-code but does not start with role/source prefix",
+            ))
+
+    ready_problems = validate_visible_ready_output(transcript, visible_body)
+    for problem in ready_problems:
+        problems.append(_transcript_problem("ready-visible-body", problem, _ready_problem_mb_id(problem)))
+
+    late_bundle = detect_late_active_bundle_binding(transcript)
+    if late_bundle:
+        problems.append(_transcript_problem("active-bundle-binding", late_bundle, "MB-5"))
+
+    helper_or_status_seen = "[idea-to-code][Closer/agent] Status:" in transcript or "[idea-to-code][Closer/subagent] Status:" in transcript
+    final_messages = [
+        message for message in messages
+        if re.match(r"^\[idea-to-code(?:/[^\]]+)?\]\[Closer/(?:agent|subagent)\] Status: (Completed|Progress|Blocked)", message)
+    ]
+    if helper_or_status_seen:
+        if not final_messages:
+            problems.append(_transcript_problem(
+                "formal-status-visible-body",
+                "tracked final status appears in transcript but no assistant-visible Closer status body was found",
+            ))
+        else:
+            for problem in validate_formal_status_visible_output(transcript, final_messages[-1]):
+                problems.append(_transcript_problem("formal-status-visible-body", problem))
+
+    backlog_hits = sorted({problem["mb_id"] for problem in problems if problem.get("mb_id")})
+
+    payload = {
+        "schema": "idea-to-code.output-compliance.transcript-audit.v1",
+        "ok": not problems,
+        "message_count": len(messages),
+        "backlog_hits": backlog_hits,
+        "hard_output_seen": {
+            "exploration": "Exploration Result | Bundle:" in transcript,
+            "ready": "Implementation Gate: READY | Bundle:" in transcript,
+            "formal_status": helper_or_status_seen,
+        },
+        "problems": problems,
+    }
+    return payload
+
+
+def output_compliance_transcript_audit(transcript: str, json_only: bool) -> int:
+    payload = audit_transcript_output(transcript)
+    if json_only:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    elif payload["problems"]:
+        print("output-compliance transcript-audit: FAIL")
+        for problem in payload["problems"]:
+            print(f"- {problem['kind']}: {problem['message']}")
+    else:
+        print("output-compliance transcript-audit: PASS")
+    return 0 if payload["ok"] else 1
+
+
+def _sample_visible_ready_body(display_layer: str = "READY Focus") -> str:
+    return (
+        "[idea-to-code][Planner/agent] Exploration Result | Bundle: sample\n"
+        "Display Layer: Exploration Result\n"
+        "Next Layer: READY Focus after this output is visible; Full Plan only on --full-plan.\n"
+        "EXPLORATION_OUTPUT_ID: sample-explore\n"
+        "Required Now: TASK-1 / REQ-1\n"
+        "Deferred: none\n"
+        "Selected Option: Option B\n"
+        "What READY Will Cover: TASK-1\n\n"
+        "[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: sample\n"
+        f"Display Layer: {display_layer}\n"
+        "READY_TASK_OUTPUT_ID: sample-ready\n"
+        "EXPLORATION_OUTPUT_ID: sample-explore\n"
+        "Implementation Granularity: task-only\n"
+        "Trace Hierarchy: IDEA-* -> REQ-* -> TASK-* -> optional IMP-*\n"
+        "Required Now: TASK-1 / REQ-1\n"
+        "Deferred: none\n"
+        "Selected Option: Option B\n"
+        "What READY Will Cover: TASK-1\n"
+        "TASK-1: Sample\n"
+        "Files:\n- sample.py\n"
+        "Execution Details:\n- edit\n"
+        "Done Criteria:\n- done\n"
+        "Planned Verification:\n- source-only tests\n"
+    )
+
+
+def _sample_formal_status_body() -> str:
+    return (
+        "[idea-to-code][Closer/agent] Status: Completed\n\n"
+        "Changes:\n- TASK-1 / REQ-1: implemented sample behavior.\n\n"
+        "Completed Items:\n- TASK-1 / REQ-1: sample complete.\n\n"
+        "Incomplete Items:\n- none\n\n"
+        "Validation Results:\n- TASK-1 / REQ-1: source-only validation passed.\n\n"
+        "Unverified Items:\n- none\n\n"
+        "Residual Risks:\n- none\n\n"
+        "Key Technical Details:\n- EXPLORATION_OUTPUT_ID: sample-explore\n- READY_TASK_OUTPUT_ID: sample-ready\n- No commit made\n"
+    )
+
+
+def output_compliance_self_test(json_only: bool) -> int:
+    scenarios = [
+        {
+            "name": "ready_focus_valid",
+            "expect_ok": True,
+            "kind": "ready",
+            "tool_stdout": "[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: sample\n",
+            "assistant_body": _sample_visible_ready_body("READY Focus"),
+        },
+        {
+            "name": "ready_full_plan_valid",
+            "expect_ok": True,
+            "kind": "ready",
+            "tool_stdout": "[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: sample\n",
+            "assistant_body": _sample_visible_ready_body("Full Plan"),
+        },
+        {
+            "name": "exploration_summary_rejected",
+            "expect_ok": False,
+            "kind": "ready",
+            "tool_stdout": "[idea-to-code][Planner/agent] Exploration Result | Bundle: sample\n",
+            "assistant_body": "[idea-to-code][Planner/agent] Exploration Result: Required Now = TASK-1 / REQ-1.",
+        },
+        {
+            "name": "ready_summary_rejected",
+            "expect_ok": False,
+            "kind": "ready",
+            "tool_stdout": "[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: sample\n",
+            "assistant_body": "[idea-to-code][Implementer/agent] READY Focus TASK-1 / REQ-1: files are sample.py.",
+        },
+        {
+            "name": "formal_status_valid",
+            "expect_ok": True,
+            "kind": "formal-status",
+            "tool_stdout": _sample_formal_status_body(),
+            "assistant_body": _sample_formal_status_body(),
+        },
+        {
+            "name": "formal_status_missing_fields_rejected",
+            "expect_ok": False,
+            "kind": "formal-status",
+            "tool_stdout": _sample_formal_status_body(),
+            "assistant_body": "[idea-to-code][Closer/agent] Status: Completed\n\nChanges:\n- TASK-1 / REQ-1: done.\n",
+        },
+        {
+            "name": "ordinary_answer_valid",
+            "expect_ok": True,
+            "kind": "ordinary",
+            "tool_stdout": "",
+            "assistant_body": "[idea-to-code][Planner/agent] IMP-* is optional and TASK-* remains the execution gate.",
+        },
+        {
+            "name": "ordinary_overtemplated_rejected",
+            "expect_ok": False,
+            "kind": "ordinary",
+            "tool_stdout": "",
+            "assistant_body": "[idea-to-code][Planner/agent] Explanation.\n\nChanges:\n- TASK-1 / REQ-1: none.",
+        },
+    ]
+    results = []
+    for scenario in scenarios:
+        kind = str(scenario["kind"])
+        if kind == "ready":
+            problems = validate_visible_ready_output(str(scenario["tool_stdout"]), str(scenario["assistant_body"]))
+        elif kind == "formal-status":
+            problems = validate_formal_status_visible_output(str(scenario["tool_stdout"]), str(scenario["assistant_body"]))
+        else:
+            problems = validate_ordinary_visible_output(str(scenario["assistant_body"]))
+        actual_ok = not problems
+        expect_ok = bool(scenario["expect_ok"])
+        results.append({
+            "name": scenario["name"],
+            "kind": kind,
+            "expect_ok": expect_ok,
+            "actual_ok": actual_ok,
+            "pass": actual_ok == expect_ok,
+            "problems": problems,
+        })
+    payload = {
+        "schema": "idea-to-code.output-compliance.self-test.v1",
+        "ok": all(item["pass"] for item in results),
+        "scenario_count": len(results),
+        "results": results,
+    }
+    if json_only:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        print(f"output-compliance self-test: {'PASS' if payload['ok'] else 'FAIL'}")
+        for item in results:
+            print(f"- {item['name']}: {'PASS' if item['pass'] else 'FAIL'}")
+            for problem in item["problems"]:
+                print(f"  - {problem}")
+    return 0 if payload["ok"] else 1
 
 
 def print_ledger(root: Path, slug: str) -> int:
@@ -5978,6 +6520,165 @@ def lifecycle_audit(json_only: bool) -> int:
     return 0 if not problems else 1
 
 
+COMMAND_GUIDE_FLOWS: dict[str, list[dict[str, str]]] = {
+    "start": [
+        {
+            "step": "Create a structured bundle",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" init --root "$(pwd)" --slug <slug> --title "<title>" --idea "<idea>"',
+            "notes": "Use init for tracked work that needs docs, tests, install, or runtime evidence.",
+        },
+        {
+            "step": "Create a ready one-task bundle only when eligible",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" quickstart --root "$(pwd)" --slug <slug> --title "<title>" --idea "<idea>" --task "<task>" --file <path> --verification "<validation type and command>"',
+            "notes": "quickstart requires --task and may refuse broad work; use init when refused.",
+        },
+        {
+            "step": "Read current bundle",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" current status --root "$(pwd)"',
+            "notes": "current status does not take --slug; bundle status does.",
+        },
+        {
+            "step": "Read a specific bundle status",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" status --root "$(pwd)" --slug <slug>',
+            "notes": "status requires --slug.",
+        },
+    ],
+    "planning-update": [
+        {
+            "step": "Record latest user input when it changes scope",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" user-input record --root "$(pwd)" --slug <slug> --summary "<summary>" --classification clarification|expand|switch --rationale "<rationale>" --action "<action>" --changes-plan yes',
+            "notes": "Use --changes-plan yes only when requirements/design/implementation must refresh.",
+        },
+        {
+            "step": "Update requirements",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" update --root "$(pwd)" --slug <slug> --file requirements --content-file <requirements.md>',
+            "notes": "update for requirements/design/implementation clears the matching pending section and refreshes plan revision.",
+        },
+        {
+            "step": "Update design",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" update --root "$(pwd)" --slug <slug> --file design --content-file <design.md>',
+            "notes": "Use content files for substantial sections to avoid shell quoting mistakes.",
+        },
+        {
+            "step": "Update implementation",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" update --root "$(pwd)" --slug <slug> --file implementation --content-file <implementation.md>',
+            "notes": "Implementation plan must have concrete TASK blocks before READY.",
+        },
+        {
+            "step": "Mark READY after plan update",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation ready --root "$(pwd)" --slug <slug> --task TASK-1',
+            "notes": "If the plan has multiple MB IDs, run backlog sync first.",
+        },
+        {
+            "step": "Check TASK/IMP markdown structure after manual edits",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation plan-check --root "$(pwd)" --slug <slug> --json',
+            "notes": "Run before READY when 00-idea.md was edited manually.",
+        },
+    ],
+    "implementation-edit": [
+        {
+            "step": "Recover missing or stale READY before retrying edit gates",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation recover-ready --root "$(pwd)" --slug <slug> --task TASK-1',
+            "notes": "Use once after READY/show-ready/enter-task/pre-edit refusal caused by missing or stale READY; then run the recommended command.",
+        },
+        {
+            "step": "Enter the current TASK",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation enter-task --root "$(pwd)" --slug <slug> --task TASK-1',
+            "notes": "Shows focused READY for the TASK and records current_task_id.",
+        },
+        {
+            "step": "Acquire write lease for all edited files",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation lease acquire --root "$(pwd)" --slug <slug> --task TASK-1 --owner agent --files <path-a> <path-b>',
+            "notes": "Use --files for grouped multi-file edits; repeat --file only for compatibility.",
+        },
+        {
+            "step": "Run pre-edit guard",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation pre-edit --root "$(pwd)" --slug <slug> --task TASK-1 --files <path-a> <path-b>',
+            "notes": "Do not edit until this prints PRE_EDIT_OK_ID.",
+        },
+    ],
+    "evidence": [
+        {
+            "step": "Inspect role evidence requirements",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" role explain --role implementer',
+            "notes": "Run after a role record rejection instead of guessing wording.",
+        },
+        {
+            "step": "Record Implementer evidence",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" role record --root "$(pwd)" --slug <slug> --role implementer --covers REQ-1 --evidence "<TASK/REQ, READY_TASK_OUTPUT_ID, PRE_EDIT_OK_ID, files changed, validation boundary>"',
+            "notes": "Implementer evidence must name TASK/IMP IDs and cite current PRE_EDIT_OK_ID when present.",
+        },
+        {
+            "step": "Record Validator evidence",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" role record --root "$(pwd)" --slug <slug> --role validator --covers REQ-1 --evidence "<TASK/REQ validation type source-only|real-product-path plus commands and results>"',
+            "notes": "Every validation claim needs a validation type.",
+        },
+        {
+            "step": "Record Reviewer evidence",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" role record --root "$(pwd)" --slug <slug> --role reviewer --covers REQ-1 --evidence "<TASK/REQ same-agent review or independent review with usable delegation record>"',
+            "notes": "Do not claim independent review without a usable delegation record.",
+        },
+    ],
+    "closeout": [
+        {
+            "step": "Record checkpoint",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" checkpoint --root "$(pwd)" --slug <slug> --milestone "<name>" --delivered "<what changed>" --verified "<validation type and evidence>" --next "<next>" --focus "<TASK/REQ focus>" --gate "<gate>" --gate-status pass --covers REQ-1',
+            "notes": "checkpoint requires --verified, --next, --focus, --gate, --gate-status, and --covers for traceability.",
+        },
+        {
+            "step": "Run pre-close verify",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" verify --root "$(pwd)" --slug <slug>',
+            "notes": "Run after Reviewer evidence and before Closer/finalize.",
+        },
+        {
+            "step": "Record Closer evidence",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" role record --root "$(pwd)" --slug <slug> --role closer --covers REQ-1 --evidence "<TASK/REQ closeout work: pre-close verify passed, coverage, remaining risks, no incomplete scoped work>"',
+            "notes": "Closer evidence must state pre-close verify passed.",
+        },
+        {
+            "step": "Finalize accepted scope",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" finalize --root "$(pwd)" --slug <slug> --summary "<summary>" --verification "<validation type and evidence>" --risks "<risks or none>" --acceptance "<accepted scope>" --gate-status pass --decision accepted --deferred "<remaining backlog or none>"',
+            "notes": "finalize requires full closeout fields; do not pass only --status.",
+        },
+        {
+            "step": "Run final verify",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" verify --root "$(pwd)" --slug <slug>',
+            "notes": "Run after finalize before final status.",
+        },
+        {
+            "step": "Render formal status",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" render-status --root "$(pwd)" --slug <slug> --status Completed',
+            "notes": "Use generated fields for formal tracked handoff.",
+        },
+    ],
+}
+
+
+def command_guide(flow: str, json_only: bool) -> int:
+    flows = COMMAND_GUIDE_FLOWS if flow == "all" else {flow: COMMAND_GUIDE_FLOWS[flow]}
+    payload = {
+        "schema": "idea-to-code.command-guide.v1",
+        "flow": flow,
+        "flows": flows,
+        "rule": "After an argparse usage failure or before an unfamiliar lifecycle command, inspect this guide or targeted --help before retrying.",
+    }
+    if json_only:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return 0
+    print("[idea-to-code][Planner/agent] Command Guide")
+    print("")
+    print(f"Flow: {flow}")
+    print("Rule: " + payload["rule"])
+    for flow_name, commands in flows.items():
+        print("")
+        print(f"## {flow_name}")
+        for item in commands:
+            print(f"- {item['step']}")
+            print(f"  Command: {item['command']}")
+            print(f"  Notes: {item['notes']}")
+    return 0
+
+
 def verify_bundle(root: Path, slug: str) -> int:
     """Structural sanity check. Exits non-zero when required pieces are missing."""
     target = ensure_bundle(root, slug)
@@ -6213,6 +6914,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("lifecycle-audit", help="Validate lifecycle branch invariant coverage.")
     p.add_argument("--json", action="store_true", help="Print machine-readable JSON only.")
 
+    p = sub.add_parser("command-guide", help="Print valid command shapes for common lifecycle flows.")
+    p.add_argument("--flow", default="all", choices=[*COMMAND_GUIDE_FLOWS.keys(), "all"])
+    p.add_argument("--json", action="store_true", help="Print machine-readable JSON only.")
+
     p = sub.add_parser("output-compliance", help="Check user-visible output against tool stdout for display-layer compliance.")
     oc_sub = p.add_subparsers(dest="output_compliance_command", required=True)
     occ = oc_sub.add_parser("check", help="Validate READY, formal status, or ordinary answer output shape.")
@@ -6222,6 +6927,12 @@ def build_parser() -> argparse.ArgumentParser:
     occ.add_argument("--assistant-body")
     occ.add_argument("--assistant-body-file")
     occ.add_argument("--json", action="store_true")
+    ocs = oc_sub.add_parser("self-test", help="Run built-in hard-output compliance acceptance scenarios.")
+    ocs.add_argument("--json", action="store_true")
+    octa = oc_sub.add_parser("transcript-audit", help="Audit an exported transcript for assistant-visible hard-output compliance.")
+    octa.add_argument("--transcript")
+    octa.add_argument("--transcript-file")
+    octa.add_argument("--json", action="store_true")
 
     p = sub.add_parser("checkpoint", help="Record a milestone.")
     p.add_argument("--root", required=True)
@@ -6382,6 +7093,15 @@ def build_parser() -> argparse.ArgumentParser:
     isr.add_argument("--source", default="agent", help="Visible execution source for READY output.")
     isr.add_argument("--task", action="append", default=None, help="Limit READY output to a specific TASK/IMP id such as TASK-17. Repeat for multiple tasks.")
     isr.add_argument("--full-plan", action="store_true", help="Print every TASK/IMP block instead of the default focused first TASK/IMP excerpt.")
+    irr = impl_sub.add_parser("recover-ready", help="Diagnose missing or stale READY and print exact recovery commands.")
+    irr.add_argument("--root", required=True)
+    irr.add_argument("--slug", required=True)
+    irr.add_argument("--task", default=None, help="Current TASK/IMP id to recover for, such as TASK-1.")
+    irr.add_argument("--json", action="store_true")
+    ipc = impl_sub.add_parser("plan-check", help="Validate parseable TASK/IMP plan structure without changing state.")
+    ipc.add_argument("--root", required=True)
+    ipc.add_argument("--slug", required=True)
+    ipc.add_argument("--json", action="store_true")
     iet = impl_sub.add_parser("enter-task", help="Record the current TASK and print its READY Focus before edits.")
     iet.add_argument("--root", required=True)
     iet.add_argument("--slug", required=True)
@@ -6544,6 +7264,9 @@ def main(argv: Iterable[str] | None = None) -> int:
     if args.command == "lifecycle-audit":
         return lifecycle_audit(args.json)
 
+    if args.command == "command-guide":
+        return command_guide(args.flow, args.json)
+
     if args.command == "output-compliance":
         if args.output_compliance_command == "check":
             if args.kind == "ordinary" and not args.tool_stdout and not args.tool_stdout_file:
@@ -6552,6 +7275,11 @@ def main(argv: Iterable[str] | None = None) -> int:
                 tool_stdout = read_content_arg(args.tool_stdout, args.tool_stdout_file)
             assistant_body = read_content_arg(args.assistant_body, args.assistant_body_file)
             return output_compliance_check(args.kind, tool_stdout, assistant_body, args.json)
+        if args.output_compliance_command == "self-test":
+            return output_compliance_self_test(args.json)
+        if args.output_compliance_command == "transcript-audit":
+            transcript = read_content_arg(args.transcript, args.transcript_file)
+            return output_compliance_transcript_audit(transcript, args.json)
 
     root = Path(args.root).resolve()
 
@@ -6693,6 +7421,10 @@ def main(argv: Iterable[str] | None = None) -> int:
             return 0
         if args.implementation_command == "show-ready":
             return implementation_show_ready(root, args.slug, args.profile, args.role, args.source, args.task, args.full_plan)
+        if args.implementation_command == "recover-ready":
+            return implementation_recover_ready(root, args.slug, args.task, args.json)
+        if args.implementation_command == "plan-check":
+            return implementation_plan_check(root, args.slug, args.json)
         if args.implementation_command == "enter-task":
             return implementation_enter_task(root, args.slug, args.task, args.profile)
         if args.implementation_command == "overview":
