@@ -3298,6 +3298,30 @@ Planned Verification:
         self.assertLess(idea.index("## Requirements"), idea.index("## Intake Gate"))
         self.assertLess(idea.index("## Acceptance Matrix"), idea.index("## Design"))
 
+    def test_update_design_preserves_adjacent_custom_top_level_sections(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        idea_path = self.root / ".idea-to-code" / slug / "00-idea.md"
+        idea = idea_path.read_text(encoding="utf-8")
+        idea = idea.replace(
+            "\n## Implementation Plan\n",
+            "\n## Master Backlog Context\n\n- Keep this custom context.\n\n## Implementation Plan\n",
+            1,
+        )
+        idea_path.write_text(idea, encoding="utf-8")
+        design = self.root / "design-updated.md"
+        design.write_text("- Updated design remains scoped to Design only.\n", encoding="utf-8")
+
+        self.run_bundle("update", "--root", str(self.root), "--slug", slug, "--file", "design", "--content-file", str(design))
+
+        updated = idea_path.read_text(encoding="utf-8")
+        self.assertIn("- Updated design remains scoped to Design only.", updated)
+        self.assertIn("## Master Backlog Context", updated)
+        self.assertIn("- Keep this custom context.", updated)
+        self.assertIn("## Implementation Plan", updated)
+        self.assertLess(updated.index("## Design"), updated.index("## Master Backlog Context"))
+        self.assertLess(updated.index("## Master Backlog Context"), updated.index("## Implementation Plan"))
+
     def test_update_requirements_with_lifecycle_sections_replaces_legacy_block(self) -> None:
         slug = self.init_bundle()
         replacement = f"""- REQ-1: Full planning content replaces the legacy requirements block.

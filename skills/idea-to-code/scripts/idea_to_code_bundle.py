@@ -540,6 +540,7 @@ SECTION_END_HEADINGS = {
     "implementation": None,
     "verification": "## Risks",
 }
+NEXT_TOP_LEVEL_HEADING = "__NEXT_TOP_LEVEL_HEADING__"
 
 COMPACT_CONTRACT = "compact-v2"
 
@@ -1545,6 +1546,8 @@ def replace_markdown_section(text: str, heading: str, content: str, append: bool
     """Replace or append to a top-level bundle section without disturbing siblings."""
     if isinstance(end_heading, tuple):
         stop = r"^(?:" + "|".join(re.escape(item) for item in end_heading) + r")\s*$"
+    elif end_heading == NEXT_TOP_LEVEL_HEADING:
+        stop = r"^##\s+\S.*$"
     else:
         stop = rf"^{re.escape(end_heading)}\s*$" if end_heading else r"\Z"
     pattern = re.compile(rf"(?ms)^{re.escape(heading)}\s*\n(?P<body>.*?)(?={stop})")
@@ -1570,6 +1573,8 @@ def update_section_end_heading(file_key: str, content: str) -> str | tuple[str, 
         re.MULTILINE,
     ):
         return "## Design"
+    if file_key == "design":
+        return NEXT_TOP_LEVEL_HEADING
     return end_heading
 
 
