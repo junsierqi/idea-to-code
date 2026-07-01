@@ -877,6 +877,9 @@ def _migrate_pre_edit_output_fields(status: dict) -> None:
     status.setdefault("delegation_records", [])
     status.setdefault("session_continuity_audits", [])
     status.setdefault("scope_classifications", [])
+    status.setdefault("visible_output_required", False)
+    status.setdefault("visible_output_id", None)
+    status.setdefault("visible_output_records", [])
     if status.get("pre_edit_ok_id") and not status["pre_edit_records"]:
         status["pre_edit_records"].append({
             "id": status.get("pre_edit_ok_id"),
@@ -888,6 +891,37 @@ def _migrate_pre_edit_output_fields(status: dict) -> None:
             "event_sequence": status.get("pre_edit_event_sequence"),
             "at_utc": status.get("pre_edit_at_utc"),
         })
+
+
+def _current_visible_output_record(status: dict, task_id: str) -> dict | None:
+    plan_revision = int(status.get("plan_revision", 0))
+    ready_id = status.get("ready_task_output_id")
+    exploration_id = status.get("exploration_output_id")
+    normalized_task_id = task_id.strip().upper()
+    for record in reversed(status.get("visible_output_records", [])):
+        if record.get("plan_revision") != plan_revision:
+            continue
+        if record.get("ready_task_output_id") != ready_id:
+            continue
+        if record.get("exploration_output_id") != exploration_id:
+            continue
+        if (record.get("task_id") or "").strip().upper() != normalized_task_id:
+            continue
+        if not record.get("ok", False):
+            continue
+        return record
+    return None
+
+
+def _visible_output_problem(status: dict, task_id: str) -> str | None:
+    if not status.get("ready_task_output_required") and not status.get("exploration_output_required"):
+        return None
+    if _current_visible_output_record(status, task_id):
+        return None
+    return (
+        "visible output record missing or stale for current Exploration Result and READY Focus; "
+        "paste the assistant-visible Display Layer block, then run implementation visible-output record"
+    )
 
 
 def _migrate_master_backlog_fields(status: dict) -> None:
@@ -1244,6 +1278,9 @@ def _pre_edit_compliance_problems(target: Path, status: dict, task_id: str | Non
     problems: list[str] = []
     current_task = (task_id or status.get("current_task_id") or "").strip().upper()
     if current_task:
+        visible_problem = _visible_output_problem(status, current_task)
+        if visible_problem:
+            problems.append(visible_problem)
         expected = {_normalize_guard_file(item) for item in _task_files_for_id(target, current_task)}
         covered = _pre_edit_covered_files(status, current_task)
         missing = sorted(expected - covered)
@@ -1261,11 +1298,18 @@ def _pre_edit_compliance_problems(target: Path, status: dict, task_id: str | Non
 
 
 def _pre_edit_compliance_problems_for_verify(status: dict) -> list[str]:
-    return [
+    problems: list[str] = []
+    current_task = (status.get("current_task_id") or "").strip().upper()
+    if current_task:
+        visible_problem = _visible_output_problem(status, current_task)
+        if visible_problem:
+            problems.append(visible_problem)
+    problems.extend([
         f"open pre-edit noncompliance {event.get('id', 'unknown')} for "
         f"{event.get('task_id') or 'unknown-task'}: {event.get('reason') or 'no reason recorded'}"
         for event in _open_pre_edit_noncompliance(status)
-    ]
+    ])
+    return problems
 
 
 def _update_master_backlog_coverage(status: dict, covers: list[str], milestone: str) -> None:
@@ -3697,6 +3741,102 @@ def scope_status(root: Path, slug: str) -> int:
     return 0
 
 
+def implementation_visible_output_record(
+    root: Path,
+    slug: str,
+    task_id: str,
+    assistant_body: str,
+    source: str = "agent",
+    profile: str | None = None,
+) -> int:
+    target = ensure_active_bundle(root, slug)
+    normalized_task_id = task_id.strip().upper()
+    body = assistant_body.strip()
+    if not body:
+        raise SystemExit("implementation visible-output record refused - assistant-visible body is empty.")
+    with bundle_lock(target):
+        status = read_status(target)
+        problems = implementation_gate_problems(target)
+        if problems or not status.get("implementation_ready"):
+            raise SystemExit(
+                "implementation visible-output record refused - implementation gate is not READY:\n  - "
+                + "\n  - ".join(problems or [f"{STATE_FILE}: implementation_ready is not true"])
+            )
+        current_task = (status.get("current_task_id") or "").strip().upper()
+        if current_task and current_task != normalized_task_id:
+            raise SystemExit(
+                "implementation visible-output record refused - current_task_id is "
+                f"{current_task}; record visible output for {current_task} or enter {normalized_task_id} first."
+            )
+        validation_problems = validate_visible_ready_output("", body)
+        current_ready_id = status.get("ready_task_output_id")
+        current_exploration_id = status.get("exploration_output_id")
+        if current_ready_id and str(current_ready_id) not in body:
+            validation_problems.append(f"assistant-visible body missing current {READY_TASK_OUTPUT_ID_LABEL}: {current_ready_id}")
+        if current_exploration_id and str(current_exploration_id) not in body:
+            validation_problems.append(f"assistant-visible body missing current {EXPLORATION_OUTPUT_ID_LABEL}: {current_exploration_id}")
+        if validation_problems:
+            raise SystemExit(
+                "implementation visible-output record refused - assistant-visible body is not a complete Display Layer:\n  - "
+                + "\n  - ".join(validation_problems)
+            )
+        plan_revision = int(status.get("plan_revision", 0))
+        timestamp = utc_now()
+        compact_time = re.sub(r"[^0-9]", "", timestamp)[:14]
+        visible_id = f"{slug}-visible-r{plan_revision}-{compact_time}"
+        body_hash = hashlib.sha256(body.encode("utf-8")).hexdigest()
+        status["visible_output_required"] = True
+        status["visible_output_id"] = visible_id
+        event_sequence = _next_event_sequence(status)
+        record = {
+            "id": visible_id,
+            "task_id": normalized_task_id,
+            "source": source.strip() or "agent",
+            "ready_task_output_id": current_ready_id,
+            "exploration_output_id": current_exploration_id,
+            "plan_revision": plan_revision,
+            "event_sequence": event_sequence,
+            "at_utc": timestamp,
+            "assistant_body_sha256": body_hash,
+            "ok": True,
+        }
+        status.setdefault("visible_output_records", []).append(record)
+        write_status(target, status)
+        append_ledger(target, "implementation-visible-output", f"Visible output recorded: {visible_id} for {normalized_task_id}")
+    lines = [
+        f"{_visibility_prefix(profile, 'planner', source.strip() or 'agent')} Visible Output: recorded | Bundle: {slug}",
+        "",
+        "Display Layer: Visible Output Record",
+        f"VISIBLE_OUTPUT_ID: {visible_id}",
+        f"{READY_TASK_OUTPUT_ID_LABEL}: {record['ready_task_output_id']}",
+        f"{EXPLORATION_OUTPUT_ID_LABEL}: {record['exploration_output_id']}",
+        "",
+        "Current TASK:",
+        f"- {normalized_task_id}",
+        "Assistant Body SHA256:",
+        f"- {body_hash}",
+    ]
+    print("\n".join(lines))
+    return 0
+
+
+def implementation_visible_output_status(root: Path, slug: str) -> int:
+    target = ensure_bundle(root, slug)
+    status = read_status(target)
+    current_task = (status.get("current_task_id") or "").strip().upper()
+    result = {
+        "path": str(target),
+        "visible_output_required": status.get("visible_output_required", False),
+        "visible_output_id": status.get("visible_output_id"),
+        "current_task_id": current_task or None,
+        "current_record": _current_visible_output_record(status, current_task) if current_task else None,
+        "visible_output_records": status.get("visible_output_records", []),
+        "problem": _visible_output_problem(status, current_task) if current_task else None,
+    }
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+    return 0
+
+
 def implementation_pre_edit(
     root: Path,
     slug: str,
@@ -3732,6 +3872,9 @@ def implementation_pre_edit(
             )
         if status.get("current_task_ready_output_id") != status.get("ready_task_output_id"):
             raise SystemExit("implementation pre-edit refused - current TASK entry is older than latest READY output.")
+        visible_problem = _visible_output_problem(status, normalized_task_id)
+        if visible_problem:
+            raise SystemExit("implementation pre-edit refused - " + visible_problem)
         allowed_files = _task_files_for_id(target, normalized_task_id)
         allowed = {_normalize_guard_file(item) for item in allowed_files}
         requested = {_normalize_guard_file(item) for item in requested_files}
@@ -3758,6 +3901,7 @@ def implementation_pre_edit(
         status["pre_edit_owner"] = owner.strip() or "agent"
         status["pre_edit_ready_task_output_id"] = status.get("ready_task_output_id")
         status["pre_edit_exploration_output_id"] = status.get("exploration_output_id")
+        visible_record = _current_visible_output_record(status, normalized_task_id)
         status.setdefault("pre_edit_records", []).append({
             "id": pre_edit_id,
             "task_id": normalized_task_id,
@@ -3765,6 +3909,7 @@ def implementation_pre_edit(
             "files": requested_files,
             "ready_task_output_id": status.get("ready_task_output_id"),
             "exploration_output_id": status.get("exploration_output_id"),
+            "visible_output_id": visible_record.get("id") if visible_record else None,
             "plan_revision": plan_revision,
             "event_sequence": status["pre_edit_event_sequence"],
             "at_utc": timestamp,
@@ -3778,6 +3923,7 @@ def implementation_pre_edit(
         f"{PRE_EDIT_OK_ID_LABEL}: {pre_edit_id}",
         f"{READY_TASK_OUTPUT_ID_LABEL}: {status.get('ready_task_output_id')}",
         f"{EXPLORATION_OUTPUT_ID_LABEL}: {status.get('exploration_output_id')}",
+        f"VISIBLE_OUTPUT_ID: {visible_record.get('id') if visible_record else None}",
         "",
         "Current TASK:",
         f"- {normalized_task_id}",
@@ -3972,6 +4118,9 @@ def implementation_status(root: Path, slug: str) -> int:
         "ready_task_output_history": status.get("ready_task_output_history", []),
         "current_task_id": status.get("current_task_id"),
         "current_task_ready_output_id": status.get("current_task_ready_output_id"),
+        "visible_output_required": status.get("visible_output_required", False),
+        "visible_output_id": status.get("visible_output_id"),
+        "visible_output_records": status.get("visible_output_records", []),
         "pre_edit_ok_id": status.get("pre_edit_ok_id"),
         "pre_edit_task_id": status.get("pre_edit_task_id"),
         "pre_edit_files": status.get("pre_edit_files"),
@@ -7397,6 +7546,19 @@ def build_parser() -> argparse.ArgumentParser:
     iov.add_argument("--root", required=True)
     iov.add_argument("--slug", required=True)
     iov.add_argument("--profile", default=None, help="Optional upper-layer profile label for overview output.")
+    ivo = impl_sub.add_parser("visible-output", help="Record or inspect assistant-visible Exploration/READY display evidence.")
+    visible_sub = ivo.add_subparsers(dest="implementation_visible_output_command", required=True)
+    ivr = visible_sub.add_parser("record", help="Record the assistant-visible Exploration/READY block before pre-edit.")
+    ivr.add_argument("--root", required=True)
+    ivr.add_argument("--slug", required=True)
+    ivr.add_argument("--task", required=True, help="TASK/IMP id whose READY block was displayed, such as TASK-1.")
+    ivr.add_argument("--assistant-body")
+    ivr.add_argument("--assistant-body-file")
+    ivr.add_argument("--source", default="agent", choices=("agent", "subagent"))
+    ivr.add_argument("--profile", default=None, help="Optional upper-layer profile label for record output.")
+    ivs = visible_sub.add_parser("status", help="Print visible-output evidence records.")
+    ivs.add_argument("--root", required=True)
+    ivs.add_argument("--slug", required=True)
     il = impl_sub.add_parser("lease", help="Acquire, inspect, or release implementation write ownership.")
     lease_sub = il.add_subparsers(dest="implementation_lease_command", required=True)
     ila = lease_sub.add_parser("acquire", help="Acquire a write lease for TASK files before pre-edit.")
@@ -7717,6 +7879,12 @@ def main(argv: Iterable[str] | None = None) -> int:
             return implementation_enter_task(root, args.slug, args.task, args.profile)
         if args.implementation_command == "overview":
             return implementation_overview(root, args.slug, args.profile)
+        if args.implementation_command == "visible-output":
+            if args.implementation_visible_output_command == "record":
+                assistant_body = read_content_arg(args.assistant_body, args.assistant_body_file)
+                return implementation_visible_output_record(root, args.slug, args.task, assistant_body, args.source, args.profile)
+            if args.implementation_visible_output_command == "status":
+                return implementation_visible_output_status(root, args.slug)
         if args.implementation_command == "lease":
             if args.implementation_lease_command == "acquire":
                 return implementation_lease_acquire(root, args.slug, args.task, args.owner, _combined_file_args(args.file, args.files), args.profile)

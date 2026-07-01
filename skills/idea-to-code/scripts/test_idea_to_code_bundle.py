@@ -169,6 +169,14 @@ class BundleTest(unittest.TestCase):
         return result
 
     def acquire_lease(self, slug: str, task: str = "TASK-1", files: list[str] | None = None, owner: str = "agent") -> subprocess.CompletedProcess[str]:
+        ready = self.run_bundle("implementation", "show-ready", "--root", str(self.root), "--slug", slug, "--task", task)
+        self.run_bundle(
+            "implementation", "visible-output", "record",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--task", task,
+            "--assistant-body", ready.stdout,
+        )
         args = ["implementation", "lease", "acquire", "--root", str(self.root), "--slug", slug, "--task", task, "--owner", owner]
         for file_path in files or ["state.json"]:
             args.extend(["--file", file_path])
@@ -1818,6 +1826,18 @@ class BundleTest(unittest.TestCase):
         self.assertIn("MB-3", payload["backlog_hits"])
         self.assertIn("MB-4", payload["backlog_hits"])
 
+    def test_output_compliance_transcript_audit_rejects_real_design_to_code_failure_when_available(self) -> None:
+        transcript = Path(r"D:\projects\fff.txt")
+        if not transcript.exists():
+            self.skipTest("real design-to-code transcript fixture is not available on this machine")
+        bundle = load_bundle_module()
+
+        payload = bundle.audit_transcript_output(transcript.read_text(encoding="utf-8"))
+
+        self.assertFalse(payload["ok"])
+        for mb_id in ("MB-1", "MB-2", "MB-3", "MB-4", "MB-5"):
+            self.assertIn(mb_id, payload["backlog_hits"])
+
     def test_output_compliance_transcript_audit_accepts_visible_blocks(self) -> None:
         good_transcript = f"""
 › 使用idea-to-code，做一个示例
@@ -3401,8 +3421,15 @@ Planned Verification:
         impl_path = self.root / "implementation-grouped-files.md"
         impl_path.write_text(implementation, encoding="utf-8")
         self.run_bundle("update", "--root", str(self.root), "--slug", slug, "--file", "implementation", "--content-file", str(impl_path))
-        self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        ready = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
         self.run_bundle("implementation", "enter-task", "--root", str(self.root), "--slug", slug, "--task", "TASK-1")
+        self.run_bundle(
+            "implementation", "visible-output", "record",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--task", "TASK-1",
+            "--assistant-body", ready.stdout,
+        )
 
         lease = self.run_bundle(
             "implementation", "lease", "acquire",
@@ -3863,8 +3890,15 @@ Planned Verification:
     def test_implementation_pre_edit_rejects_without_write_lease(self) -> None:
         slug = self.init_bundle()
         self.write_ready_bundle(slug, mark_ready=False)
-        self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        ready = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
         self.run_bundle("implementation", "enter-task", "--root", str(self.root), "--slug", slug, "--task", "TASK-1")
+        self.run_bundle(
+            "implementation", "visible-output", "record",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--task", "TASK-1",
+            "--assistant-body", ready.stdout,
+        )
 
         result = self.run_bundle(
             "implementation", "pre-edit",
@@ -4612,6 +4646,78 @@ Planned Verification:
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("file(s) not listed under TASK-1 Files", result.stderr)
         self.assertEqual((self.root / "other.txt").read_text(encoding="utf-8"), "old\n")
+
+    def test_pre_edit_refuses_without_visible_ready_output_record(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("implementation", "enter-task", "--root", str(self.root), "--slug", slug, "--task", "TASK-1")
+        self.run_bundle("implementation", "lease", "acquire", "--root", str(self.root), "--slug", slug, "--task", "TASK-1", "--file", "state.json")
+
+        result = self.run_bundle("implementation", "pre-edit", "--root", str(self.root), "--slug", slug, "--task", "TASK-1", "--file", "state.json", check=False)
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("visible output record missing or stale", result.stderr)
+
+    def test_visible_output_record_allows_pre_edit_and_is_status_visible(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        ready = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("implementation", "enter-task", "--root", str(self.root), "--slug", slug, "--task", "TASK-1")
+        recorded = self.run_bundle(
+            "implementation", "visible-output", "record",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--task", "TASK-1",
+            "--assistant-body", ready.stdout,
+        )
+        visible_id = re.search(r"VISIBLE_OUTPUT_ID: (\S+)", recorded.stdout).group(1)
+        self.run_bundle("implementation", "lease", "acquire", "--root", str(self.root), "--slug", slug, "--task", "TASK-1", "--file", "state.json")
+
+        pre_edit = self.run_bundle("implementation", "pre-edit", "--root", str(self.root), "--slug", slug, "--task", "TASK-1", "--file", "state.json")
+
+        self.assertIn(f"VISIBLE_OUTPUT_ID: {visible_id}", pre_edit.stdout)
+        status = self.run_bundle("implementation", "visible-output", "status", "--root", str(self.root), "--slug", slug)
+        payload = json.loads(status.stdout)
+        self.assertEqual(visible_id, payload["current_record"]["id"])
+
+    def test_visible_output_record_rejects_stale_ready_body(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        stale_ready = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        updated_implementation = """Gate Status: READY
+
+### TASK-1: Verify sample bundle flow
+
+Status: pending
+
+Files:
+- state.json
+
+Execution Details:
+- Record one requirement and all role evidence after a plan revision.
+
+Done Criteria:
+- finalize and verify succeed.
+
+Planned Verification:
+- source-only python idea_to_code_bundle.py verify exits zero.
+"""
+        self.run_bundle("update", "--root", str(self.root), "--slug", slug, "--file", "implementation", "--content", updated_implementation)
+        self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("implementation", "enter-task", "--root", str(self.root), "--slug", slug, "--task", "TASK-1")
+
+        result = self.run_bundle(
+            "implementation", "visible-output", "record",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--task", "TASK-1",
+            "--assistant-body", stale_ready.stdout,
+            check=False,
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("assistant-visible body missing current READY_TASK_OUTPUT_ID", result.stderr)
 
     def test_pre_edit_records_history_and_status_exposes_records(self) -> None:
         slug = self.init_bundle()
