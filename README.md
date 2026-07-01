@@ -56,6 +56,12 @@ To preview the update without writing files:
 python scripts/install_skill.py --dry-run
 ```
 
+To verify the installed skill matches this repository source without writing files:
+
+```bash
+python scripts/install_skill.py --check
+```
+
 The bundled script can also be used directly from this repository:
 
 ```bash

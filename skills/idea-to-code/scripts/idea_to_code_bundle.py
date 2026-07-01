@@ -3337,6 +3337,159 @@ def implementation_overview(
     return 0
 
 
+def implementation_next_action(
+    root: Path,
+    slug: str,
+    task_id: str,
+    files: list[str],
+    owner: str = "agent",
+    json_only: bool = False,
+    profile: str | None = None,
+) -> int:
+    target = ensure_bundle(root, slug)
+    status = read_status(target)
+    normalized_task_id = task_id.strip().upper()
+    requested_files = [item for item in files if item.strip()] or _task_files_for_id(target, normalized_task_id)
+    gate_problems = implementation_gate_problems(target)
+    problems: list[str] = []
+    action = "READY_FOR_EDIT"
+    assistant_visible_required = False
+    recommended_commands: list[str] = []
+    required_visible_fields = [
+        "Display Layer: Exploration Result",
+        "EXPLORATION_OUTPUT_ID:",
+        "Required Now:",
+        "Deferred:",
+        "Selected Option:",
+        "What READY Will Cover:",
+        "Display Layer: READY Focus",
+        "READY_TASK_OUTPUT_ID:",
+        "Files:",
+        "Execution Details:",
+        "Done Criteria:",
+        "Planned Verification:",
+    ]
+
+    if gate_problems or not status.get("implementation_ready"):
+        action = "NEEDS_READY"
+        assistant_visible_required = True
+        problems.extend(gate_problems or [f"{STATE_FILE}: implementation_ready is not true"])
+        recommended_commands.extend([
+            f'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" exploration render --root "$(pwd)" --slug {slug}',
+            f'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation ready --root "$(pwd)" --slug {slug} --task {normalized_task_id}',
+        ])
+    else:
+        exploration_problem = _exploration_output_problem(status, target)
+        ready_problem = _ready_output_problem(status, target)
+        if exploration_problem or ready_problem:
+            action = "NEEDS_READY"
+            assistant_visible_required = True
+            problems.extend([item for item in (exploration_problem, ready_problem) if item])
+            recommended_commands.append(
+                f'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation recover-ready --root "$(pwd)" --slug {slug} --task {normalized_task_id}'
+            )
+        else:
+            current_task = (status.get("current_task_id") or "").strip().upper()
+            if current_task != normalized_task_id or status.get("current_task_ready_output_id") != status.get("ready_task_output_id"):
+                action = "NEEDS_TASK_ENTRY"
+                assistant_visible_required = True
+                if current_task != normalized_task_id:
+                    problems.append(
+                        f"current_task_id is {current_task or '(missing)'}; enter {normalized_task_id} before edits"
+                    )
+                else:
+                    problems.append("current TASK entry is older than latest READY output")
+                recommended_commands.append(
+                    f'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation enter-task --root "$(pwd)" --slug {slug} --task {normalized_task_id}'
+                )
+            else:
+                visible_problem = _visible_output_problem(status, normalized_task_id)
+                if visible_problem:
+                    action = "NEEDS_VISIBLE_OUTPUT_RECORD"
+                    assistant_visible_required = True
+                    problems.append(visible_problem)
+                    recommended_commands.extend([
+                        f'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation show-ready --root "$(pwd)" --slug {slug} --task {normalized_task_id}',
+                        f'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation visible-output record --root "$(pwd)" --slug {slug} --task {normalized_task_id} --assistant-body-file <assistant-visible-body.txt>',
+                    ])
+                else:
+                    lease_problems = _lease_compliance_problems(status, normalized_task_id, requested_files, owner.strip() or "agent")
+                    if lease_problems:
+                        action = "NEEDS_LEASE"
+                        problems.extend(lease_problems)
+                        command_files = " ".join(requested_files)
+                        recommended_commands.append(
+                            f'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation lease acquire --root "$(pwd)" --slug {slug} --task {normalized_task_id} --owner {owner.strip() or "agent"} --files {command_files}'
+                        )
+                    else:
+                        requested = {_normalize_guard_file(item) for item in requested_files}
+                        covered = _pre_edit_covered_files(status, normalized_task_id)
+                        missing_pre_edit = sorted(requested - covered)
+                        if missing_pre_edit:
+                            action = "NEEDS_PRE_EDIT"
+                            problems.append("pre-edit guard missing current records for file(s): " + ", ".join(missing_pre_edit))
+                            command_files = " ".join(requested_files)
+                            recommended_commands.append(
+                                f'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation pre-edit --root "$(pwd)" --slug {slug} --task {normalized_task_id} --owner {owner.strip() or "agent"} --files {command_files}'
+                            )
+
+    payload = {
+        "schema": "idea-to-code.implementation.next-action.v1",
+        "bundle": slug,
+        "task": normalized_task_id,
+        "action": action,
+        "assistant_visible_required": assistant_visible_required,
+        "required_visible_fields": required_visible_fields if assistant_visible_required else [],
+        "recommended_commands": recommended_commands,
+        "problems": problems,
+        "files": requested_files,
+        "owner": owner.strip() or "agent",
+        "exploration_output_id": status.get("exploration_output_id"),
+        "ready_task_output_id": status.get("ready_task_output_id"),
+        "visible_output_id": status.get("visible_output_id"),
+        "pre_edit_ok_id": status.get("pre_edit_ok_id"),
+        "current_task_id": status.get("current_task_id"),
+        "host_required_boundary": "Native edit-tool interception is not physically enforced by this command.",
+    }
+    if json_only:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return 0 if action == "READY_FOR_EDIT" else 1
+
+    lines = [
+        f"{_visibility_prefix(profile, 'planner', 'agent')} Next Action: {action} | Bundle: {slug}",
+        "",
+        "Display Layer: Next Action",
+        f"{READY_TASK_OUTPUT_ID_LABEL}: {payload.get('ready_task_output_id') or 'missing'}",
+        f"{EXPLORATION_OUTPUT_ID_LABEL}: {payload.get('exploration_output_id') or 'missing'}",
+        f"VISIBLE_OUTPUT_ID: {payload.get('visible_output_id') or 'missing'}",
+        f"{PRE_EDIT_OK_ID_LABEL}: {payload.get('pre_edit_ok_id') or 'missing'}",
+        "",
+        "Current TASK:",
+        f"- {normalized_task_id}",
+        "",
+        "Assistant Visible Required:",
+        f"- {'yes' if assistant_visible_required else 'no'}",
+    ]
+    if assistant_visible_required:
+        lines.extend(["", "Required Visible Fields:"])
+        lines.extend(f"- {item}" for item in required_visible_fields)
+    if problems:
+        lines.extend(["", "Problems:"])
+        lines.extend(f"- {item}" for item in problems)
+    lines.extend(["", "Recommended Commands:"])
+    if recommended_commands:
+        lines.extend(f"- {item}" for item in recommended_commands)
+    else:
+        lines.append("- none; tracked edit may proceed only through the approved edit path and current pre-edit evidence.")
+    lines.extend([
+        "",
+        "Boundary:",
+        "- Native edit-tool interception is host-required; this command is read-only guidance plus machine-checkable evidence.",
+    ])
+    print("\n".join(lines))
+    return 0 if action == "READY_FOR_EDIT" else 1
+
+
 def implementation_lease_acquire(
     root: Path,
     slug: str,
@@ -7000,6 +7153,11 @@ COMMAND_GUIDE_FLOWS: dict[str, list[dict[str, str]]] = {
     ],
     "implementation-edit": [
         {
+            "step": "Ask the Display Layer controller for the next required action",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation next-action --root "$(pwd)" --slug <slug> --task TASK-1 --files <path-a> <path-b> --json',
+            "notes": "If it reports NEEDS_READY, NEEDS_TASK_ENTRY, or NEEDS_VISIBLE_OUTPUT_RECORD, show and record the required assistant-visible Display Layer before editing.",
+        },
+        {
             "step": "Recover missing or stale READY before retrying edit gates",
             "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation recover-ready --root "$(pwd)" --slug <slug> --task TASK-1',
             "notes": "Use once after READY/show-ready/enter-task/pre-edit refusal caused by missing or stale READY; then run the recommended command.",
@@ -7546,6 +7704,15 @@ def build_parser() -> argparse.ArgumentParser:
     iov.add_argument("--root", required=True)
     iov.add_argument("--slug", required=True)
     iov.add_argument("--profile", default=None, help="Optional upper-layer profile label for overview output.")
+    ina = impl_sub.add_parser("next-action", help="Print the next required Display Layer or edit-gate action without changing state.")
+    ina.add_argument("--root", required=True)
+    ina.add_argument("--slug", required=True)
+    ina.add_argument("--task", required=True, help="TASK/IMP id to inspect, such as TASK-1.")
+    ina.add_argument("--file", action="append", default=[], help="File path intended for edit. Repeat for multiple files.")
+    ina.add_argument("--files", nargs="+", action="append", default=[], help="Grouped file paths intended for edit, e.g. --files a.py b.py.")
+    ina.add_argument("--owner", default="agent", help="Agent/session owner label expected to hold the write lease.")
+    ina.add_argument("--json", action="store_true", help="Print machine-readable next-action output.")
+    ina.add_argument("--profile", default=None, help="Optional upper-layer profile label for next-action output.")
     ivo = impl_sub.add_parser("visible-output", help="Record or inspect assistant-visible Exploration/READY display evidence.")
     visible_sub = ivo.add_subparsers(dest="implementation_visible_output_command", required=True)
     ivr = visible_sub.add_parser("record", help="Record the assistant-visible Exploration/READY block before pre-edit.")
@@ -7879,6 +8046,8 @@ def main(argv: Iterable[str] | None = None) -> int:
             return implementation_enter_task(root, args.slug, args.task, args.profile)
         if args.implementation_command == "overview":
             return implementation_overview(root, args.slug, args.profile)
+        if args.implementation_command == "next-action":
+            return implementation_next_action(root, args.slug, args.task, _combined_file_args(args.file, args.files), args.owner, args.json, args.profile)
         if args.implementation_command == "visible-output":
             if args.implementation_visible_output_command == "record":
                 assistant_body = read_content_arg(args.assistant_body, args.assistant_body_file)

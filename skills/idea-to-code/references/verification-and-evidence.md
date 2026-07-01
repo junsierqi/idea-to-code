@@ -233,6 +233,8 @@ For multi-task work, default user-visible execution display to the current TASK'
 
 Use `implementation enter-task --task <TASK-ID>` as the normal transition command. It records `current_task_id`, preserves the current `READY_TASK_OUTPUT_ID`, and prints `Display Layer: READY Focus`. Use `implementation overview` for read-only progress questions; it must show `Planned Scope`, current TASK, next TASKs, and the `--full-plan` audit hint without mutating implementation evidence.
 
+Use `implementation next-action --task <TASK-ID>` as the read-only Display Layer controller before tracked edits or compliance review. Its stable action codes are `NEEDS_READY`, `NEEDS_TASK_ENTRY`, `NEEDS_VISIBLE_OUTPUT_RECORD`, `NEEDS_LEASE`, `NEEDS_PRE_EDIT`, and `READY_FOR_EDIT`. If it reports `assistant_visible_required: true`, the agent, subagent, or fresh-agent transcript is not compliant until the assistant-visible body contains the required Exploration/READY fields and `implementation visible-output record` captures that body. The command does not physically intercept native edit tools; that boundary remains host-required.
+
 Use the READY task filter when a long bundle would hide the current work:
 
 ```bash

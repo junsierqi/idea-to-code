@@ -4659,6 +4659,70 @@ Planned Verification:
         self.assertNotEqual(0, result.returncode)
         self.assertIn("visible output record missing or stale", result.stderr)
 
+    def test_implementation_next_action_reports_missing_ready_display(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+
+        result = self.run_bundle(
+            "implementation", "next-action",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--task", "TASK-1",
+            "--json",
+            check=False,
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertEqual("NEEDS_READY", payload["action"])
+        self.assertTrue(payload["assistant_visible_required"])
+        self.assertIn("Display Layer: Exploration Result", payload["required_visible_fields"])
+        self.assertIn("implementation ready", " ".join(payload["recommended_commands"]))
+
+    def test_implementation_next_action_reports_missing_visible_output(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("implementation", "enter-task", "--root", str(self.root), "--slug", slug, "--task", "TASK-1")
+
+        result = self.run_bundle(
+            "implementation", "next-action",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--task", "TASK-1",
+            "--file", "state.json",
+            "--json",
+            check=False,
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertEqual("NEEDS_VISIBLE_OUTPUT_RECORD", payload["action"])
+        self.assertTrue(payload["assistant_visible_required"])
+        self.assertIn("implementation visible-output record", " ".join(payload["recommended_commands"]))
+
+    def test_implementation_next_action_reports_ready_for_edit_after_pre_edit(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("implementation", "enter-task", "--root", str(self.root), "--slug", slug, "--task", "TASK-1")
+        self.acquire_lease(slug)
+        self.run_bundle("implementation", "pre-edit", "--root", str(self.root), "--slug", slug, "--task", "TASK-1", "--file", "state.json")
+
+        result = self.run_bundle(
+            "implementation", "next-action",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--task", "TASK-1",
+            "--file", "state.json",
+            "--json",
+        )
+
+        payload = json.loads(result.stdout)
+        self.assertEqual("READY_FOR_EDIT", payload["action"])
+        self.assertFalse(payload["assistant_visible_required"])
+        self.assertEqual([], payload["problems"])
+
     def test_visible_output_record_allows_pre_edit_and_is_status_visible(self) -> None:
         slug = self.init_bundle()
         self.write_ready_bundle(slug, mark_ready=False)
