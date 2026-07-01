@@ -6866,6 +6866,18 @@ def _fresh_benchmark_scores_path(target: Path) -> Path:
     return target / "artifacts" / "fresh-session-scores.json"
 
 
+FRESH_BENCHMARK_RAW_OUTPUT_MARKERS = (
+    "[idea-to-code]",
+    "/fresh-agent]",
+    "Exploration Result",
+    "Implementation Gate: READY",
+    "EXPLORATION_OUTPUT_ID",
+    "READY_TASK_OUTPUT_ID",
+)
+
+FRESH_BENCHMARK_SCORE_TOTAL_FIELDS = ("total", "total_score", "score")
+
+
 def _fresh_benchmark_payload(target: Path, status: dict) -> dict:
     artifact = _fresh_benchmark_artifact_path(target)
     exists = artifact.exists()
@@ -7029,6 +7041,89 @@ def fresh_benchmark_import_result(root: Path, slug: str, raw_output_file: str, s
         append_ledger(target, "fresh-benchmark-import-result", f"Imported fresh-session result with external status: {external_status}")
     print(json.dumps(_fresh_benchmark_payload(target, status), indent=2, ensure_ascii=False))
     return 0
+
+
+def _fresh_benchmark_import_verification(target: Path, status: dict) -> dict:
+    payload = _fresh_benchmark_payload(target, status)
+    problems: list[str] = []
+    raw_rel = status.get("fresh_benchmark_raw_output_artifact")
+    score_rel = status.get("fresh_benchmark_score_artifact")
+    raw_text = ""
+    scores = status.get("fresh_benchmark_scores")
+
+    if not payload["exists"]:
+        problems.append("fresh-benchmark scaffold artifact is missing; run fresh-benchmark init first")
+    if payload["state"] != "completed":
+        problems.append("fresh-benchmark status must be completed before verify-import can pass")
+    if status.get("fresh_benchmark_external_run_status") != "completed":
+        problems.append("external-status must be completed")
+
+    if not raw_rel:
+        problems.append("import-result has not recorded a raw output artifact")
+    else:
+        raw_path = target / raw_rel
+        if not raw_path.is_file():
+            problems.append(f"raw output artifact missing: {raw_rel}")
+        else:
+            raw_text = raw_path.read_text(encoding="utf-8")
+            for marker in FRESH_BENCHMARK_RAW_OUTPUT_MARKERS:
+                if marker not in raw_text:
+                    problems.append(f"raw output missing marker: {marker}")
+
+    if not score_rel:
+        problems.append("import-result has not recorded a score JSON artifact")
+    else:
+        score_path = target / score_rel
+        if not score_path.is_file():
+            problems.append(f"score JSON artifact missing: {score_rel}")
+        else:
+            try:
+                artifact_scores = json.loads(score_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as exc:
+                problems.append(f"score JSON artifact is invalid JSON: {exc}")
+            else:
+                if artifact_scores != scores:
+                    problems.append("score JSON artifact does not match imported state scores")
+
+    if not isinstance(scores, dict) or not scores:
+        problems.append("scores-json must be a non-empty JSON object")
+    else:
+        total_fields_present = [field for field in FRESH_BENCHMARK_SCORE_TOTAL_FIELDS if field in scores]
+        if not total_fields_present:
+            problems.append("scores-json must contain one of: total, total_score, score")
+        detail_fields = [field for field in scores if field not in FRESH_BENCHMARK_SCORE_TOTAL_FIELDS]
+        if not detail_fields:
+            problems.append("scores-json must contain at least one detail field besides total")
+
+    return {
+        "schema": "idea-to-code.fresh-benchmark.verify-import.v1",
+        "ok": not problems,
+        "problems": problems,
+        "state": payload["state"],
+        "raw_output_artifact": raw_rel,
+        "score_artifact": score_rel,
+        "external_run_status": status.get("fresh_benchmark_external_run_status"),
+        "required_markers": list(FRESH_BENCHMARK_RAW_OUTPUT_MARKERS),
+        "score_total_fields": list(FRESH_BENCHMARK_SCORE_TOTAL_FIELDS),
+        "marker_results": {marker: marker in raw_text for marker in FRESH_BENCHMARK_RAW_OUTPUT_MARKERS},
+    }
+
+
+def fresh_benchmark_verify_import(root: Path, slug: str) -> int:
+    target = ensure_active_bundle(root, slug, allow_blocked=True)
+    with bundle_lock(target):
+        status = read_status(target)
+        result = _fresh_benchmark_import_verification(target, status)
+        status["fresh_benchmark_verify_import_ok"] = result["ok"]
+        status["fresh_benchmark_verify_import_at_utc"] = utc_now()
+        status["fresh_benchmark_verify_import_problems"] = result["problems"]
+        status["fresh_benchmark_verify_import_event_sequence"] = _next_event_sequence(status)
+        write_status(target, status)
+        event = "fresh-benchmark-verify-import-pass" if result["ok"] else "fresh-benchmark-verify-import-fail"
+        detail = "Verified imported fresh-session evidence" if result["ok"] else "; ".join(result["problems"])
+        append_ledger(target, event, detail)
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+    return 0 if result["ok"] else 1
 
 
 def fresh_benchmark_status(root: Path, slug: str) -> int:
@@ -7588,6 +7683,9 @@ def build_parser() -> argparse.ArgumentParser:
     fbir.add_argument("--raw-output-file", required=True)
     fbir.add_argument("--scores-json", required=True)
     fbir.add_argument("--external-status", required=True, choices=("completed", "partial", "unavailable"))
+    fbv = fb_sub.add_parser("verify-import", help="Audit imported fresh-session evidence before treating it as evidence ready.")
+    fbv.add_argument("--root", required=True)
+    fbv.add_argument("--slug", required=True)
 
     p = sub.add_parser("branch-map", help="Print the lifecycle branch coverage map.")
     p.add_argument("--json", action="store_true", help="Print machine-readable JSON only.")
@@ -8039,6 +8137,8 @@ def main(argv: Iterable[str] | None = None) -> int:
             return fresh_benchmark_status(root, args.slug)
         if args.fresh_benchmark_command == "import-result":
             return fresh_benchmark_import_result(root, args.slug, args.raw_output_file, args.scores_json, args.external_status)
+        if args.fresh_benchmark_command == "verify-import":
+            return fresh_benchmark_verify_import(root, args.slug)
 
     if args.command == "checkpoint":
         target = checkpoint_bundle(

@@ -909,12 +909,15 @@ For fresh-session validation, create a bundle-local artifact before running an e
 ```bash
 python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" fresh-benchmark init --root "$(pwd)" --slug <slug>
 python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" fresh-benchmark import-result --root "$(pwd)" --slug <slug> --raw-output-file <path> --scores-json '{"total":"<n>/63"}' --external-status completed
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" fresh-benchmark verify-import --root "$(pwd)" --slug <slug>
 python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" fresh-benchmark status --root "$(pwd)" --slug <slug>
 ```
 
 `fresh-benchmark init` creates evidence scaffolding only. It is not proof that a fresh agent, multi-agent run, or new session actually followed the rules. The repository command does not launch or control the host fresh agent; that execution boundary remains host-owned.
 
 `fresh-benchmark import-result` records externally produced raw output and score JSON after a real fresh session has run. Use `--external-status partial` or `--external-status unavailable` when the host run did not complete; those states must not be described as completed live evidence.
+
+`fresh-benchmark verify-import` is the repo-enforced evidence-quality gate for imported results. It checks that the import has `external-status completed`, an existing raw output artifact, a non-empty score JSON object with scoring detail, and required raw-output protocol markers such as `[idea-to-code]`, `/fresh-agent]`, `Exploration Result`, `Implementation Gate: READY`, `EXPLORATION_OUTPUT_ID`, and `READY_TASK_OUTPUT_ID`. A passing `verify-import` does not prove host-level runtime isolation by itself; it only proves the imported artifact satisfies the repository's evidence-admission rules.
 
 `fresh-benchmark status` is the machine-readable lifecycle check for that artifact. Treat `state: missing` as no scaffold, `state: scaffolded` as template created but no live evidence, `state: partial` or `state: unavailable` as non-completed external validation, and `state: completed` as allowed only when raw output, score JSON, and `External run status: completed` are all recorded. Use `next_required_action` to decide what remains; booleans such as `external_run_required` and `live_evidence_created` are compatibility fields, not the full lifecycle explanation.
 

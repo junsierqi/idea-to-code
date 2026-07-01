@@ -5517,6 +5517,141 @@ Planned Verification:
         self.assertNotEqual(missing_file.returncode, 0)
         self.assertIn("raw output file not found", missing_file.stderr)
 
+    def test_fresh_benchmark_verify_import_passes_complete_imported_evidence(self) -> None:
+        slug = self.init_bundle()
+        self.run_bundle("fresh-benchmark", "init", "--root", str(self.root), "--slug", slug)
+        raw_output = self.root / "fresh-output.txt"
+        raw_output.write_text(
+            "\n".join([
+                "[idea-to-code][Planner/fresh-agent] Exploration Result",
+                "EXPLORATION_OUTPUT_ID: fresh-explore-1",
+                "[idea-to-code][Planner/fresh-agent] Implementation Gate: READY",
+                "READY_TASK_OUTPUT_ID: fresh-ready-1",
+            ]) + "\n",
+            encoding="utf-8",
+        )
+        self.run_bundle(
+            "fresh-benchmark", "import-result",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--raw-output-file", str(raw_output),
+            "--scores-json", '{"total": "61/63", "ready_shape": true}',
+            "--external-status", "completed",
+        )
+
+        verified = self.run_bundle("fresh-benchmark", "verify-import", "--root", str(self.root), "--slug", slug)
+        payload = json.loads(verified.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["problems"], [])
+        self.assertEqual(payload["state"], "completed")
+        self.assertTrue(all(payload["marker_results"].values()))
+        status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        self.assertTrue(status["fresh_benchmark_verify_import_ok"])
+        self.assertEqual(status["fresh_benchmark_verify_import_problems"], [])
+
+    def test_fresh_benchmark_verify_import_rejects_partial_external_status(self) -> None:
+        slug = self.init_bundle()
+        self.run_bundle("fresh-benchmark", "init", "--root", str(self.root), "--slug", slug)
+        raw_output = self.root / "fresh-output.txt"
+        raw_output.write_text(
+            "[idea-to-code][Planner/fresh-agent] Exploration Result\n"
+            "EXPLORATION_OUTPUT_ID: fresh-explore-1\n"
+            "[idea-to-code][Planner/fresh-agent] Implementation Gate: READY\n"
+            "READY_TASK_OUTPUT_ID: fresh-ready-1\n",
+            encoding="utf-8",
+        )
+        self.run_bundle(
+            "fresh-benchmark", "import-result",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--raw-output-file", str(raw_output),
+            "--scores-json", '{"total": "44/63", "ready_shape": false}',
+            "--external-status", "partial",
+        )
+
+        verified = self.run_bundle("fresh-benchmark", "verify-import", "--root", str(self.root), "--slug", slug, check=False)
+        payload = json.loads(verified.stdout)
+        self.assertNotEqual(verified.returncode, 0)
+        self.assertFalse(payload["ok"])
+        self.assertIn("external-status must be completed", payload["problems"])
+        self.assertIn("fresh-benchmark status must be completed before verify-import can pass", payload["problems"])
+        status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        self.assertFalse(status["fresh_benchmark_verify_import_ok"])
+
+    def test_fresh_benchmark_verify_import_rejects_missing_raw_markers(self) -> None:
+        slug = self.init_bundle()
+        self.run_bundle("fresh-benchmark", "init", "--root", str(self.root), "--slug", slug)
+        raw_output = self.root / "fresh-output.txt"
+        raw_output.write_text("[idea-to-code][Closer/fresh-agent] Status: accepted\n", encoding="utf-8")
+        self.run_bundle(
+            "fresh-benchmark", "import-result",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--raw-output-file", str(raw_output),
+            "--scores-json", '{"total": "61/63", "ready_shape": true}',
+            "--external-status", "completed",
+        )
+
+        verified = self.run_bundle("fresh-benchmark", "verify-import", "--root", str(self.root), "--slug", slug, check=False)
+        payload = json.loads(verified.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertIn("raw output missing marker: Exploration Result", payload["problems"])
+        self.assertIn("raw output missing marker: Implementation Gate: READY", payload["problems"])
+        self.assertIn("raw output missing marker: EXPLORATION_OUTPUT_ID", payload["problems"])
+        self.assertIn("raw output missing marker: READY_TASK_OUTPUT_ID", payload["problems"])
+
+    def test_fresh_benchmark_verify_import_rejects_weak_score_schema(self) -> None:
+        slug = self.init_bundle()
+        self.run_bundle("fresh-benchmark", "init", "--root", str(self.root), "--slug", slug)
+        raw_output = self.root / "fresh-output.txt"
+        raw_output.write_text(
+            "[idea-to-code][Planner/fresh-agent] Exploration Result\n"
+            "EXPLORATION_OUTPUT_ID: fresh-explore-1\n"
+            "[idea-to-code][Planner/fresh-agent] Implementation Gate: READY\n"
+            "READY_TASK_OUTPUT_ID: fresh-ready-1\n",
+            encoding="utf-8",
+        )
+        self.run_bundle(
+            "fresh-benchmark", "import-result",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--raw-output-file", str(raw_output),
+            "--scores-json", '{"total": "61/63"}',
+            "--external-status", "completed",
+        )
+
+        verified = self.run_bundle("fresh-benchmark", "verify-import", "--root", str(self.root), "--slug", slug, check=False)
+        payload = json.loads(verified.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertIn("scores-json must contain at least one detail field besides total", payload["problems"])
+
+    def test_fresh_benchmark_verify_import_rejects_tampered_score_artifact(self) -> None:
+        slug = self.init_bundle()
+        self.run_bundle("fresh-benchmark", "init", "--root", str(self.root), "--slug", slug)
+        raw_output = self.root / "fresh-output.txt"
+        raw_output.write_text(
+            "[idea-to-code][Planner/fresh-agent] Exploration Result\n"
+            "EXPLORATION_OUTPUT_ID: fresh-explore-1\n"
+            "[idea-to-code][Planner/fresh-agent] Implementation Gate: READY\n"
+            "READY_TASK_OUTPUT_ID: fresh-ready-1\n",
+            encoding="utf-8",
+        )
+        imported = self.run_bundle(
+            "fresh-benchmark", "import-result",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--raw-output-file", str(raw_output),
+            "--scores-json", '{"total": "61/63", "ready_shape": true}',
+            "--external-status", "completed",
+        )
+        score_artifact = self.root / ".idea-to-code" / slug / json.loads(imported.stdout)["score_artifact"]
+        score_artifact.write_text('{"total": "0/63", "ready_shape": false}\n', encoding="utf-8")
+
+        verified = self.run_bundle("fresh-benchmark", "verify-import", "--root", str(self.root), "--slug", slug, check=False)
+        payload = json.loads(verified.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertIn("score JSON artifact does not match imported state scores", payload["problems"])
+
     def test_implementer_evidence_must_cite_latest_pre_edit_guard_when_present(self) -> None:
         slug = self.init_bundle()
         self.write_ready_bundle(slug, mark_ready=False)
