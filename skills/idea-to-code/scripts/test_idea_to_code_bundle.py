@@ -5087,6 +5087,23 @@ Planned Verification:
         self.assertNotEqual(0, result.returncode)
         self.assertIn("test-batch refused - --slow-count must be zero or greater", result.stderr)
 
+    def test_host_hook_pre_edit_contract_json_exposes_required_checks_and_boundary(self) -> None:
+        result = self.run_bundle("host-hook", "pre-edit-contract", "--json")
+        payload = json.loads(result.stdout)
+
+        self.assertEqual("idea-to-code.host-hook.pre-edit-contract.v1", payload["schema"])
+        self.assertEqual("host-required", payload["enforcement_boundary"])
+        self.assertIn("implementation next-action returns READY_FOR_EDIT", "\n".join(payload["required_checks"]))
+        self.assertIn("PRE_EDIT_OK_ID", payload["allow_evidence"])
+        self.assertIn("cannot physically intercept native edit tools", "\n".join(payload["host_integration_notes"]))
+
+    def test_host_hook_pre_edit_contract_text_exposes_boundary(self) -> None:
+        result = self.run_bundle("host-hook", "pre-edit-contract")
+
+        self.assertIn("Host Hook Contract: pre-edit", result.stdout)
+        self.assertIn("Enforcement Boundary: host-required", result.stdout)
+        self.assertIn("Required Checks:", result.stdout)
+
     def test_user_facing_language_contract_preserves_protocol_english(self) -> None:
         skill = SKILL_MD.read_text(encoding="utf-8")
         workflow = WORKFLOW_MD.read_text(encoding="utf-8")

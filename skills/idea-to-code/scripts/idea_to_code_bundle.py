@@ -7213,6 +7213,63 @@ def command_guide(flow: str, json_only: bool) -> int:
     return 0
 
 
+def host_pre_edit_contract(json_only: bool) -> int:
+    payload = {
+        "schema": "idea-to-code.host-hook.pre-edit-contract.v1",
+        "enforcement_boundary": "host-required",
+        "purpose": "Physically block native file-editing tools until idea-to-code Display Layer and pre-edit gates pass.",
+        "required_inputs": ["root", "slug", "task_id", "owner", "files", "assistant_visible_body"],
+        "required_checks": [
+            "implementation next-action returns READY_FOR_EDIT or a non-edit action that is resolved before writing",
+            "assistant_visible_body contains current Exploration Result and READY Focus when next-action requires it",
+            "implementation visible-output record exists for current READY_TASK_OUTPUT_ID and EXPLORATION_OUTPUT_ID",
+            "implementation lease acquire has non-overlapping ownership for every file",
+            "implementation pre-edit returns PRE_EDIT_OK_ID for the exact task and files",
+            "write paths are a subset of the current TASK Files list",
+        ],
+        "deny_when": [
+            "next-action is NEEDS_READY, NEEDS_TASK_ENTRY, or NEEDS_VISIBLE_OUTPUT_RECORD",
+            "VISIBLE_OUTPUT_ID is missing or stale",
+            "LEASE_ID is missing, stale, overlapping, or owned by another agent",
+            "PRE_EDIT_OK_ID is missing, stale, wrong-task, or missing any write file",
+            "any write file is outside TASK scope",
+        ],
+        "allow_evidence": [
+            "EXPLORATION_OUTPUT_ID",
+            "READY_TASK_OUTPUT_ID",
+            "VISIBLE_OUTPUT_ID",
+            "LEASE_ID",
+            "PRE_EDIT_OK_ID",
+        ],
+        "host_integration_notes": [
+            "This repository can expose and verify the contract but cannot physically intercept native edit tools.",
+            "A compliant host hook must run before every native write operation and fail closed on missing evidence.",
+            "Fallback repository commands such as guarded-apply remain useful but are not equivalent to host interception.",
+        ],
+    }
+    if json_only:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return 0
+    print("[idea-to-code][Reviewer/agent] Host Hook Contract: pre-edit")
+    print("")
+    print(f"Schema: {payload['schema']}")
+    print(f"Enforcement Boundary: {payload['enforcement_boundary']}")
+    print(f"Purpose: {payload['purpose']}")
+    print("")
+    print("Required Checks:")
+    for item in payload["required_checks"]:
+        print(f"- {item}")
+    print("")
+    print("Deny When:")
+    for item in payload["deny_when"]:
+        print(f"- {item}")
+    print("")
+    print("Allow Evidence:")
+    for item in payload["allow_evidence"]:
+        print(f"- {item}")
+    return 0
+
+
 def verify_bundle(root: Path, slug: str) -> int:
     """Structural sanity check. Exits non-zero when required pieces are missing."""
     target = ensure_bundle(root, slug)
@@ -7453,6 +7510,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("command-guide", help="Print valid command shapes for common lifecycle flows.")
     p.add_argument("--flow", default="all", choices=[*COMMAND_GUIDE_FLOWS.keys(), "all"])
     p.add_argument("--json", action="store_true", help="Print machine-readable JSON only.")
+
+    p = sub.add_parser("host-hook", help="Print host integration contracts for enforcement outside the repository.")
+    host_sub = p.add_subparsers(dest="host_hook_command", required=True)
+    hpc = host_sub.add_parser("pre-edit-contract", help="Print the native edit preflight hook contract.")
+    hpc.add_argument("--json", action="store_true", help="Print machine-readable JSON only.")
 
     p = sub.add_parser("output-compliance", help="Check user-visible output against tool stdout for display-layer compliance.")
     oc_sub = p.add_subparsers(dest="output_compliance_command", required=True)
@@ -7831,6 +7893,10 @@ def main(argv: Iterable[str] | None = None) -> int:
 
     if args.command == "command-guide":
         return command_guide(args.flow, args.json)
+
+    if args.command == "host-hook":
+        if args.host_hook_command == "pre-edit-contract":
+            return host_pre_edit_contract(args.json)
 
     if args.command == "output-compliance":
         if args.output_compliance_command == "check":
