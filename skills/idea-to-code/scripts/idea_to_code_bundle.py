@@ -6866,26 +6866,85 @@ def _discover_unittest_methods(test_script: Path) -> list[str]:
     return methods
 
 
-def run_test_batch(chunk_size: int, timeout_seconds: int, limit: int | None) -> int:
+TEST_BATCH_PROFILE_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "full": (),
+    "quick": (
+        "contract",
+        "command_guide",
+        "branch_map",
+        "lifecycle_audit",
+        "output_compliance_self_test",
+        "install_parity",
+        "test_batch",
+    ),
+    "output": (
+        "output_compliance",
+        "visible_output",
+        "ready_output",
+        "render_status",
+        "formal_status",
+        "transcript_audit",
+    ),
+    "lifecycle": (
+        "lifecycle",
+        "branch_map",
+        "implementation_ready",
+        "enter_task",
+        "pre_edit",
+        "lease",
+        "delegation",
+        "backlog",
+        "verify",
+        "finalize",
+        "next_action",
+    ),
+}
+
+
+def _filter_tests_by_profile(tests: list[str], profile: str) -> list[str]:
+    keywords = TEST_BATCH_PROFILE_KEYWORDS[profile]
+    if not keywords:
+        return tests
+    return [
+        test
+        for test in tests
+        if any(keyword in test.lower() for keyword in keywords)
+    ]
+
+
+def run_test_batch(
+    chunk_size: int,
+    timeout_seconds: int,
+    limit: int | None,
+    profile: str = "full",
+    slow_count: int = 3,
+) -> int:
     if chunk_size <= 0:
         raise SystemExit("test-batch refused - --chunk-size must be greater than zero.")
     if timeout_seconds <= 0:
         raise SystemExit("test-batch refused - --timeout-seconds must be greater than zero.")
+    if profile not in TEST_BATCH_PROFILE_KEYWORDS:
+        raise SystemExit("test-batch refused - --profile must be one of: " + ", ".join(TEST_BATCH_PROFILE_KEYWORDS))
+    if slow_count < 0:
+        raise SystemExit("test-batch refused - --slow-count must be zero or greater.")
     test_script = Path(__file__).with_name("test_idea_to_code_bundle.py")
-    tests = _discover_unittest_methods(test_script)
+    discovered = _discover_unittest_methods(test_script)
+    tests = _filter_tests_by_profile(discovered, profile)
     if limit is not None:
         if limit <= 0:
             raise SystemExit("test-batch refused - --limit must be greater than zero.")
         tests = tests[:limit]
     if not tests:
-        raise SystemExit(f"test-batch refused - no unittest methods discovered in {test_script}.")
+        raise SystemExit(f"test-batch refused - no unittest methods discovered for profile {profile} in {test_script}.")
     chunks = [tests[index:index + chunk_size] for index in range(0, len(tests), chunk_size)]
-    print(f"test-batch: total_tests={len(tests)} chunk_size={chunk_size} chunks={len(chunks)}")
+    print(f"test-batch: profile={profile} total_tests={len(tests)} chunk_size={chunk_size} chunks={len(chunks)}")
+    timings: list[tuple[float, int, int, int]] = []
     for index, chunk in enumerate(chunks, start=1):
         first = (index - 1) * chunk_size + 1
         last = first + len(chunk) - 1
         command = [sys.executable, "-m", "unittest", *chunk]
         print(f"chunk {index}/{len(chunks)}: RUN tests {first}-{last}")
+        started = time.perf_counter()
         result = subprocess.run(
             command,
             cwd=test_script.parent,
@@ -6894,6 +6953,8 @@ def run_test_batch(chunk_size: int, timeout_seconds: int, limit: int | None) -> 
             stderr=subprocess.PIPE,
             timeout=timeout_seconds,
         )
+        elapsed = time.perf_counter() - started
+        timings.append((elapsed, index, first, last))
         if result.stdout:
             print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
         if result.stderr:
@@ -6901,8 +6962,12 @@ def run_test_batch(chunk_size: int, timeout_seconds: int, limit: int | None) -> 
         if result.returncode != 0:
             print(f"chunk {index}/{len(chunks)}: FAIL tests {first}-{last}")
             return result.returncode
-        print(f"chunk {index}/{len(chunks)}: PASS tests {first}-{last}")
-    print(f"test-batch: PASS total_tests={len(tests)}")
+        print(f"chunk {index}/{len(chunks)}: PASS tests {first}-{last} elapsed={elapsed:.3f}s")
+    if slow_count:
+        print("test-batch: slow_chunks")
+        for elapsed, index, first, last in sorted(timings, reverse=True)[:slow_count]:
+            print(f"- chunk {index}/{len(chunks)} tests {first}-{last}: {elapsed:.3f}s")
+    print(f"test-batch: PASS profile={profile} total_tests={len(tests)}")
     return 0
 
 
@@ -7472,6 +7537,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--chunk-size", type=int, default=40)
     p.add_argument("--timeout-seconds", type=int, default=180)
     p.add_argument("--limit", type=int, default=None, help="Optional test count limit for smoke validation.")
+    p.add_argument("--profile", choices=tuple(TEST_BATCH_PROFILE_KEYWORDS), default="full", help="Validation profile to run.")
+    p.add_argument("--slow-count", type=int, default=3, help="Number of slow chunks to summarize after a passing run.")
 
     p = sub.add_parser("route", help="Route incoming user input against the active idea-to-code bundle.")
     p.add_argument("--root", required=True)
@@ -7871,7 +7938,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         return role_explain(args.role)
 
     if args.command == "test-batch":
-        return run_test_batch(args.chunk_size, args.timeout_seconds, args.limit)
+        return run_test_batch(args.chunk_size, args.timeout_seconds, args.limit, args.profile, args.slow_count)
 
     if args.command == "branch-map":
         return branch_map(args.json)

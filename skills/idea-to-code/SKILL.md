@@ -886,10 +886,10 @@ For detailed role/state rules, read `references/roles-and-state.md`.
 For verification, evidence, and closeout rules, read `references/verification-and-evidence.md`.
 For milestone and implementation-plan patterns, read `references/planning-patterns.md`.
 
-When validating this skill itself, prefer the official chunked regression runner when the full unittest suite is too large for one command:
+When validating this skill itself, prefer the official chunked regression runner when the full unittest suite is too large for one command. Use `--profile full` for acceptance that needs full-suite evidence; use `quick`, `output`, or `lifecycle` profiles only when the TASK scope is narrower and record that profile boundary:
 
 ```bash
-python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" test-batch --chunk-size 40 --timeout-seconds 180
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" test-batch --profile full --chunk-size 40 --timeout-seconds 180
 ```
 
 ### Installed Skill Parity Checklist

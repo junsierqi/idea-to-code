@@ -5054,12 +5054,38 @@ Planned Verification:
         self.assertIn("[idea-to-code][Closer/agent] Status: Blocked", rendered.stdout)
 
     def test_test_batch_command_runs_limited_chunked_unittest_subset(self) -> None:
-        result = self.run_bundle("test-batch", "--chunk-size", "1", "--limit", "2", "--timeout-seconds", "60")
+        result = self.run_bundle("test-batch", "--chunk-size", "1", "--limit", "2", "--timeout-seconds", "60", "--slow-count", "1")
 
-        self.assertIn("test-batch: total_tests=2 chunk_size=1 chunks=2", result.stdout)
-        self.assertIn("chunk 1/2: PASS tests 1-1", result.stdout)
-        self.assertIn("chunk 2/2: PASS tests 2-2", result.stdout)
-        self.assertIn("test-batch: PASS total_tests=2", result.stdout)
+        self.assertIn("test-batch: profile=full total_tests=2 chunk_size=1 chunks=2", result.stdout)
+        self.assertIn("chunk 1/2: PASS tests 1-1 elapsed=", result.stdout)
+        self.assertIn("chunk 2/2: PASS tests 2-2 elapsed=", result.stdout)
+        self.assertIn("test-batch: slow_chunks", result.stdout)
+        self.assertIn("test-batch: PASS profile=full total_tests=2", result.stdout)
+
+    def test_test_batch_profile_filters_tests_before_limit(self) -> None:
+        result = self.run_bundle(
+            "test-batch",
+            "--profile", "output",
+            "--chunk-size", "2",
+            "--limit", "2",
+            "--timeout-seconds", "60",
+            "--slow-count", "0",
+        )
+
+        self.assertIn("test-batch: profile=output total_tests=2 chunk_size=2 chunks=1", result.stdout)
+        self.assertIn("test-batch: PASS profile=output total_tests=2", result.stdout)
+        self.assertNotIn("test-batch: slow_chunks", result.stdout)
+
+    def test_test_batch_rejects_negative_slow_count(self) -> None:
+        result = self.run_bundle(
+            "test-batch",
+            "--limit", "1",
+            "--slow-count", "-1",
+            check=False,
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("test-batch refused - --slow-count must be zero or greater", result.stderr)
 
     def test_user_facing_language_contract_preserves_protocol_english(self) -> None:
         skill = SKILL_MD.read_text(encoding="utf-8")
