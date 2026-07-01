@@ -6858,23 +6858,44 @@ def _fresh_benchmark_artifact_path(target: Path) -> Path:
     return target / "artifacts" / "fresh-session-live-benchmark.md"
 
 
+def _fresh_benchmark_raw_output_path(target: Path) -> Path:
+    return target / "artifacts" / "fresh-session-raw-output.txt"
+
+
+def _fresh_benchmark_scores_path(target: Path) -> Path:
+    return target / "artifacts" / "fresh-session-scores.json"
+
+
 def _fresh_benchmark_payload(target: Path, status: dict) -> dict:
     artifact = _fresh_benchmark_artifact_path(target)
     exists = artifact.exists()
     text = artifact.read_text(encoding="utf-8") if exists else ""
     lower_text = text.lower()
-    raw_outputs_present = (
+    raw_artifact_rel = status.get("fresh_benchmark_raw_output_artifact")
+    raw_artifact = target / raw_artifact_rel if raw_artifact_rel else None
+    raw_output_artifact_present = bool(raw_artifact and raw_artifact.exists() and raw_artifact.is_file())
+    imported_scores = status.get("fresh_benchmark_scores")
+    imported_scores_present = isinstance(imported_scores, dict) and bool(imported_scores)
+    imported_external_status = status.get("fresh_benchmark_external_run_status")
+    raw_outputs_present_from_text = (
         exists
         and "Raw output:" in text
         and "`<transcript id or artifact path>`" not in text
         and "<transcript id or artifact path>" not in text
         and "<paste" not in lower_text
     )
-    scores_present = bool(exists and re.search(r"Total score:\s*`?\d+/63`?", text))
-    external_completed = bool(exists and re.search(r"External run status:\s*`?completed`?", text))
-    external_partial = bool(exists and re.search(r"External run status:\s*`?partial`?", text))
-    external_unavailable = bool(exists and re.search(r"External run status:\s*`?unavailable`?", text))
-    live_evidence_created = raw_outputs_present and scores_present and external_completed
+    raw_outputs_present = raw_output_artifact_present or raw_outputs_present_from_text
+    scores_present_from_text = bool(exists and re.search(r"Total score:\s*`?\d+/63`?", text))
+    scores_present = imported_scores_present or scores_present_from_text
+    if imported_external_status:
+        external_completed = imported_external_status == "completed"
+        external_partial = imported_external_status == "partial"
+        external_unavailable = imported_external_status == "unavailable"
+    else:
+        external_completed = bool(exists and re.search(r"External run status:\s*`?completed`?", text))
+        external_partial = bool(exists and re.search(r"External run status:\s*`?partial`?", text))
+        external_unavailable = bool(exists and re.search(r"External run status:\s*`?unavailable`?", text))
+    live_evidence_created = exists and raw_outputs_present and scores_present and external_completed
     if not exists:
         state_value = "missing"
         next_required_action = "run fresh-benchmark init to create the scaffold artifact before any external fresh-session claim"
@@ -6884,12 +6905,22 @@ def _fresh_benchmark_payload(target: Path, status: dict) -> dict:
     elif external_unavailable:
         state_value = "unavailable"
         next_required_action = "record the external-run limitation in status or closeout; do not claim completed live fresh-session evidence"
-    elif external_partial:
+    elif external_partial or raw_outputs_present or scores_present:
         state_value = "partial"
-        next_required_action = "record which raw outputs or scores are missing, then complete or treat as partial external validation"
+        missing = []
+        if not raw_outputs_present:
+            missing.append("raw output artifact")
+        if not scores_present:
+            missing.append("score JSON")
+        if not external_completed:
+            missing.append("External run status: completed")
+        if imported_external_status or raw_outputs_present or scores_present:
+            next_required_action = "complete missing fresh-session evidence: " + ", ".join(missing)
+        else:
+            next_required_action = "record which raw outputs or scores are missing, then complete or treat as partial external validation"
     else:
         state_value = "scaffolded"
-        next_required_action = "run a separate fresh session, replace template placeholders with raw outputs, set External run status to `completed`, and record Total score"
+        next_required_action = "run a separate fresh session, then import raw output and score JSON with fresh-benchmark import-result"
     return {
         "path": str(artifact),
         "exists": exists,
@@ -6904,6 +6935,10 @@ def _fresh_benchmark_payload(target: Path, status: dict) -> dict:
         "external_run_unavailable": external_unavailable,
         "next_required_action": next_required_action,
         "recorded_artifact": status.get("fresh_benchmark_artifact"),
+        "raw_output_artifact": raw_artifact_rel,
+        "score_artifact": status.get("fresh_benchmark_score_artifact"),
+        "external_run_status": imported_external_status,
+        "scores": imported_scores if isinstance(imported_scores, dict) else None,
     }
 
 
@@ -6945,6 +6980,53 @@ def fresh_benchmark_init(root: Path, slug: str, force: bool) -> int:
         status["fresh_benchmark_event_sequence"] = _next_event_sequence(status)
         write_status(target, status)
         append_ledger(target, "fresh-benchmark-init", f"Initialized fresh-session benchmark artifact: {artifact.relative_to(target)}")
+    print(json.dumps(_fresh_benchmark_payload(target, status), indent=2, ensure_ascii=False))
+    return 0
+
+
+def fresh_benchmark_import_result(root: Path, slug: str, raw_output_file: str, scores_json: str, external_status: str) -> int:
+    target = ensure_active_bundle(root, slug, allow_blocked=True)
+    artifact = _fresh_benchmark_artifact_path(target)
+    if not artifact.exists():
+        raise SystemExit(f"fresh-benchmark import-result refused - run fresh-benchmark init first: {artifact}")
+    source = Path(raw_output_file).expanduser()
+    if not source.is_file():
+        raise SystemExit(f"fresh-benchmark import-result refused - raw output file not found: {source}")
+    try:
+        scores = json.loads(scores_json)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"fresh-benchmark import-result refused - invalid score JSON: {exc}") from exc
+    if not isinstance(scores, dict) or not scores:
+        raise SystemExit("fresh-benchmark import-result refused - scores-json must be a non-empty JSON object")
+
+    raw_dest = _fresh_benchmark_raw_output_path(target)
+    scores_dest = _fresh_benchmark_scores_path(target)
+    raw_dest.parent.mkdir(parents=True, exist_ok=True)
+    if source.resolve() != raw_dest.resolve():
+        shutil.copyfile(source, raw_dest)
+    scores_dest.write_text(json.dumps(scores, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    raw_rel = str(raw_dest.relative_to(target))
+    scores_rel = str(scores_dest.relative_to(target))
+    summary = (
+        "\n## Imported Fresh-Session Result\n\n"
+        f"- Raw output: {raw_rel}\n"
+        f"- Score JSON: {scores_rel}\n"
+        f"- External run status: {external_status}\n"
+    )
+    if not artifact.read_text(encoding="utf-8").endswith(summary):
+        artifact.write_text(artifact.read_text(encoding="utf-8").rstrip() + "\n" + summary, encoding="utf-8")
+    with bundle_lock(target):
+        status = read_status(target)
+        status["fresh_benchmark_artifact"] = str(artifact.relative_to(target))
+        status["fresh_benchmark_raw_output_artifact"] = raw_rel
+        status["fresh_benchmark_score_artifact"] = scores_rel
+        status["fresh_benchmark_scores"] = scores
+        status["fresh_benchmark_external_run_status"] = external_status
+        status["fresh_benchmark_external_run_required"] = external_status != "completed"
+        status["fresh_benchmark_imported_at_utc"] = utc_now()
+        status["fresh_benchmark_event_sequence"] = _next_event_sequence(status)
+        write_status(target, status)
+        append_ledger(target, "fresh-benchmark-import-result", f"Imported fresh-session result with external status: {external_status}")
     print(json.dumps(_fresh_benchmark_payload(target, status), indent=2, ensure_ascii=False))
     return 0
 
@@ -7500,6 +7582,12 @@ def build_parser() -> argparse.ArgumentParser:
     fbs = fb_sub.add_parser("status", help="Report whether the fresh-session benchmark artifact exists and has live evidence.")
     fbs.add_argument("--root", required=True)
     fbs.add_argument("--slug", required=True)
+    fbir = fb_sub.add_parser("import-result", help="Import raw fresh-session output and score JSON produced by an external run.")
+    fbir.add_argument("--root", required=True)
+    fbir.add_argument("--slug", required=True)
+    fbir.add_argument("--raw-output-file", required=True)
+    fbir.add_argument("--scores-json", required=True)
+    fbir.add_argument("--external-status", required=True, choices=("completed", "partial", "unavailable"))
 
     p = sub.add_parser("branch-map", help="Print the lifecycle branch coverage map.")
     p.add_argument("--json", action="store_true", help="Print machine-readable JSON only.")
@@ -7949,6 +8037,8 @@ def main(argv: Iterable[str] | None = None) -> int:
             return fresh_benchmark_init(root, args.slug, args.force)
         if args.fresh_benchmark_command == "status":
             return fresh_benchmark_status(root, args.slug)
+        if args.fresh_benchmark_command == "import-result":
+            return fresh_benchmark_import_result(root, args.slug, args.raw_output_file, args.scores_json, args.external_status)
 
     if args.command == "checkpoint":
         target = checkpoint_bundle(

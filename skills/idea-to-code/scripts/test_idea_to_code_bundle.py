@@ -5408,6 +5408,115 @@ Planned Verification:
         self.assertNotEqual(duplicate.returncode, 0)
         self.assertIn("artifact already exists", duplicate.stderr)
 
+    def test_fresh_benchmark_import_result_requires_raw_scores_and_completed_status(self) -> None:
+        slug = self.init_bundle()
+        self.run_bundle("fresh-benchmark", "init", "--root", str(self.root), "--slug", slug)
+        raw_output = self.root / "fresh-output.txt"
+        raw_output.write_text("[idea-to-code][Closer/fresh-agent] Status: accepted\n", encoding="utf-8")
+
+        imported = self.run_bundle(
+            "fresh-benchmark", "import-result",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--raw-output-file", str(raw_output),
+            "--scores-json", '{"total": "61/63", "ready_shape": true}',
+            "--external-status", "completed",
+        )
+        payload = json.loads(imported.stdout)
+        self.assertEqual(payload["state"], "completed")
+        self.assertFalse(payload["external_run_required"])
+        self.assertTrue(payload["live_evidence_created"])
+        self.assertTrue(payload["evidence_ready"])
+        self.assertTrue(payload["raw_outputs_present"])
+        self.assertTrue(payload["scores_present"])
+        self.assertTrue(payload["external_run_completed"])
+        self.assertEqual(payload["external_run_status"], "completed")
+        self.assertEqual(payload["scores"]["total"], "61/63")
+        raw_artifact = self.root / ".idea-to-code" / slug / payload["raw_output_artifact"]
+        score_artifact = self.root / ".idea-to-code" / slug / payload["score_artifact"]
+        self.assertEqual(raw_artifact.read_text(encoding="utf-8"), raw_output.read_text(encoding="utf-8"))
+        self.assertEqual(json.loads(score_artifact.read_text(encoding="utf-8"))["total"], "61/63")
+
+        status = self.run_bundle("fresh-benchmark", "status", "--root", str(self.root), "--slug", slug)
+        status_payload = json.loads(status.stdout)
+        self.assertEqual(status_payload["state"], "completed")
+        self.assertTrue(status_payload["live_evidence_created"])
+
+    def test_fresh_benchmark_import_result_keeps_partial_status_out_of_completed_state(self) -> None:
+        slug = self.init_bundle()
+        init = self.run_bundle("fresh-benchmark", "init", "--root", str(self.root), "--slug", slug)
+        artifact = Path(json.loads(init.stdout)["path"])
+        artifact.write_text(
+            artifact.read_text(encoding="utf-8")
+            .replace("External run status: not-started | in-progress | partial | unavailable | completed", "External run status: completed")
+            .replace("- Total score: <n>/63", "- Total score: 63/63")
+            .replace("Raw output: <transcript id or artifact path>", "Raw output: artifacts/old-completed.txt"),
+            encoding="utf-8",
+        )
+        raw_output = self.root / "fresh-partial-output.txt"
+        raw_output.write_text("partial external result\n", encoding="utf-8")
+
+        imported = self.run_bundle(
+            "fresh-benchmark", "import-result",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--raw-output-file", str(raw_output),
+            "--scores-json", '{"total": "44/63"}',
+            "--external-status", "partial",
+        )
+        payload = json.loads(imported.stdout)
+        self.assertEqual(payload["state"], "partial")
+        self.assertTrue(payload["external_run_required"])
+        self.assertFalse(payload["live_evidence_created"])
+        self.assertFalse(payload["evidence_ready"])
+        self.assertTrue(payload["raw_outputs_present"])
+        self.assertTrue(payload["scores_present"])
+        self.assertFalse(payload["external_run_completed"])
+        self.assertTrue(payload["external_run_partial"])
+        self.assertIn("External run status: completed", payload["next_required_action"])
+
+    def test_fresh_benchmark_import_result_rejects_missing_or_invalid_inputs(self) -> None:
+        slug = self.init_bundle()
+        raw_output = self.root / "fresh-output.txt"
+        raw_output.write_text("raw\n", encoding="utf-8")
+
+        without_init = self.run_bundle(
+            "fresh-benchmark", "import-result",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--raw-output-file", str(raw_output),
+            "--scores-json", '{"total": "1/63"}',
+            "--external-status", "completed",
+            check=False,
+        )
+        self.assertNotEqual(without_init.returncode, 0)
+        self.assertIn("run fresh-benchmark init first", without_init.stderr)
+
+        self.run_bundle("fresh-benchmark", "init", "--root", str(self.root), "--slug", slug)
+        invalid_json = self.run_bundle(
+            "fresh-benchmark", "import-result",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--raw-output-file", str(raw_output),
+            "--scores-json", "not-json",
+            "--external-status", "completed",
+            check=False,
+        )
+        self.assertNotEqual(invalid_json.returncode, 0)
+        self.assertIn("invalid score JSON", invalid_json.stderr)
+
+        missing_file = self.run_bundle(
+            "fresh-benchmark", "import-result",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--raw-output-file", str(self.root / "missing.txt"),
+            "--scores-json", '{"total": "1/63"}',
+            "--external-status", "completed",
+            check=False,
+        )
+        self.assertNotEqual(missing_file.returncode, 0)
+        self.assertIn("raw output file not found", missing_file.stderr)
+
     def test_implementer_evidence_must_cite_latest_pre_edit_guard_when_present(self) -> None:
         slug = self.init_bundle()
         self.write_ready_bundle(slug, mark_ready=False)
