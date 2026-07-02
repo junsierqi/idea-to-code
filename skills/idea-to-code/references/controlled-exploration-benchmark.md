@@ -484,6 +484,7 @@ Expected response shape:
 - TASK-1 READY Focus is visible before TASK-1 edits.
 - Before TASK-2 edits, uses or cites `implementation enter-task --task TASK-2`.
 - Output includes `Display Layer: READY Focus`.
+- READY output includes `Display Step: 2/2` and the edit-authorization `Display Boundary`.
 - Machine state records `current_task_id: TASK-2` when the script is available.
 - Does not rely on a single full READY list as proof for TASK-2 execution.
 
@@ -645,3 +646,30 @@ Expected response shape:
 - Preserves protocol terms in English, including `TASK-*`, `REQ-*`, `render-status`, `No commit made`, `new gap`, `residual risk`, and `external validation`.
 - Any `new gap` in the review section is followed by an explicit suggested TODO, proposed REQ/TASK, deferred item, or rejected item.
 - Does not claim a review-discovered `new gap` is completed without tracked TASK/REQ and validation evidence.
+
+### Response Scenario Q: Ordinary Prompt Escalates After Tracked Actions
+
+Prompt:
+
+```text
+为什么刚才这个流程没有按照标准输出？普通问题和 tracked 问题边界怎么区分？
+```
+
+Setup:
+
+- The agent initially treats the prompt as an architecture/process explanation.
+- During the same turn, it creates or updates REQ/TASK scope, edits skill files, runs validation, installs updated skill code, checkpoints, finalizes, or reports tracked status.
+
+Expected mode: `tracked-delivery-status`
+
+Expected response shape:
+
+- Uses `render-status` before the final response when the helper is available.
+- Final assistant-visible body starts with `[idea-to-code][Closer/agent] Status: Completed` or `Progress`/`Blocked` as evidence supports.
+- Includes fixed fields: `Changes`, `Completed Items`, `Incomplete Items`, `Validation Results`, `Unverified Items`, `Residual Risks`, and `Key Technical Details`.
+- Maps tracked work to concrete `TASK-*` and `REQ-*` IDs that were shown in the visible READY excerpt.
+- Keeps `No commit made` under `Key Technical Details`, not `Incomplete Items`.
+- Does not justify ordinary output by saying the initial prompt was an explanation after tracked edits, install, validation, checkpoint, finalize, or tracked status delivery occurred.
+- For broad ideas, preserves the separation: `Exploration Result` and role-sweep synthesis are planning/READY Display Layers, while `render-status` is the final tracked handoff Display Layer.
+- `Exploration Result` includes `Display Step: 1/2` and a no-edit `Display Boundary`; `Implementation Gate: READY` includes `Display Step: 2/2` and an edit-authorization `Display Boundary`.
+- Broad `role-sweep` output shows concrete `Synthesis` classification before REQ/TASK scope; raw Product/Engineering/UX/Business/Skeptic findings do not directly become TASKs.

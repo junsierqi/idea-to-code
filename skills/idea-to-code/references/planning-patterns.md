@@ -42,7 +42,15 @@ Use the chat session as the default ledger boundary. One session slug can contai
 
 ## Controlled Exploration Pattern
 
-Controlled Exploration is the bounded brainstorming step after Intake Gate and before Task Classification. It is also a required Exploration Visibility Gate before READY. It records whether exploration is needed, compares a small set of options only when needed, chooses one decision before implementation planning, and surfaces that decision to the user.
+Controlled Exploration is the bounded brainstorming step after Intake Gate and before Task Classification. It is also a required Exploration Visibility Gate before READY. It records whether exploration is needed, selects an adaptive exploration mode, compares a small set of options only when needed, chooses one decision before implementation planning, and surfaces that decision to the user.
+
+Use modes as control semantics, not as hard user-visible templates:
+
+- `no-fork`: exploration is safely skipped because the task has one clear, low-risk path.
+- `option-comparison`: the existing bounded exploration path for real route, architecture, API, data, security, cost, migration, ambiguity, or verification forks.
+- `role-sweep`: a broad-idea discovery path for vague, high-risk, unstable, or multi-domain ideas where several perspectives may find different candidate problems before synthesis.
+
+Do not describe the existing exploration path as simply "medium uncertainty". `option-comparison` is about mutually exclusive or meaningfully different route choices. `role-sweep` is about increasing problem coverage for broad ideas before route selection. `no-fork`, `option-comparison`, and `role-sweep` all live inside Controlled Exploration; none creates a new lifecycle phase.
 
 Rendered exploration output must separate `Planned Scope` from `Decision Options`. `Planned Scope` lists what is required now, what is deferred, and what READY may cover. `Decision Options` lists only mutually exclusive route choices. This keeps multi-change ideas readable: required items such as A and C are not presented as choices, while route options such as 1, 2, or a revised 3 remain explicit decisions. Current bundles should record `Planned Scope` structurally; fallback text is only for legacy bundle compatibility.
 
@@ -58,6 +66,7 @@ Use this shape in `00-idea.md`:
 ## Controlled Exploration
 
 - Exploration Needed: yes|no
+- Exploration Mode: no-fork|option-comparison|role-sweep
 - Trigger: <why exploration is needed or safely skipped>
 - Constraints:
   - <hard constraint from user, repository, governance, or runtime>
@@ -73,6 +82,18 @@ Use this shape in `00-idea.md`:
     - Risk:
     - Verification path:
     - Rejection condition:
+- Role Sweep Findings:
+  - Product:
+  - Engineering:
+  - UX:
+  - Business:
+  - Skeptic:
+- Synthesis:
+  - Common findings:
+  - Conflicting findings:
+  - Accepted problems:
+  - Rejected findings:
+  - Deferred / unverified:
 - Decision:
   - Chosen option:
   - Decision reason:
@@ -80,7 +101,11 @@ Use this shape in `00-idea.md`:
   - Unverified items:
 ```
 
-Default to `Exploration Needed: no`. Use `Exploration Needed: yes` only for real user-visible, architecture, API, cross-module, security, data, cost, migration, destructive-action, ambiguity, failure-cause, verification, or meaningful risk forks. Keep it to 2-4 options, then pick exactly one option before `implementation ready`.
+Default to `Exploration Needed: no` and `Exploration Mode: no-fork`. Use `Exploration Needed: yes` only for real user-visible, architecture, API, cross-module, security, data, cost, migration, destructive-action, ambiguity, failure-cause, verification, or meaningful risk forks. For `option-comparison`, keep it to 2-4 options, then pick exactly one option before `implementation ready`.
+
+Use `role-sweep` only when the input is broad enough that a single option comparison would likely miss material problem classes. Suggested perspectives are Product, Engineering, UX, Business, and Skeptic, but use only the useful perspectives for the idea. Role-sweep findings are candidate findings, not implementation scope. They must pass through `Synthesis` and become `Accepted problems`, `Deferred / unverified`, or `Rejected findings` before they can influence `Planned Scope`, REQ rows, or TASK rows.
+
+If real subagents or fresh agents are available and useful, record usable delegation evidence before claiming independent role-sweep evidence. If they are unavailable, run the same perspectives as same-agent analysis and disclose that boundary; do not display `/subagent` or claim fresh-agent stability.
 
 When the user's requested implementation is flawed, treat it as a candidate path, explain the issue, and recommend a better default path. Do not dump low-level engineering choices on the user.
 

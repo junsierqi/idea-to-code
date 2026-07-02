@@ -124,6 +124,8 @@ class BundleTest(unittest.TestCase):
         return (
             "[idea-to-code][Planner/agent] Exploration Result | Bundle: sample\n"
             "Display Layer: Exploration Result\n"
+            "Display Step: 1/2\n"
+            "Display Boundary: This block authorizes no file edits; show READY as a separate assistant-visible block before edit authorization.\n"
             "Next Layer: READY Focus after this output is visible; Full Plan only on --full-plan.\n"
             "EXPLORATION_OUTPUT_ID: sample-explore\n"
             "Required Now: TASK-1 / REQ-1\n"
@@ -132,6 +134,8 @@ class BundleTest(unittest.TestCase):
             "What READY Will Cover: TASK-1\n\n"
             "[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: sample\n"
             "Display Layer: READY Focus\n"
+            "Display Step: 2/2\n"
+            "Display Boundary: Edit authorization starts only after this READY block is visible, visible-output is recorded, lease is acquired, and pre-edit passes.\n"
             "READY_TASK_OUTPUT_ID: sample-ready\n"
             "EXPLORATION_OUTPUT_ID: sample-explore\n"
             "Implementation Granularity: task-only\n"
@@ -169,13 +173,17 @@ class BundleTest(unittest.TestCase):
         return result
 
     def acquire_lease(self, slug: str, task: str = "TASK-1", files: list[str] | None = None, owner: str = "agent") -> subprocess.CompletedProcess[str]:
+        exploration = self.run_bundle("exploration", "render", "--root", str(self.root), "--slug", slug)
         ready = self.run_bundle("implementation", "show-ready", "--root", str(self.root), "--slug", slug, "--task", task)
+        visible_body = exploration.stdout + "\n" + ready.stdout
         self.run_bundle(
             "implementation", "visible-output", "record",
             "--root", str(self.root),
             "--slug", slug,
             "--task", task,
-            "--assistant-body", ready.stdout,
+            "--assistant-body", visible_body,
+            "--display-channel", "main-chat",
+            "--display-assertion", "Full Display Layer was sent in the main chat assistant-visible body, not tool stdout.",
         )
         args = ["implementation", "lease", "acquire", "--root", str(self.root), "--slug", slug, "--task", task, "--owner", owner]
         for file_path in files or ["state.json"]:
@@ -290,16 +298,20 @@ class BundleTest(unittest.TestCase):
             "User idea / follow-up",
             "SKILL.md first-read contract",
             "Reference Ownership Map",
-            "Planning: Intake + Controlled Exploration + REQ/TASK",
             "Bundle: 00-idea.md + 01-progress.md + state.json",
+            "Planning: Intake + Controlled Exploration + REQ/TASK",
             "Implementation Gate: READY",
-            "Execution: enter-task + lease + pre-edit + edit",
+            "Execution: enter-task + lease + visible-output record + pre-edit + edit",
             "Validation: validation type + evidence",
             "Review: scope fit + risks + branch closure",
             "Closeout: checkpoint + verify + finalize + final verify",
             "User response: render-status for formal handoff",
         ]:
             self.assertIn(required, text)
+        self.assertLess(
+            text.index("B[Bundle: 00-idea.md + 01-progress.md + state.json]"),
+            text.index("P[Planning: Intake + Controlled Exploration + REQ/TASK]"),
+        )
 
     def test_role_handoff_overlay_shows_owner_and_recipient(self) -> None:
         text = SKILL_MD.read_text(encoding="utf-8")
@@ -536,11 +548,14 @@ class BundleTest(unittest.TestCase):
             "not through chat memory",
             "This skill can:",
             "Standard flow:",
-            "route/current -> intake gate -> controlled exploration -> Exploration Visibility Gate -> bundle",
+            "route/current -> init/resume bundle -> intake gate -> controlled exploration -> requirements/REQs -> acceptance matrix -> design -> TASK plan",
+            "-> Exploration Visibility Gate -> implementation ready -> enter-task -> lease -> visible-output record -> pre-edit",
+            "-> implement -> validate -> review -> checkpoint -> pre-close verify -> closer/finalize -> final verify -> render-status -> structured closeout response",
             "Tool-owned gates are not optional",
             "does not narrow ordinary coding capability",
         ]:
             self.assertIn(required, text)
+        self.assertNotIn("Exploration Visibility Gate -> bundle", text)
         for outdated in [
             "Core Contract For Fresh Agents",
             "Console " + "Handoff Contract",
@@ -985,6 +1000,14 @@ class BundleTest(unittest.TestCase):
             "Use `yes` only for a real fork or risk",
             "treat it as a candidate path",
             "recommend a better default path",
+            "no-fork",
+            "option-comparison",
+            "role-sweep",
+            "not \"all medium uncertainty\"",
+            "Role-sweep candidate findings must not directly become TASKs",
+            "Synthesis",
+            "not a new lifecycle phase",
+            "not a hard visible-output template",
             "not a fixed answer template",
             "Do not hard-code fixed answers",
             "does not blindly follow a flawed requested implementation",
@@ -994,6 +1017,113 @@ class BundleTest(unittest.TestCase):
             "Run Protocol",
         ]:
             self.assertIn(required, combined)
+
+    def test_adaptive_exploration_mode_template_render_and_legacy_compatibility(self) -> None:
+        slug = self.init_bundle()
+        idea_path = self.root / ".idea-to-code" / slug / "00-idea.md"
+        template_text = idea_path.read_text(encoding="utf-8")
+        self.assertIn("- Exploration Mode: no-fork|option-comparison|role-sweep", template_text)
+        self.assertIn("- Role Sweep Findings:", template_text)
+        self.assertIn("- Synthesis:", template_text)
+
+        ready_text = template_text.replace("- Exploration Needed: yes/no", "- Exploration Needed: no")
+        ready_text = ready_text.replace("- Exploration Mode: no-fork|option-comparison|role-sweep", "- Exploration Mode: no-fork")
+        ready_text = ready_text.replace("- Trigger: <why exploration is needed or safely skipped>", "- Trigger: One clear low-risk path is available.")
+        ready_text = ready_text.replace(
+            "  - Required Now: <scope included in the next READY output>",
+            "  - Required Now: TASK-1 direct documentation update.",
+        )
+        ready_text = ready_text.replace(
+            "  - Deferred: <scope explicitly excluded or postponed>",
+            "  - Deferred: Role-sweep and unrelated implementation work.",
+        )
+        ready_text = ready_text.replace(
+            "  - What READY Will Cover: <TASK/REQ scope allowed after this exploration output>",
+            "  - What READY Will Cover: TASK-1 only.",
+        )
+        ready_text = ready_text.replace("  - Chosen option:", "  - Chosen option: Direct path.")
+        ready_text = ready_text.replace("  - Decision reason:", "  - Decision reason: No meaningful fork requires option comparison.")
+        ready_text = ready_text.replace("- Understanding:", "- Understanding: Add adaptive exploration mode support.")
+        ready_text = ready_text.replace("- Assumptions:", "- Assumptions: The change is local and reversible.")
+        ready_text = ready_text.replace("- Acceptance Criteria:", "- Acceptance Criteria: Rendered exploration shows the selected mode.")
+        ready_text = ready_text.replace("- Need Confirmation: yes/no", "- Need Confirmation: no")
+        ready_text = ready_text.replace("- Confirmation Reason:", "- Confirmation Reason: Scope is clear and low risk.")
+        ready_text = ready_text.replace("Gate Status: DRAFT", "Gate Status: READY")
+        ready_text = ready_text.replace("- ...", "- README.md", 1)
+        ready_text = ready_text.replace("- ...", "- Update documentation.", 1)
+        ready_text = ready_text.replace("- ...", "- Documentation mentions exploration mode.", 1)
+        ready_text = ready_text.replace("- ...", "- source-only: inspect rendered output.", 1)
+        idea_path.write_text(ready_text, encoding="utf-8")
+
+        result = self.run_bundle("exploration", "render", "--root", str(self.root), "--slug", slug)
+        self.assertIn("- Mode: no-fork", result.stdout)
+
+        legacy_text = ready_text.replace("- Exploration Mode: no-fork\n", "")
+        idea_path.write_text(legacy_text, encoding="utf-8")
+        legacy = self.run_bundle("exploration", "render", "--root", str(self.root), "--slug", slug)
+        self.assertIn("- Mode: legacy-unspecified", legacy.stdout)
+
+    def test_role_sweep_requires_synthesis_before_ready_scope(self) -> None:
+        slug = self.init_bundle()
+        idea_path = self.root / ".idea-to-code" / slug / "00-idea.md"
+        text = idea_path.read_text(encoding="utf-8")
+        replacement = """\n## Controlled Exploration\n\n- Exploration Needed: yes\n- Exploration Mode: role-sweep\n- Trigger: Broad multi-domain idea needs candidate problem discovery before task planning.\n- Constraints:\n  - Keep output compact.\n- Planned Scope:\n  - Required Now: TASK-1 synthesized scope.\n  - Deferred: Native fresh-agent orchestration.\n  - What READY Will Cover: TASK-1 after synthesis.\n- Options Considered:\n  - Option A: Role-sweep inside Controlled Exploration.\n    - Hypothesis: Multiple perspectives improve coverage.\n    - Fit to user goal: Strong.\n    - Cost: Moderate.\n    - Risk: Noise without synthesis.\n    - Verification path: implementation ready.\n    - Rejection condition: Synthesis is missing.\n- Role Sweep Findings:\n  - Product: Candidate value-risk finding.\n  - Engineering: Candidate architecture-risk finding.\n  - UX: Candidate flow-risk finding.\n  - Business: Candidate prioritization-risk finding.\n  - Skeptic: Candidate false-positive finding.\n- Synthesis:\n  - Common findings:\n  - Conflicting findings:\n  - Accepted problems:\n  - Rejected findings:\n  - Deferred / unverified:\n- Decision:\n  - Chosen option: Option A.\n  - Decision reason: Role-sweep fits broad discovery before route selection.\n  - Rejected options: none.\n  - Unverified items: none.\n"""
+        text = re.sub(r"\n## Controlled Exploration\n[\s\S]*?(?=\n## Task Classification\n)", replacement, text)
+        idea_path.write_text(text, encoding="utf-8")
+        result = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("role-sweep Synthesis missing concrete Accepted problems", result.stderr)
+        self.assertIn("role-sweep Synthesis missing concrete Rejected findings", result.stderr)
+        self.assertIn("role-sweep Synthesis missing concrete Deferred / unverified", result.stderr)
+
+    def test_role_sweep_requires_multiple_concrete_perspective_findings(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        idea_path = self.root / ".idea-to-code" / slug / "00-idea.md"
+        text = idea_path.read_text(encoding="utf-8")
+        replacement = """\n## Controlled Exploration\n\n- Exploration Needed: yes\n- Exploration Mode: role-sweep\n- Trigger: Broad generic product idea needs multiple perspectives before task planning.\n- Constraints:\n  - Keep output compact.\n- Planned Scope:\n  - Required Now: TASK-1 synthesized broad-idea scope.\n  - Deferred: Native fresh-agent orchestration.\n  - What READY Will Cover: TASK-1 after synthesis only.\n- Options Considered:\n  - Option A: Role-sweep inside Controlled Exploration.\n    - Hypothesis: Multiple perspectives improve coverage.\n    - Fit to user goal: Strong.\n    - Cost: Moderate.\n    - Risk: Noise without synthesis.\n    - Verification path: implementation ready.\n    - Rejection condition: Perspective findings are missing.\n- Role Sweep Findings:\n  - Product: Candidate value-risk finding.\n  - Engineering:\n  - UX:\n  - Business:\n  - Skeptic:\n- Synthesis:\n  - Common findings: Product risk and implementation-risk categories overlap.\n  - Conflicting findings: UX timing conflicts with engineering simplicity.\n  - Accepted problems: TASK-1 synthesized broad-idea scope.\n  - Rejected findings: Skeptic false-positive finding rejected because it is outside user scope.\n  - Deferred / unverified: Native fresh-agent orchestration remains deferred.\n- Decision:\n  - Chosen option: Option A.\n  - Decision reason: Role-sweep fits broad discovery before route selection.\n  - Rejected options: Direct TASK creation from raw findings.\n  - Unverified items: Independent fresh-agent evidence is not available in this fixture.\n"""
+        text = re.sub(r"\n## Controlled Exploration\n[\s\S]*?(?=\n## Task Classification\n)", replacement, text)
+        idea_path.write_text(text, encoding="utf-8")
+
+        result = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug, check=False)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("role-sweep requires at least three concrete perspective findings", result.stderr)
+
+    def test_role_sweep_ready_accepts_synthesized_broad_idea_scope(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        idea_path = self.root / ".idea-to-code" / slug / "00-idea.md"
+        text = idea_path.read_text(encoding="utf-8")
+        replacement = """\n## Controlled Exploration\n\n- Exploration Needed: yes\n- Exploration Mode: role-sweep\n- Trigger: Broad generic product idea needs multiple perspectives before task planning.\n- Constraints:\n  - Keep output compact.\n- Planned Scope:\n  - Required Now: TASK-1 synthesized stability display contract.\n  - Deferred: Native fresh-agent orchestration and unrelated workflow redesign.\n  - What READY Will Cover: TASK-1 synthesized stability display contract.\n- Options Considered:\n  - Option A: Role-sweep inside Controlled Exploration.\n    - Hypothesis: Multiple perspectives improve coverage.\n    - Fit to user goal: Strong.\n    - Cost: Moderate.\n    - Risk: Noise without synthesis.\n    - Verification path: implementation ready plus output-compliance.\n    - Rejection condition: Synthesis is missing or weak.\n- Role Sweep Findings:\n  - Product: Candidate risk that broad idea output may feel random without stable accepted scope.\n  - Engineering: Candidate risk that display gates can be bypassed unless machine-readable fields exist.\n  - UX: Candidate risk that Exploration and READY look merged without visible step boundaries.\n  - Business: Candidate risk that unnecessary exploration slows clear small tasks.\n  - Skeptic: Candidate risk that raw findings become TASKs without verification.\n- Synthesis:\n  - Common findings: Stable scope needs both display boundaries and synthesis before task creation.\n  - Conflicting findings: Business wants low friction while UX wants visible separation.\n  - Accepted problems: TASK-1 synthesized stability display contract.\n  - Rejected findings: Raw Skeptic finding is not a TASK until accepted by synthesis.\n  - Deferred / unverified: Native fresh-agent orchestration remains deferred.\n- Decision:\n  - Chosen option: Option A.\n  - Decision reason: Role-sweep fits broad discovery before route selection and keeps raw findings out of TASK scope.\n  - Rejected options: Direct TASK creation from raw findings.\n  - Unverified items: Independent fresh-agent evidence is not available in this fixture.\n"""
+        text = re.sub(r"\n## Controlled Exploration\n[\s\S]*?(?=\n## Task Classification\n)", replacement, text)
+        text = text.replace(
+            "  - Required Now: TASK-1 / REQ-1 source-only bundle command flow.",
+            "  - Required Now: TASK-1 synthesized stability display contract.",
+        )
+        idea_path.write_text(text, encoding="utf-8")
+
+        result = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+
+        self.assertIn("- Mode: role-sweep", result.stdout)
+        self.assertIn("- Required Now: TASK-1 synthesized stability display contract.", result.stdout)
+        self.assertIn("Display Step: 1/2", result.stdout)
+        self.assertIn("Display Step: 2/2", result.stdout)
+
+    def test_role_sweep_rejects_scope_not_matching_accepted_synthesis(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        idea_path = self.root / ".idea-to-code" / slug / "00-idea.md"
+        text = idea_path.read_text(encoding="utf-8")
+        replacement = """\n## Controlled Exploration\n\n- Exploration Needed: yes\n- Exploration Mode: role-sweep\n- Trigger: Broad generic product idea needs multiple perspectives before task planning.\n- Constraints:\n  - Keep output compact.\n- Planned Scope:\n  - Required Now: TASK-1 raw skeptic finding.\n  - Deferred: Accepted display contract and native fresh-agent orchestration.\n  - What READY Will Cover: TASK-1 raw skeptic finding.\n- Options Considered:\n  - Option A: Role-sweep inside Controlled Exploration.\n    - Hypothesis: Multiple perspectives improve coverage.\n    - Fit to user goal: Strong.\n    - Cost: Moderate.\n    - Risk: Noise without synthesis.\n    - Verification path: implementation ready plus output-compliance.\n    - Rejection condition: Rejected findings are promoted to TASK scope.\n- Role Sweep Findings:\n  - Product: Candidate risk that broad idea output may feel random without stable accepted scope.\n  - Engineering: Candidate risk that display gates can be bypassed unless machine-readable fields exist.\n  - UX: Candidate risk that Exploration and READY look merged without visible step boundaries.\n  - Business: Candidate risk that unnecessary exploration slows clear small tasks.\n  - Skeptic: Candidate raw skeptic finding that should be rejected before TASK scope.\n- Synthesis:\n  - Common findings: Stable scope needs both display boundaries and synthesis before task creation.\n  - Conflicting findings: Business wants low friction while UX wants visible separation.\n  - Accepted problems: TASK-1 accepted display contract.\n  - Rejected findings: TASK-1 raw skeptic finding.\n  - Deferred / unverified: Native fresh-agent orchestration remains deferred.\n- Decision:\n  - Chosen option: Option A.\n  - Decision reason: Role-sweep fits broad discovery before route selection and keeps raw findings out of TASK scope.\n  - Rejected options: Direct TASK creation from raw findings.\n  - Unverified items: Independent fresh-agent evidence is not available in this fixture.\n"""
+        text = re.sub(r"\n## Controlled Exploration\n[\s\S]*?(?=\n## Task Classification\n)", replacement, text)
+        idea_path.write_text(text, encoding="utf-8")
+
+        result = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug, check=False)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("role-sweep Required Now must include synthesized Accepted problems", result.stderr)
+        self.assertIn("role-sweep What READY Will Cover must include synthesized Accepted problems", result.stderr)
 
     def test_controlled_exploration_benchmark_has_required_scenarios_and_rubric(self) -> None:
         benchmark_text = (REFERENCES_DIR / "controlled-exploration-benchmark.md").read_text(encoding="utf-8")
@@ -1031,6 +1161,9 @@ class BundleTest(unittest.TestCase):
             "Expected mode: `commentary-update`",
             "Reporting Format",
             "Instruction gap",
+            "Display Step: 1/2",
+            "Display Step: 2/2",
+            "raw Product/Engineering/UX/Business/Skeptic findings do not directly become TASKs",
         ]:
             self.assertIn(required, benchmark_text)
 
@@ -1233,9 +1366,13 @@ class BundleTest(unittest.TestCase):
             "`read-only-status`",
             "`ordinary-answer`",
             "`formal-tracked-handoff`",
+            "This branch is selected by the actions actually performed in the turn, not only by the initial user prompt",
             "do not run pre-edit READY because no edit is starting",
             "do not run READY only for the answer",
             "Before final tracked handoff",
+            "Response Mode Escalation Rule",
+            "Response mode is action-derived, not prompt-derived",
+            "If a turn starts as ordinary analysis but performs tracked edits, install, verify, validation, checkpoint, finalize, or tracked status delivery",
             "install, validation, commit, delivery, blocked, review, keep/revise/rollback, or final status",
             "run `render-status` first",
             "If `render-status` is unavailable or fails, state that reason",
@@ -1264,7 +1401,9 @@ class BundleTest(unittest.TestCase):
             "Multi-role regression rule",
             "Planner, Implementer, Validator, Reviewer, and Closer expectations",
             "ordinary untracked explanations, naming discussions, or lightweight commentary updates",
-            "Command stdout, folded transcript output, internal notes, or a READY message printed after edits have already started are not compliant",
+            "Command stdout, folded transcript output, internal notes, subagent-only output, or a READY message printed after edits have already started are not compliant for same-agent edits",
+            "`--display-channel main-chat` and the assertion are mandatory",
+            "subagent or external transcript display is separate evidence and cannot satisfy same-agent main-chat display",
         ]:
             self.assertIn(required, combined)
 
@@ -1302,7 +1441,8 @@ class BundleTest(unittest.TestCase):
             "code, docs, tests, config, scripts, and tracked bundle artifacts",
             "Exploration Visibility Gate output",
             "Validator output names validation type, command/evidence, and covered TASK/REQ IDs",
-            "Reviewer output flags missing Exploration Visibility Gate output, incomplete Exploration scope fields, missing READY visibility, incomplete focused TASK fields, stale Exploration/READY after plan edits, late READY remediation, or missing fixed final status fields as noncompliance",
+            "Reviewer output flags missing Exploration Visibility Gate output, incomplete Exploration scope fields, missing Exploration `Display Step: 1/2` or no-edit `Display Boundary`, missing READY visibility, missing READY `Display Step: 2/2` or edit-authorization `Display Boundary`, incomplete focused TASK fields, stale Exploration/READY after plan edits, late READY remediation, or missing fixed final status fields as noncompliance",
+            "Reviewer output flags action-derived response-mode failures",
             "Planner output preserves user-provided or agent-created numbered issue lists as stable scope IDs",
             "Planner output preserves same-session continuity",
             "Planner output creates and syncs a master backlog for multi-issue related work before READY",
@@ -1317,6 +1457,8 @@ class BundleTest(unittest.TestCase):
             "runs `render-status` first",
             "Over-templates ordinary untracked replies",
             "must fail if it adds READY output, `render-status`, or fixed status fields",
+            "must also fail in the opposite direction if tracked edits, install, validation, checkpoint, finalize, or tracked status delivery occurred but the final response omits `render-status` and the fixed status fields",
+            "Role-sweep findings do not replace `render-status`",
             "Require every role simulation or subagent to read installed `SKILL.md` as the behavior authority",
             "then read only the relevant referenced files",
             "Ask separate role simulations or subagents to inspect the installed guidance without editing files",
@@ -1470,6 +1612,44 @@ class BundleTest(unittest.TestCase):
         ]:
             self.assertIn(required, combined)
 
+    def test_response_mode_escalates_after_tracked_actions(self) -> None:
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        workflow_text = (REFERENCES_DIR / "workflow.md").read_text(encoding="utf-8")
+        roles_text = (REFERENCES_DIR / "roles-and-state.md").read_text(encoding="utf-8")
+        benchmark_text = CONTROLLED_EXPLORATION_BENCHMARK_MD.read_text(encoding="utf-8")
+        combined = "\n".join([skill_text, workflow_text, roles_text, benchmark_text])
+
+        for required in [
+            "Response Mode Escalation Rule",
+            "Response mode is action-derived, not prompt-derived",
+            "A message can begin as an ordinary explanation or architecture question, but once the assistant performs tracked repository/skill/artifact edits, install, validation, checkpoint, finalize, or tracked status delivery in that turn",
+            "This branch is selected by the actions actually performed in the turn, not only by the initial user prompt",
+            "selected by the actions actually performed in the turn, not only by the initial prompt type",
+            "Reviewer output flags action-derived response-mode failures",
+            "Closer chooses this branch from the actions actually performed in the turn, not only from the initial user prompt",
+            "must also fail in the opposite direction if tracked edits, install, validation, checkpoint, finalize, or tracked status delivery occurred but the final response omits `render-status` and the fixed status fields",
+            "### Response Scenario Q: Ordinary Prompt Escalates After Tracked Actions",
+            "Expected mode: `tracked-delivery-status`",
+        ]:
+            self.assertIn(required, combined)
+
+    def test_exploration_layers_do_not_replace_final_render_status(self) -> None:
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        workflow_text = (REFERENCES_DIR / "workflow.md").read_text(encoding="utf-8")
+        roles_text = (REFERENCES_DIR / "roles-and-state.md").read_text(encoding="utf-8")
+        benchmark_text = CONTROLLED_EXPLORATION_BENCHMARK_MD.read_text(encoding="utf-8")
+        combined = "\n".join([skill_text, workflow_text, roles_text, benchmark_text])
+
+        for required in [
+            "These are planning/READY Display Layers",
+            "They do not replace the final tracked handoff Display Layer",
+            "The Exploration Visibility Gate is a planning/READY Display Layer",
+            "`render-status` is the final tracked handoff Display Layer",
+            "Role-sweep findings do not replace `render-status`",
+            "For broad ideas, preserves the separation: `Exploration Result` and role-sweep synthesis are planning/READY Display Layers, while `render-status` is the final tracked handoff Display Layer",
+        ]:
+            self.assertIn(required, combined)
+
     def test_output_compliance_detects_ready_only_in_tool_stdout(self) -> None:
         bundle = load_bundle_module()
         tool_stdout = (
@@ -1508,31 +1688,30 @@ class BundleTest(unittest.TestCase):
             "[idea-to-code][Planner/agent] Exploration Result | Bundle: sample\n"
             "[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: sample\n"
         )
-        assistant_body = (
-            "[idea-to-code][Planner/agent] Exploration Result | Bundle: sample\n"
-            "Display Layer: Exploration Result\n"
-            "Next Layer: READY Focus after this output is visible; Full Plan only on --full-plan.\n"
-            "Required Now: TASK-1 / REQ-1\n"
-            "Deferred: none\n"
-            "Selected Option: Option B\n"
-            "What READY Will Cover: TASK-1\n\n"
-            "[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: sample\n"
-            "Display Layer: READY Focus\n"
-            "READY_TASK_OUTPUT_ID: sample-ready\n"
-            "EXPLORATION_OUTPUT_ID: sample-explore\n"
-            "Implementation Granularity: task-only\n"
-            "Trace Hierarchy: IDEA-* -> REQ-* -> TASK-* -> optional IMP-*\n"
-            "Required Now: TASK-1 / REQ-1\n"
-            "Deferred: none\n"
-            "Selected Option: Option B\n"
-            "What READY Will Cover: TASK-1\n"
-            "Files:\n- sample.py\n"
-            "Execution Details:\n- edit\n"
-            "Done Criteria:\n- done\n"
-            "Planned Verification:\n- source-only tests\n"
-        )
+        assistant_body = self.sample_visible_ready_body()
 
         self.assertEqual([], bundle.validate_visible_ready_output(tool_stdout, assistant_body))
+
+    def test_output_compliance_requires_display_steps_and_boundaries(self) -> None:
+        bundle = load_bundle_module()
+        tool_stdout = (
+            "[idea-to-code][Planner/agent] Exploration Result | Bundle: sample\n"
+            "[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: sample\n"
+        )
+        assistant_body = self.sample_visible_ready_body()
+        assistant_body = assistant_body.replace("Display Step: 1/2\n", "")
+        assistant_body = assistant_body.replace(
+            "Display Boundary: Edit authorization starts only after this READY block is visible, visible-output is recorded, lease is acquired, and pre-edit passes.\n",
+            "",
+        )
+
+        problems = bundle.validate_visible_ready_output(tool_stdout, assistant_body)
+
+        self.assertIn("assistant-visible Exploration body missing: Display Step: 1/2", problems)
+        self.assertIn(
+            "assistant-visible READY body missing: Display Boundary: Edit authorization starts only after this READY block is visible",
+            problems,
+        )
 
     def test_output_compliance_rejects_one_line_exploration_summary(self) -> None:
         bundle = load_bundle_module()
@@ -1576,6 +1755,8 @@ class BundleTest(unittest.TestCase):
         assistant_body = (
             "[idea-to-code][Planner/agent] Exploration Result | Bundle: sample\n"
             "Display Layer: Exploration Result\n"
+            "Display Step: 1/2\n"
+            "Display Boundary: This block authorizes no file edits; show READY as a separate assistant-visible block before edit authorization.\n"
             "Next Layer: READY Focus after this output is visible; Full Plan only on --full-plan.\n"
             "EXPLORATION_OUTPUT_ID: sample-explore\n"
             "Required Now: TASK-1 / REQ-1\n"
@@ -1584,6 +1765,8 @@ class BundleTest(unittest.TestCase):
             "What READY Will Cover: TASK-1\n\n"
             "[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: sample\n"
             "Display Layer: Full Plan\n"
+            "Display Step: 2/2\n"
+            "Display Boundary: Edit authorization starts only after this READY block is visible, visible-output is recorded, lease is acquired, and pre-edit passes.\n"
             "READY_TASK_OUTPUT_ID: sample-ready\n"
             "EXPLORATION_OUTPUT_ID: sample-explore\n"
             "Implementation Granularity: task-only\n"
@@ -2103,10 +2286,15 @@ class BundleTest(unittest.TestCase):
             "Planner output shows `[idea-to-code][Planner/agent] Exploration Result | Bundle: <slug>`",
             "Confirmation Required | Bundle: <slug>",
             "Display Layer",
+            "Display Step: 1/2",
+            "no-edit `Display Boundary`",
             "Next Layer",
             "Every current TASK transition needs visible task info for that TASK",
+            "Display Step: 2/2",
+            "edit-authorization `Display Boundary`",
             "Implementer output does not start tracked repository or artifact edits until the visible Exploration Visibility Gate output and READY excerpt have appeared",
             "Reviewer output flags missing Exploration Visibility Gate output",
+            "missing READY `Display Step: 2/2` or edit-authorization `Display Boundary`",
             "Formal tracked status MUST use render-status generated fields when `render-status` is available",
             "Formal tracked status MUST use render-status generated fields when the helper is available",
             "must not omit, rename, reorder, or hand-invent the fixed field set",
@@ -2123,6 +2311,16 @@ class BundleTest(unittest.TestCase):
             "must fail if it adds READY output, `render-status`, or fixed status fields",
         ]:
             self.assertIn(required, combined)
+
+        for required in [
+            "Display Step: 1/2",
+            "no-edit `Display Boundary`",
+            "Display Step: 2/2",
+            "edit-authorization `Display Boundary`",
+            "missing Exploration `Display Step: 1/2` or no-edit `Display Boundary`",
+            "missing READY `Display Step: 2/2` or edit-authorization `Display Boundary`",
+        ]:
+            self.assertIn(required, roles_text)
 
     def test_multi_role_output_compliance_simulation_covers_exploration_gate(self) -> None:
         outputs = {
@@ -3429,6 +3627,8 @@ Planned Verification:
             "--slug", slug,
             "--task", "TASK-1",
             "--assistant-body", ready.stdout,
+            "--display-channel", "main-chat",
+            "--display-assertion", "Full Display Layer was sent in the main chat assistant-visible body, not tool stdout.",
         )
 
         lease = self.run_bundle(
@@ -3546,10 +3746,15 @@ Planned Verification: x
         self.write_ready_bundle(slug, need_confirmation="no", mark_ready=False)
         result = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
         self.assertIn("[idea-to-code][Planner/agent] Exploration Result", result.stdout)
+        self.assertIn("Display Step: 1/2", result.stdout)
+        self.assertIn("This block authorizes no file edits", result.stdout)
+        self.assertIn("Assistant-visible display boundary", result.stdout)
         self.assertIn("EXPLORATION_OUTPUT_ID:", result.stdout)
         self.assertIn("Selected Approach:", result.stdout)
         self.assertIn("Implementation Will Proceed To:", result.stdout)
         self.assertIn("[idea-to-code][Planner/agent] Implementation Gate: READY", result.stdout)
+        self.assertIn("Display Step: 2/2", result.stdout)
+        self.assertIn("Edit authorization starts only after this READY block is visible", result.stdout)
         self.assertIn("READY_TASK_OUTPUT_ID:", result.stdout)
         self.assertIn("EXPLORATION_OUTPUT_ID:", result.stdout)
         self.assertIn("TASK-1: Verify sample bundle flow", result.stdout)
@@ -3898,6 +4103,8 @@ Planned Verification:
             "--slug", slug,
             "--task", "TASK-1",
             "--assistant-body", ready.stdout,
+            "--display-channel", "main-chat",
+            "--display-assertion", "Full Display Layer was sent in the main chat assistant-visible body, not tool stdout.",
         )
 
         result = self.run_bundle(
@@ -4699,7 +4906,18 @@ Planned Verification:
         payload = json.loads(result.stdout)
         self.assertEqual("NEEDS_VISIBLE_OUTPUT_RECORD", payload["action"])
         self.assertTrue(payload["assistant_visible_required"])
+        self.assertIn("Display Step: 1/2", payload["required_visible_fields"])
+        self.assertIn("Display Boundary: This block authorizes no file edits", payload["required_visible_fields"])
+        self.assertIn("Display Step: 2/2", payload["required_visible_fields"])
+        self.assertIn(
+            "Display Boundary: Edit authorization starts only after this READY block is visible",
+            payload["required_visible_fields"],
+        )
+        self.assertIn("exploration render", " ".join(payload["recommended_commands"]))
+        self.assertIn("implementation show-ready", " ".join(payload["recommended_commands"]))
         self.assertIn("implementation visible-output record", " ".join(payload["recommended_commands"]))
+        self.assertIn("--display-channel main-chat", " ".join(payload["recommended_commands"]))
+        self.assertIn("--display-assertion", " ".join(payload["recommended_commands"]))
 
     def test_implementation_next_action_reports_ready_for_edit_after_pre_edit(self) -> None:
         slug = self.init_bundle()
@@ -4734,6 +4952,8 @@ Planned Verification:
             "--slug", slug,
             "--task", "TASK-1",
             "--assistant-body", ready.stdout,
+            "--display-channel", "main-chat",
+            "--display-assertion", "Full Display Layer was sent in the main chat assistant-visible body, not tool stdout.",
         )
         visible_id = re.search(r"VISIBLE_OUTPUT_ID: (\S+)", recorded.stdout).group(1)
         self.run_bundle("implementation", "lease", "acquire", "--root", str(self.root), "--slug", slug, "--task", "TASK-1", "--file", "state.json")
@@ -4744,6 +4964,110 @@ Planned Verification:
         status = self.run_bundle("implementation", "visible-output", "status", "--root", str(self.root), "--slug", slug)
         payload = json.loads(status.stdout)
         self.assertEqual(visible_id, payload["current_record"]["id"])
+        self.assertEqual("main-chat", payload["current_record"]["display_channel"])
+        self.assertRegex(payload["current_record"]["display_assertion_sha256"], r"^[0-9a-f]{64}$")
+
+    def test_visible_output_record_requires_explicit_main_chat_assertion_for_agent(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        ready = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("implementation", "enter-task", "--root", str(self.root), "--slug", slug, "--task", "TASK-1")
+
+        missing_channel = self.run_bundle(
+            "implementation", "visible-output", "record",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--task", "TASK-1",
+            "--assistant-body", ready.stdout,
+            check=False,
+        )
+        self.assertNotEqual(0, missing_channel.returncode)
+        self.assertIn("--display-channel is required", missing_channel.stderr)
+
+        weak_assertion = self.run_bundle(
+            "implementation", "visible-output", "record",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--task", "TASK-1",
+            "--assistant-body", ready.stdout,
+            "--display-channel", "main-chat",
+            "--display-assertion", "Shown.",
+            check=False,
+        )
+        self.assertNotEqual(0, weak_assertion.returncode)
+        self.assertIn("--display-assertion must describe what was shown", weak_assertion.stderr)
+
+        wrong_channel = self.run_bundle(
+            "implementation", "visible-output", "record",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--task", "TASK-1",
+            "--assistant-body", ready.stdout,
+            "--display-channel", "subagent-transcript",
+            "--display-assertion", "Full Display Layer was sent in the main chat assistant-visible body, not tool stdout.",
+            check=False,
+        )
+        self.assertNotEqual(0, wrong_channel.returncode)
+        self.assertIn("source=agent must use --display-channel main-chat", wrong_channel.stderr)
+
+    def test_visible_output_record_rejects_id_only_assistant_body(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        ready = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("implementation", "enter-task", "--root", str(self.root), "--slug", slug, "--task", "TASK-1")
+        ready_id = re.search(r"READY_TASK_OUTPUT_ID: (\S+)", ready.stdout).group(1)
+        exploration_id = re.search(r"EXPLORATION_OUTPUT_ID: (\S+)", ready.stdout).group(1)
+        id_only_body = f"READY_TASK_OUTPUT_ID: {ready_id}\nEXPLORATION_OUTPUT_ID: {exploration_id}\n"
+
+        result = self.run_bundle(
+            "implementation", "visible-output", "record",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--task", "TASK-1",
+            "--assistant-body", id_only_body,
+            "--display-channel", "main-chat",
+            "--display-assertion", "Full Display Layer was sent in the main chat assistant-visible body, not tool stdout.",
+            check=False,
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("assistant-visible body missing full Exploration Result block marker", result.stderr)
+        self.assertIn("assistant-visible body missing full Implementation Gate: READY block marker", result.stderr)
+
+    def test_subagent_visible_output_record_does_not_allow_same_agent_pre_edit(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        ready = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("implementation", "enter-task", "--root", str(self.root), "--slug", slug, "--task", "TASK-1")
+        recorded = self.run_bundle(
+            "implementation", "visible-output", "record",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--task", "TASK-1",
+            "--assistant-body", ready.stdout,
+            "--source", "subagent",
+            "--display-channel", "subagent-transcript",
+            "--display-assertion", "Full Display Layer was shown in the subagent transcript, not tool stdout.",
+        )
+        self.assertIn("Display Channel:\n- subagent-transcript", recorded.stdout)
+        self.run_bundle("implementation", "lease", "acquire", "--root", str(self.root), "--slug", slug, "--task", "TASK-1", "--file", "state.json")
+
+        pre_edit = self.run_bundle(
+            "implementation", "pre-edit",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--task", "TASK-1",
+            "--file", "state.json",
+            check=False,
+        )
+
+        self.assertNotEqual(0, pre_edit.returncode)
+        self.assertIn("not valid for same-agent edit gate", pre_edit.stderr)
+        self.assertIn("source=subagent display_channel=subagent-transcript", pre_edit.stderr)
+        status = self.run_bundle("implementation", "visible-output", "status", "--root", str(self.root), "--slug", slug)
+        payload = json.loads(status.stdout)
+        self.assertIsNone(payload["current_record"])
+        self.assertEqual("subagent-transcript", payload["current_any_channel_record"]["display_channel"])
 
     def test_visible_output_record_rejects_stale_ready_body(self) -> None:
         slug = self.init_bundle()
@@ -4777,6 +5101,8 @@ Planned Verification:
             "--slug", slug,
             "--task", "TASK-1",
             "--assistant-body", stale_ready.stdout,
+            "--display-channel", "main-chat",
+            "--display-assertion", "Full Display Layer was sent in the main chat assistant-visible body, not tool stdout.",
             check=False,
         )
 
@@ -5861,10 +6187,10 @@ Planned Verification:
         self.assertFalse(payload["implementation_ready"])
         self.assertFalse(payload["can_continue_to_edit"])
         self.assertTrue(payload["assistant_visible_redisplay_required"])
-        self.assertEqual(
-            ["Display Layer: Exploration Result", "Display Layer: READY Focus"],
-            payload["required_visible_outputs"],
-        )
+        self.assertIn("Display Layer: Exploration Result", payload["required_visible_outputs"])
+        self.assertIn("Display Step: 1/2", payload["required_visible_outputs"])
+        self.assertIn("Display Layer: READY Focus", payload["required_visible_outputs"])
+        self.assertIn("Display Step: 2/2", payload["required_visible_outputs"])
         self.assertIn("assistant-visible body", payload["redisplay_instruction"])
         self.assertIn(f"implementation ready --root <root> --slug {slug} --task TASK-1", payload["recommended_commands"])
 
@@ -5891,10 +6217,10 @@ Planned Verification:
         self.assertFalse(payload["ready_task_output_current"])
         self.assertFalse(payload["can_continue_to_edit"])
         self.assertTrue(payload["assistant_visible_redisplay_required"])
-        self.assertEqual(
-            ["Display Layer: Exploration Result", "Display Layer: READY Focus"],
-            payload["required_visible_outputs"],
-        )
+        self.assertIn("Display Layer: Exploration Result", payload["required_visible_outputs"])
+        self.assertIn("Display Step: 1/2", payload["required_visible_outputs"])
+        self.assertIn("Display Layer: READY Focus", payload["required_visible_outputs"])
+        self.assertIn("Display Step: 2/2", payload["required_visible_outputs"])
         self.assertIn("before retrying pre-edit", payload["redisplay_instruction"])
         self.assertTrue(any("READY output stale" in problem for problem in payload["problems"]))
         self.assertIn(f"implementation ready --root <root> --slug {slug} --task TASK-1", payload["recommended_commands"])
@@ -5913,7 +6239,9 @@ Planned Verification:
         self.assertIn("Display Layer: READY Recovery", result.stdout)
         self.assertIn("Visible Redisplay Required: yes", result.stdout)
         self.assertIn("- Display Layer: Exploration Result", result.stdout)
+        self.assertIn("- Display Step: 1/2", result.stdout)
         self.assertIn("- Display Layer: READY Focus", result.stdout)
+        self.assertIn("- Display Step: 2/2", result.stdout)
         self.assertIn("assistant-visible body", result.stdout)
 
     def test_implementation_recover_ready_reports_current_task_path(self) -> None:
@@ -5933,10 +6261,10 @@ Planned Verification:
         self.assertTrue(payload["ready_task_output_current"])
         self.assertTrue(payload["can_continue_to_edit"])
         self.assertTrue(payload["assistant_visible_redisplay_required"])
-        self.assertEqual(
-            ["Display Layer: Exploration Result", "Display Layer: READY Focus"],
-            payload["required_visible_outputs"],
-        )
+        self.assertIn("Display Layer: Exploration Result", payload["required_visible_outputs"])
+        self.assertIn("Display Step: 1/2", payload["required_visible_outputs"])
+        self.assertIn("Display Layer: READY Focus", payload["required_visible_outputs"])
+        self.assertIn("Display Step: 2/2", payload["required_visible_outputs"])
         self.assertIn(f"implementation show-ready --root <root> --slug {slug} --task TASK-1", payload["recommended_commands"])
         self.assertIn(f"implementation enter-task --root <root> --slug {slug} --task TASK-1", payload["recommended_commands"])
 
@@ -5960,6 +6288,7 @@ Planned Verification:
         self.assertIn("Display Layer: READY Focus", ready_output_part)
         self.assertIn("EXPLORATION_OUTPUT_ID:", ready_output_part)
         self.assertIn("READY_TASK_OUTPUT_ID:", ready_output_part)
+        self.assertIn("- Mode: no-fork", ready_output_part)
         self.assertIn("TASK-1: Add one concise README sentence.", ready_output_part)
         current = json.loads((self.root / ".idea-to-code" / "current.json").read_text(encoding="utf-8"))
         self.assertEqual(current["slug"], slug)
@@ -5976,12 +6305,14 @@ Planned Verification:
         idea = (self.root / ".idea-to-code" / slug / "00-idea.md").read_text(encoding="utf-8")
         self.assertIn("## Controlled Exploration", idea)
         self.assertIn("- Exploration Needed: no", idea)
+        self.assertIn("- Exploration Mode: no-fork", idea)
         self.assertIn("- Planned Scope:", idea)
         self.assertIn("- Required Now: TASK-1 / REQ-1 scoped edit to `README.md`.", idea)
         self.assertIn("- What READY Will Cover: TASK-1 / REQ-1 only.", idea)
         ready_output = self.run_bundle("implementation", "show-ready", "--root", str(self.root), "--slug", slug)
         self.assertIn("Display Layer: READY Focus", ready_output.stdout)
         self.assertIn("READY_TASK_OUTPUT_ID:", ready_output.stdout)
+        self.assertIn("- Mode: no-fork", ready_output.stdout)
         self.assertIn("TASK-1: Add one concise README sentence.", ready_output.stdout)
 
     def test_quickstart_json_mode_outputs_only_json(self) -> None:

@@ -425,6 +425,7 @@ FILES = {
         "- Confirmation Reason:\n"
         "\n## Controlled Exploration\n\n"
         "- Exploration Needed: yes/no\n"
+        "- Exploration Mode: no-fork|option-comparison|role-sweep\n"
         "- Trigger: <why exploration is needed or safely skipped>\n"
         "- Constraints:\n"
         "  - <hard constraint from user, repository, governance, or runtime>\n"
@@ -440,6 +441,18 @@ FILES = {
         "    - Risk:\n"
         "    - Verification path:\n"
         "    - Rejection condition:\n"
+        "- Role Sweep Findings:\n"
+        "  - Product:\n"
+        "  - Engineering:\n"
+        "  - UX:\n"
+        "  - Business:\n"
+        "  - Skeptic:\n"
+        "- Synthesis:\n"
+        "  - Common findings:\n"
+        "  - Conflicting findings:\n"
+        "  - Accepted problems:\n"
+        "  - Rejected findings:\n"
+        "  - Deferred / unverified:\n"
         "- Decision:\n"
         "  - Chosen option:\n"
         "  - Decision reason:\n"
@@ -894,7 +907,7 @@ def _migrate_pre_edit_output_fields(status: dict) -> None:
         })
 
 
-def _current_visible_output_record(status: dict, task_id: str) -> dict | None:
+def _current_visible_output_record(status: dict, task_id: str, require_main_chat: bool = True) -> dict | None:
     plan_revision = int(status.get("plan_revision", 0))
     ready_id = status.get("ready_task_output_id")
     exploration_id = status.get("exploration_output_id")
@@ -910,8 +923,17 @@ def _current_visible_output_record(status: dict, task_id: str) -> dict | None:
             continue
         if not record.get("ok", False):
             continue
+        if require_main_chat:
+            if record.get("source") != "agent" or record.get("display_channel") != "main-chat":
+                continue
+            if not record.get("display_assertion_sha256"):
+                continue
         return record
     return None
+
+
+def _current_any_channel_visible_output_record(status: dict, task_id: str) -> dict | None:
+    return _current_visible_output_record(status, task_id, require_main_chat=False)
 
 
 def _visible_output_problem(status: dict, task_id: str) -> str | None:
@@ -919,9 +941,19 @@ def _visible_output_problem(status: dict, task_id: str) -> str | None:
         return None
     if _current_visible_output_record(status, task_id):
         return None
+    any_channel_record = _current_any_channel_visible_output_record(status, task_id)
+    if any_channel_record:
+        source = any_channel_record.get("source") or "unknown-source"
+        channel = any_channel_record.get("display_channel") or "missing-display-channel"
+        return (
+            "visible output record for current Exploration Result and READY Focus is not valid for same-agent edit gate; "
+            f"record {any_channel_record.get('id', 'unknown')} has source={source} display_channel={channel}; "
+            "same-agent pre-edit requires source=agent, --display-channel main-chat, and a main-chat display assertion"
+        )
     return (
         "visible output record missing or stale for current Exploration Result and READY Focus; "
-        "paste the assistant-visible Display Layer block, then run implementation visible-output record"
+        "paste the assistant-visible Display Layer block in main chat, then run implementation visible-output record "
+        "with --display-channel main-chat and a main-chat display assertion for same-agent work"
     )
 
 
@@ -1814,6 +1846,7 @@ def quickstart_bundle(
 ## Controlled Exploration
 
 - Exploration Needed: no
+- Exploration Mode: no-fork
 - Trigger: Quickstart is limited to clear, low-risk, single-slice work with one direct implementation path.
 - Constraints:
   - Keep the change scoped to `{file_path}`.
@@ -2400,11 +2433,15 @@ def _controlled_exploration_problems(target: Path) -> list[str]:
         problems.append(f"{IDEA_FILE}: Exploration Needed must be yes or no")
         return problems
 
+    mode = _field_value(block, "Exploration Mode").lower()
+    if mode and mode not in {"no-fork", "option-comparison", "role-sweep"}:
+        problems.append(f"{IDEA_FILE}: Exploration Mode must be no-fork, option-comparison, or role-sweep")
+
     trigger = re.search(r"^-\s*Trigger:[ \t]*(.*)$", block, re.MULTILINE)
     if not trigger or _weak_text_value(trigger.group(1).strip(), min_len=8):
         problems.append(f"{IDEA_FILE}: Controlled Exploration has weak Trigger")
 
-    planned_scope = _controlled_exploration_subsection(block, "Planned Scope", ("Options Considered", "Decision"))
+    planned_scope = _controlled_exploration_subsection(block, "Planned Scope", ("Options Considered", "Role Sweep Findings", "Synthesis", "Decision"))
     if _weak_text_value(planned_scope, min_len=24):
         problems.append(f"{IDEA_FILE}: Controlled Exploration missing structured Planned Scope")
     else:
@@ -2416,7 +2453,39 @@ def _controlled_exploration_problems(target: Path) -> list[str]:
     if needed == "no":
         return problems
 
-    options = re.search(r"^-\s*Options Considered:[ \t]*$([\s\S]*?)(?=^-\s*Decision:|\Z)", block, re.MULTILINE)
+    if mode == "role-sweep":
+        role_findings = _controlled_exploration_subsection(block, "Role Sweep Findings", ("Synthesis", "Decision"))
+        concrete_perspectives = []
+        for label in ("Product", "Engineering", "UX", "Business", "Skeptic"):
+            value = _field_value(role_findings, label)
+            if not _weak_text_value(value, min_len=8):
+                concrete_perspectives.append(label)
+        if len(concrete_perspectives) < 3:
+            problems.append(
+                f"{IDEA_FILE}: role-sweep requires at least three concrete perspective findings before Synthesis"
+            )
+        synthesis = _controlled_exploration_subsection(block, "Synthesis", ("Decision",))
+        if _weak_text_value(synthesis, min_len=24):
+            problems.append(f"{IDEA_FILE}: Exploration Mode role-sweep requires Synthesis before REQ/TASK scope")
+        else:
+            for label in ("Accepted problems", "Rejected findings", "Deferred / unverified"):
+                value = _field_value(synthesis, label)
+                if _weak_text_value(value, min_len=4):
+                    problems.append(f"{IDEA_FILE}: role-sweep Synthesis missing concrete {label}")
+            accepted = _field_value(synthesis, "Accepted problems")
+            required_now = _field_value(planned_scope, "Required Now")
+            ready_coverage = _field_value(planned_scope, "What READY Will Cover")
+            if not _weak_text_value(accepted, min_len=4):
+                for scope_label, scope_value in (
+                    ("Required Now", required_now),
+                    ("What READY Will Cover", ready_coverage),
+                ):
+                    if accepted.lower() not in scope_value.lower():
+                        problems.append(
+                            f"{IDEA_FILE}: role-sweep {scope_label} must include synthesized Accepted problems before REQ/TASK scope"
+                        )
+
+    options = re.search(r"^-\s*Options Considered:[ \t]*$([\s\S]*?)(?=^-\s*(?:Role Sweep Findings|Synthesis|Decision):|\Z)", block, re.MULTILINE)
     decision = re.search(r"^-\s*Decision:[ \t]*$([\s\S]*?)\Z", block, re.MULTILINE)
     if not options or _weak_text_value(options.group(1).strip(), min_len=24):
         problems.append(f"{IDEA_FILE}: Exploration Needed is yes but Options Considered is missing or weak")
@@ -2499,17 +2568,21 @@ def _intake_gate_values(target: Path) -> dict[str, str]:
 def _controlled_exploration_values(target: Path) -> dict[str, str]:
     text = (target / IDEA_FILE).read_text(encoding="utf-8")
     block = _section_text(text, "## Controlled Exploration") or ""
-    planned_scope_block = _controlled_exploration_subsection(block, "Planned Scope", ("Options Considered", "Decision"))
-    options_match = re.search(r"^-\s*Options Considered:[ \t]*$([\s\S]*?)(?=^-\s*Decision:|\Z)", block, re.MULTILINE)
+    planned_scope_block = _controlled_exploration_subsection(block, "Planned Scope", ("Options Considered", "Role Sweep Findings", "Synthesis", "Decision"))
+    options_match = re.search(r"^-\s*Options Considered:[ \t]*$([\s\S]*?)(?=^-\s*(?:Role Sweep Findings|Synthesis|Decision):|\Z)", block, re.MULTILINE)
     decision_match = re.search(r"^-\s*Decision:[ \t]*$([\s\S]*?)\Z", block, re.MULTILINE)
     decision_block = decision_match.group(1) if decision_match else ""
+    synthesis_block = _controlled_exploration_subsection(block, "Synthesis", ("Decision",))
     return {
         "needed": _field_value(block, "Exploration Needed").lower(),
+        "mode": _field_value(block, "Exploration Mode").lower(),
         "trigger": _field_value(block, "Trigger"),
         "required_now": _field_value(planned_scope_block, "Required Now"),
         "deferred": _field_value(planned_scope_block, "Deferred"),
         "ready_coverage": _field_value(planned_scope_block, "What READY Will Cover"),
         "options": (options_match.group(1).strip() if options_match else ""),
+        "accepted_problems": _field_value(synthesis_block, "Accepted problems"),
+        "deferred_unverified": _field_value(synthesis_block, "Deferred / unverified"),
         "chosen_option": _field_value(decision_block, "Chosen option"),
         "decision_reason": _field_value(decision_block, "Decision reason"),
         "rejected_options": _field_value(decision_block, "Rejected options"),
@@ -2624,6 +2697,8 @@ def _format_exploration_output(
         f"{_visibility_prefix(profile, 'planner', 'agent')} {heading} | Bundle: {slug}",
         "",
         f"Display Layer: {'Exploration Result' if not need_confirmation else 'Exploration Decision Request'}",
+        "Display Step: 1/2",
+        "Display Boundary: This block authorizes no file edits; show READY as a separate assistant-visible block before edit authorization.",
         "Next Layer: READY Focus after this output is visible; Full Plan only on --full-plan.",
         "",
         f"Restated user goal: {title}",
@@ -2637,6 +2712,7 @@ def _format_exploration_output(
         "",
         "Exploration:",
         f"- Needed: {exploration.get('needed') or 'unknown'}",
+        f"- Mode: {exploration.get('mode') or 'legacy-unspecified'}",
         f"- Reason: {exploration.get('trigger') or intake.get('confirmation_reason') or 'See Controlled Exploration.'}",
         "",
         "Planned Scope:",
@@ -2689,6 +2765,8 @@ def _exploration_output_contract_problems(lines: list[str], need_confirmation: b
         problems.append("Exploration output missing User Goal")
     if "Exploration:" not in text:
         problems.append("Exploration output missing Exploration summary")
+    if "Mode:" not in text:
+        problems.append("Exploration output missing Mode")
     if "Planned Scope:" not in text:
         problems.append("Exploration output missing Planned Scope")
     for required in ("Required Now:", "Deferred:", "What READY Will Cover:"):
@@ -2696,6 +2774,10 @@ def _exploration_output_contract_problems(lines: list[str], need_confirmation: b
             problems.append(f"Exploration output missing Planned Scope field {required}")
     if "Display Layer:" not in text or "Next Layer:" not in text:
         problems.append("Exploration output missing display layer guidance")
+    if "Display Step: 1/2" not in text:
+        problems.append("Exploration output missing Display Step: 1/2")
+    if "This block authorizes no file edits" not in text:
+        problems.append("Exploration output missing no-edit Display Boundary")
     if need_confirmation:
         for required in ("Confirmation Required", "Decision Options:", "Recommended Option:", "Please reply with one of:"):
             if required not in text:
@@ -2793,6 +2875,8 @@ def mark_implementation_ready(
         write_current(root, slug, "ready_to_implement")
     if exploration_lines:
         print("\n".join(exploration_lines))
+        print()
+        print("--- Assistant-visible display boundary: send READY as a separate message/block after Exploration Result. ---")
         print()
     print("\n".join(lines))
     return target
@@ -2940,7 +3024,11 @@ def _ready_recovery_payload(target: Path, slug: str, task_id: str | None = None)
     )
     required_visible_outputs = [
         "Display Layer: Exploration Result",
+        "Display Step: 1/2",
+        "Display Boundary: This block authorizes no file edits",
         "Display Layer: READY Focus",
+        "Display Step: 2/2",
+        "Display Boundary: Edit authorization starts only after this READY block is visible",
     ]
     return {
         "schema": "idea-to-code.ready-recovery.v1",
@@ -3047,6 +3135,8 @@ def _format_ready_output(
         f"{_visibility_prefix(profile, 'planner', 'agent')} Implementation Gate: READY | Bundle: {slug}",
         "",
         f"Display Layer: {'READY Focus' if focused else 'Full Plan'}",
+        "Display Step: 2/2",
+        "Display Boundary: Edit authorization starts only after this READY block is visible, visible-output is recorded, lease is acquired, and pre-edit passes.",
         "Current TASK info must be shown before executing that TASK; use --task TASK-N when moving to another TASK.",
         "",
         f"Restated user goal: {title}",
@@ -3062,6 +3152,7 @@ def _format_ready_output(
     if exploration:
         lines.extend([
             "Exploration Summary:",
+            f"- Mode: {exploration.get('mode') or 'legacy-unspecified'}",
             f"- Required Now: {exploration.get('required_now') or 'See current requirements and implementation plan.'}",
             f"- Deferred: {exploration.get('deferred') or 'See Controlled Exploration decision and acceptance notes.'}",
             f"- Selected Option: {exploration.get('chosen_option') or 'See Controlled Exploration decision.'}",
@@ -3094,13 +3185,17 @@ def _ready_output_contract_problems(lines: list[str], blocks: list[tuple[str, st
     text = "\n".join(lines)
     if "Display Layer:" not in text:
         problems.append("READY output missing Display Layer")
+    if "Display Step: 2/2" not in text:
+        problems.append("READY output missing Display Step: 2/2")
+    if "Edit authorization starts only after this READY block is visible" not in text:
+        problems.append("READY output missing edit-authorization Display Boundary")
     if "Current TASK info must be shown before executing that TASK" not in text:
         problems.append("READY output missing current TASK visibility rule")
     if "Implementation Granularity:" not in text:
         problems.append("READY output missing Implementation Granularity")
     if "Trace Hierarchy: IDEA-* -> REQ-* -> TASK-* -> optional IMP-*" not in text:
         problems.append("READY output missing Trace Hierarchy")
-    for required in ("Exploration Summary:", "Required Now:", "Deferred:", "Selected Option:", "What READY Will Cover:"):
+    for required in ("Exploration Summary:", "Mode:", "Required Now:", "Deferred:", "Selected Option:", "What READY Will Cover:"):
         if required not in text:
             problems.append(f"READY output missing exploration context field {required}")
 
@@ -3358,12 +3453,16 @@ def implementation_next_action(
     recommended_commands: list[str] = []
     required_visible_fields = [
         "Display Layer: Exploration Result",
+        "Display Step: 1/2",
+        "Display Boundary: This block authorizes no file edits",
         "EXPLORATION_OUTPUT_ID:",
         "Required Now:",
         "Deferred:",
         "Selected Option:",
         "What READY Will Cover:",
         "Display Layer: READY Focus",
+        "Display Step: 2/2",
+        "Display Boundary: Edit authorization starts only after this READY block is visible",
         "READY_TASK_OUTPUT_ID:",
         "Files:",
         "Execution Details:",
@@ -3410,8 +3509,9 @@ def implementation_next_action(
                     assistant_visible_required = True
                     problems.append(visible_problem)
                     recommended_commands.extend([
+                        f'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" exploration render --root "$(pwd)" --slug {slug}',
                         f'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation show-ready --root "$(pwd)" --slug {slug} --task {normalized_task_id}',
-                        f'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation visible-output record --root "$(pwd)" --slug {slug} --task {normalized_task_id} --assistant-body-file <assistant-visible-body.txt>',
+                        f'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation visible-output record --root "$(pwd)" --slug {slug} --task {normalized_task_id} --assistant-body-file <assistant-visible-body.txt> --display-channel main-chat --display-assertion "Full Display Layer was sent in the main chat assistant-visible body, not tool stdout."',
                     ])
                 else:
                     lease_problems = _lease_compliance_problems(status, normalized_task_id, requested_files, owner.strip() or "agent")
@@ -3901,6 +4001,8 @@ def implementation_visible_output_record(
     task_id: str,
     assistant_body: str,
     source: str = "agent",
+    display_channel: str | None = None,
+    display_assertion: str | None = None,
     profile: str | None = None,
 ) -> int:
     target = ensure_active_bundle(root, slug)
@@ -3908,6 +4010,30 @@ def implementation_visible_output_record(
     body = assistant_body.strip()
     if not body:
         raise SystemExit("implementation visible-output record refused - assistant-visible body is empty.")
+    normalized_source = source.strip() or "agent"
+    normalized_display_channel = (display_channel or "").strip()
+    assertion = (display_assertion or "").strip()
+    allowed_channels = {"main-chat", "subagent-transcript", "external-transcript"}
+    if normalized_display_channel not in allowed_channels:
+        raise SystemExit(
+            "implementation visible-output record refused - --display-channel is required and must be one of: "
+            + ", ".join(sorted(allowed_channels))
+        )
+    if normalized_source == "agent" and normalized_display_channel != "main-chat":
+        raise SystemExit("implementation visible-output record refused - source=agent must use --display-channel main-chat.")
+    if normalized_source != "agent" and normalized_display_channel == "main-chat":
+        raise SystemExit("implementation visible-output record refused - only source=agent may claim --display-channel main-chat.")
+    if _weak_text_value(assertion, min_len=20):
+        raise SystemExit("implementation visible-output record refused - --display-assertion must describe what was shown.")
+    assertion_lower = assertion.lower()
+    if normalized_display_channel == "main-chat":
+        required_terms = ["main", "chat", "full", "display layer", "not tool stdout"]
+        missing_terms = [term for term in required_terms if term not in assertion_lower]
+        if missing_terms:
+            raise SystemExit(
+                "implementation visible-output record refused - main-chat assertion must say the full Display Layer was shown in main chat and not tool stdout; missing: "
+                + ", ".join(missing_terms)
+            )
     with bundle_lock(target):
         status = read_status(target)
         problems = implementation_gate_problems(target)
@@ -3923,6 +4049,10 @@ def implementation_visible_output_record(
                 f"{current_task}; record visible output for {current_task} or enter {normalized_task_id} first."
             )
         validation_problems = validate_visible_ready_output("", body)
+        if "Exploration Result | Bundle:" not in body:
+            validation_problems.append("assistant-visible body missing full Exploration Result block marker")
+        if "Implementation Gate: READY | Bundle:" not in body:
+            validation_problems.append("assistant-visible body missing full Implementation Gate: READY block marker")
         current_ready_id = status.get("ready_task_output_id")
         current_exploration_id = status.get("exploration_output_id")
         if current_ready_id and str(current_ready_id) not in body:
@@ -3945,7 +4075,9 @@ def implementation_visible_output_record(
         record = {
             "id": visible_id,
             "task_id": normalized_task_id,
-            "source": source.strip() or "agent",
+            "source": normalized_source,
+            "display_channel": normalized_display_channel,
+            "display_assertion_sha256": hashlib.sha256(assertion.encode("utf-8")).hexdigest(),
             "ready_task_output_id": current_ready_id,
             "exploration_output_id": current_exploration_id,
             "plan_revision": plan_revision,
@@ -3958,7 +4090,7 @@ def implementation_visible_output_record(
         write_status(target, status)
         append_ledger(target, "implementation-visible-output", f"Visible output recorded: {visible_id} for {normalized_task_id}")
     lines = [
-        f"{_visibility_prefix(profile, 'planner', source.strip() or 'agent')} Visible Output: recorded | Bundle: {slug}",
+        f"{_visibility_prefix(profile, 'planner', normalized_source)} Visible Output: recorded | Bundle: {slug}",
         "",
         "Display Layer: Visible Output Record",
         f"VISIBLE_OUTPUT_ID: {visible_id}",
@@ -3967,8 +4099,12 @@ def implementation_visible_output_record(
         "",
         "Current TASK:",
         f"- {normalized_task_id}",
+        "Display Channel:",
+        f"- {normalized_display_channel}",
         "Assistant Body SHA256:",
         f"- {body_hash}",
+        "Display Assertion SHA256:",
+        f"- {record['display_assertion_sha256']}",
     ]
     print("\n".join(lines))
     return 0
@@ -3984,6 +4120,7 @@ def implementation_visible_output_status(root: Path, slug: str) -> int:
         "visible_output_id": status.get("visible_output_id"),
         "current_task_id": current_task or None,
         "current_record": _current_visible_output_record(status, current_task) if current_task else None,
+        "current_any_channel_record": _current_any_channel_visible_output_record(status, current_task) if current_task else None,
         "visible_output_records": status.get("visible_output_records", []),
         "problem": _visible_output_problem(status, current_task) if current_task else None,
     }
@@ -6383,6 +6520,8 @@ def _section_is_none(section: str) -> bool:
 
 EXPLORATION_VISIBLE_FIELDS = [
     "Display Layer: Exploration Result",
+    "Display Step: 1/2",
+    "Display Boundary: This block authorizes no file edits",
     "Next Layer:",
     "EXPLORATION_OUTPUT_ID:",
     "Required Now:",
@@ -6392,6 +6531,8 @@ EXPLORATION_VISIBLE_FIELDS = [
 ]
 
 READY_VISIBLE_FIELDS = [
+    "Display Step: 2/2",
+    "Display Boundary: Edit authorization starts only after this READY block is visible",
     "READY_TASK_OUTPUT_ID:",
     "EXPLORATION_OUTPUT_ID:",
     "Implementation Granularity:",
@@ -6713,6 +6854,8 @@ def _sample_visible_ready_body(display_layer: str = "READY Focus") -> str:
     return (
         "[idea-to-code][Planner/agent] Exploration Result | Bundle: sample\n"
         "Display Layer: Exploration Result\n"
+        "Display Step: 1/2\n"
+        "Display Boundary: This block authorizes no file edits; show READY as a separate assistant-visible block before edit authorization.\n"
         "Next Layer: READY Focus after this output is visible; Full Plan only on --full-plan.\n"
         "EXPLORATION_OUTPUT_ID: sample-explore\n"
         "Required Now: TASK-1 / REQ-1\n"
@@ -6721,6 +6864,8 @@ def _sample_visible_ready_body(display_layer: str = "READY Focus") -> str:
         "What READY Will Cover: TASK-1\n\n"
         "[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: sample\n"
         f"Display Layer: {display_layer}\n"
+        "Display Step: 2/2\n"
+        "Display Boundary: Edit authorization starts only after this READY block is visible, visible-output is recorded, lease is acquired, and pre-edit passes.\n"
         "READY_TASK_OUTPUT_ID: sample-ready\n"
         "EXPLORATION_OUTPUT_ID: sample-explore\n"
         "Implementation Granularity: task-only\n"
@@ -7920,6 +8065,8 @@ def build_parser() -> argparse.ArgumentParser:
     ivr.add_argument("--assistant-body")
     ivr.add_argument("--assistant-body-file")
     ivr.add_argument("--source", default="agent", choices=("agent", "subagent"))
+    ivr.add_argument("--display-channel", choices=("main-chat", "subagent-transcript", "external-transcript"))
+    ivr.add_argument("--display-assertion")
     ivr.add_argument("--profile", default=None, help="Optional upper-layer profile label for record output.")
     ivs = visible_sub.add_parser("status", help="Print visible-output evidence records.")
     ivs.add_argument("--root", required=True)
@@ -8257,7 +8404,16 @@ def main(argv: Iterable[str] | None = None) -> int:
         if args.implementation_command == "visible-output":
             if args.implementation_visible_output_command == "record":
                 assistant_body = read_content_arg(args.assistant_body, args.assistant_body_file)
-                return implementation_visible_output_record(root, args.slug, args.task, assistant_body, args.source, args.profile)
+                return implementation_visible_output_record(
+                    root,
+                    args.slug,
+                    args.task,
+                    assistant_body,
+                    args.source,
+                    args.display_channel,
+                    args.display_assertion,
+                    args.profile,
+                )
             if args.implementation_visible_output_command == "status":
                 return implementation_visible_output_status(root, args.slug)
         if args.implementation_command == "lease":

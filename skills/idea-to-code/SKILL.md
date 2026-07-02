@@ -48,8 +48,9 @@ This skill can:
 Standard flow:
 
 ```text
-route/current -> intake gate -> controlled exploration -> Exploration Visibility Gate -> bundle -> requirements/REQs -> design -> implementation gate
--> implement -> validate -> review -> checkpoint -> pre-close verify -> closer/finalize -> final verify -> structured closeout response
+route/current -> init/resume bundle -> intake gate -> controlled exploration -> requirements/REQs -> acceptance matrix -> design -> TASK plan
+-> Exploration Visibility Gate -> implementation ready -> enter-task -> lease -> visible-output record -> pre-edit
+-> implement -> validate -> review -> checkpoint -> pre-close verify -> closer/finalize -> final verify -> render-status -> structured closeout response
 ```
 
 Architecture Flow:
@@ -58,10 +59,10 @@ Architecture Flow:
 flowchart TD
   U[User idea / follow-up] --> S[SKILL.md first-read contract]
   S --> R[Reference Ownership Map]
-  R --> P[Planning: Intake + Controlled Exploration + REQ/TASK]
-  P --> B[Bundle: 00-idea.md + 01-progress.md + state.json]
-  B --> G[Implementation Gate: READY]
-  G --> E[Execution: enter-task + lease + pre-edit + edit]
+  R --> B[Bundle: 00-idea.md + 01-progress.md + state.json]
+  B --> P[Planning: Intake + Controlled Exploration + REQ/TASK]
+  P --> G[Implementation Gate: READY]
+  G --> E[Execution: enter-task + lease + visible-output record + pre-edit + edit]
   E --> V[Validation: validation type + evidence]
   V --> RV[Review: scope fit + risks + branch closure]
   RV --> C[Closeout: checkpoint + verify + finalize + final verify]
@@ -214,20 +215,26 @@ For tracked idea-to-code work, these checks are mandatory, not style preferences
 - **Before any tracked repository or artifact edit**: resolve the current bundle, run or reuse `implementation ready` / `implementation show-ready --task <TASK-ID>`, and paste the relevant READY TASK excerpt in a normal assistant message. This applies to code, docs, tests, config, scripts, and tracked bundle artifacts. Reusing a prior READY result still requires showing the relevant excerpt again before the current edit unless the user explicitly waived repeated visibility after an initial visible READY excerpt. Tool stdout, folded transcripts, and internal notes do not satisfy this requirement.
 - **Display artifact rule**: required Display Layer output is not complete until the assistant-visible message body contains the required block. Tool stdout, folded command transcripts, hidden observations, or "I ran the command" summaries are only generation evidence; they are not user display evidence. For output compliance checks, treat `tool_stdout` and `assistant_visible_body` as separate artifacts, and fail when `Exploration Result`, `Implementation Gate: READY`, or `render-status` exists only in `tool_stdout`.
 - **Before implementation READY**: generate or reuse the current `exploration render` output and surface it in a normal assistant message before the READY TASK excerpt. `implementation ready` prints Exploration Visibility Gate output before READY when it must refresh it, but the agent must still make that output visible to the user. Tool stdout, folded transcripts, and internal notes are not enough by themselves.
-- **Execution visibility is content, not IDs only**: before tracked edits, the user-visible message must show the meaningful Exploration Result fields (`Required Now`, `Deferred`, `Selected Option`, and `What READY Will Cover`) and the focused READY TASK fields (`Files`, `Execution Details`, `Done Criteria`, and `Planned Verification`). Showing only `EXPLORATION_OUTPUT_ID`, `READY_TASK_OUTPUT_ID`, or a one-line "READY Focus" summary is noncompliant.
+- **Execution visibility is content, not IDs only**: before tracked edits, the user-visible message must show the meaningful Exploration Result fields (`Display Step: 1/2`, no-edit `Display Boundary`, `Required Now`, `Deferred`, `Selected Option`, and `What READY Will Cover`) and the focused READY TASK fields (`Display Step: 2/2`, edit-authorization `Display Boundary`, `Files`, `Execution Details`, `Done Criteria`, and `Planned Verification`). Showing only `EXPLORATION_OUTPUT_ID`, `READY_TASK_OUTPUT_ID`, or a one-line "READY Focus" summary is noncompliant.
 - **Friendly display rule**: user-friendly does not mean hiding lifecycle gates. It means showing compact, complete Display Layer blocks at the right time. A one-line sentence such as `Exploration Result: Required Now = ...` or `READY Focus TASK-2 / REQ-2: files are ...` is a summary, not the gate display. Before edits, the assistant-visible message must contain the compact block fields, while full-plan output remains reserved for audits or explicit `--full-plan` use.
-- **Visible-output record gate**: after pasting the assistant-visible `Exploration Result` and `Implementation Gate: READY` block, record that exact visible body before `pre-edit`:
+- **Split display gate**: `Exploration Result` and `Implementation Gate: READY` are two different assistant-visible display blocks. Show `Exploration Result` as `Display Step: 1/2` with a no-edit boundary, then show `Implementation Gate: READY` as `Display Step: 2/2` with the edit-authorization boundary. Do not visually merge them into one undifferentiated progress paragraph.
+- **Visible-output record gate**: after pasting the assistant-visible `Exploration Result` and `Implementation Gate: READY` blocks, record that exact visible body before `pre-edit`:
 
 ```bash
-python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation visible-output record --root "$(pwd)" --slug <slug> --task TASK-1 --assistant-body "<assistant-visible block>"
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation visible-output record \
+  --root "$(pwd)" --slug <slug> --task TASK-1 \
+  --assistant-body-file <assistant-visible-body.txt> \
+  --display-channel main-chat \
+  --display-assertion "Full Display Layer was sent in the main chat assistant-visible body, not tool stdout."
 ```
 
-Use `--assistant-body-file` when the visible block is too large for a command argument. This record is not a substitute for showing the block to the user; it is an audit receipt that the required Display Layer content was shown. `implementation pre-edit` must refuse when the current `EXPLORATION_OUTPUT_ID`, `READY_TASK_OUTPUT_ID`, plan revision, and TASK do not have a current `VISIBLE_OUTPUT_ID`.
+Use `--assistant-body-file` when the visible block is too large for a command argument. This record is not a substitute for showing the block to the user; it is an audit receipt that the required Display Layer content was shown. For `source=agent`, `--display-channel main-chat` and the assertion are mandatory; subagent or external transcript display is separate evidence and cannot satisfy same-agent main-chat display. `implementation pre-edit` must refuse when the current `EXPLORATION_OUTPUT_ID`, `READY_TASK_OUTPUT_ID`, plan revision, and TASK do not have a current `VISIBLE_OUTPUT_ID`.
 - **Output Acceptance Gate**: any change to lifecycle display, output compliance, READY/Exploration formatting, final status formatting, role/source prefixes, language boundaries, or ordinary-answer boundaries must run `output-compliance self-test` plus focused output tests before acceptance. When a real transcript or exported conversation is available, it must also run `output-compliance transcript-audit --transcript-file <path>` and acceptance fails if required hard output appears only in tool stdout, folded transcript, or summary text instead of the assistant-visible body. The JSON audit result must be checked for `backlog_hits`; any reported `MB-*` item must be covered by the current TASK/REQ or remain visible as deferred remaining backlog. It must also obtain clean subagent/fresh-agent style review when available. If the clean review or transcript audit reports malformed hard output, missing Display Layer fields, hidden tool-only READY/Exploration, malformed final status, over-templated ordinary answers, or uncovered `backlog_hits`, the TASK is not accepted until fixed and retested. If no independent clean-context tool or transcript artifact is available, record that under `Unverified Items`; do not claim fresh-agent or live-output validation.
 - **CLI command guardrail**: after an argparse usage failure, missing required argument error, or uncertainty about a lifecycle command shape, run `command-guide --flow <flow>` or the targeted subcommand `--help` before retrying. Do not keep issuing guessed variants. Use `command-guide --flow implementation-edit` before edit-gate commands and `command-guide --flow closeout` before checkpoint/finalize when the exact required arguments are not already known.
 - **READY recovery path**: after `implementation ready`, `implementation show-ready`, `implementation enter-task`, or `implementation pre-edit` refuses because READY or Exploration is missing, stale, or not current, run `implementation recover-ready --root <root> --slug <slug> --task <TASK-ID>` once before retrying. Follow the generated `Recommended Commands`; do not guess a sequence from noisy refusal text. The recovery command is read-only and does not replace the requirement to paste the refreshed Exploration Result and READY Focus in the user-visible conversation before edits. Treat `assistant_visible_redisplay_required: true`, `required_visible_outputs`, and `redisplay_instruction` from `recover-ready --json` as mandatory recovery contract fields, not advisory notes.
 - **Plan structure guardrail**: after manually editing `00-idea.md`, especially the Implementation Plan, run `implementation plan-check --root <root> --slug <slug> --json` before READY or edit execution. A plan-check failure means TASK/IMP markdown is not parseable enough for READY Focus and must be fixed before continuing. Plan-check also rejects TASK/IMP required sections polluted by copied bundle headings, unresolved placeholders, or template residue that would make the visible READY Focus misleading.
 - **Before final tracked handoff**: for install, validation, commit, delivery, blocked, review, keep/revise/rollback, or final status responses, run `render-status` first. If `render-status` is unavailable or fails, state that reason and then use the fixed Console Response Contract fields manually.
+- **Response Mode Escalation Rule**: Response mode is action-derived, not prompt-derived. If a turn starts as ordinary analysis but performs tracked edits, install, verify, validation, checkpoint, finalize, or tracked status delivery, the final response is a formal tracked handoff and must run `render-status` first. The initial wording of the user prompt does not downgrade a turn after tracked delivery actions have occurred.
 - **Final body rule**: when `render-status` is available, the final tracked handoff must use the `render-status` fixed-field output as the visible response body, with actual evidence filled in. A hand-written natural-language summary after running `render-status` is noncompliant unless the fixed fields remain visible in the final answer.
 - **Mapping rule**: every formal tracked `Changes`, `Completed Items`, `Incomplete Items`, and `Validation Results` bullet must map to the visible Exploration Visibility Gate output and READY TASK/REQ excerpt that were shown before execution.
 - **Same-session continuity rule**: within one conversation session, related ideas, corrections, numbered lists, scope decisions, and completion claims must remain traceable and consistent across turns. Before answering or acting on a related follow-up, audit the prior related scope from the active bundle, visible READY/Exploration outputs, explicit conversation context, and `idea status`. Record material follow-ups with `session audit` and, when the follow-up changes or clarifies the idea itself, `idea record`. If the relationship is unclear, classify or ask; do not silently reinterpret it. Unrelated questions may stay ordinary concise answers and must not be forced into the active bundle.
@@ -242,8 +249,8 @@ Use `--assistant-body-file` when the visible block is too large for a command ar
 - **Current TASK entry rule**: before editing files for each TASK/IMP, run or reuse `implementation enter-task --task <TASK-ID>` so the current TASK is machine-recorded and its READY Focus is visible. `implementation show-ready --task <TASK-ID>` is acceptable only as a display fallback when state mutation is impossible; record the reason.
 - **Implementation lease rule**: before any tracked implementation edit, acquire a write lease with `implementation lease acquire --task <TASK-ID> --owner <agent-or-session> --file <path>` for one file or `--files <path>...` for grouped multi-file TASKs, then run `implementation pre-edit`. The lease is required for same-agent and multi-agent implementation edits so the guard behavior is consistent. Overlapping active leases for different owners are refused. Validator/Reviewer/read-only subagents do not need write leases unless they edit files.
 - **Pre-edit guard rule**: immediately after `enter-task` and before tracked file edits, run `implementation pre-edit --task <TASK-ID> --file <path>` for one file or `--files <path>...` for grouped multi-file TASKs. It must print `PRE_EDIT_OK_ID`; Implementer evidence must cite that ID. The guard is recorded in `pre_edit_records`; missing, stale, wrong-task, or incomplete file coverage must be refused or surfaced by `implementation status`, `verify`, and `render-status`. If an edit already happened without the guard, record it with `implementation noncompliance` and do not present the run as fully compliant until the lapse is resolved or explicitly carried as risk.
-- **Visible-output before pre-edit rule**: `pre-edit` requires a current `VISIBLE_OUTPUT_ID` created after the assistant-visible Exploration/READY block was shown. If `pre-edit` refuses with `visible output record missing or stale`, run `implementation show-ready --task <TASK-ID>`, paste the complete Display Layer block into the assistant-visible conversation, run `implementation visible-output record`, then retry `pre-edit`.
-- **Next-action display controller rule**: before tracked edits or clean-context compliance review, run `implementation next-action --task <TASK-ID>` for the intended files. If it returns `NEEDS_READY`, `NEEDS_TASK_ENTRY`, or `NEEDS_VISIBLE_OUTPUT_RECORD`, do not edit and do not accept the transcript as compliant until the required Exploration/READY Display Layer fields appear in the assistant-visible body and `implementation visible-output record` captures them. `next-action` is read-only and does not physically intercept native edit tools; host-level interception remains `host-required`.
+- **Visible-output before pre-edit rule**: `pre-edit` requires a current `VISIBLE_OUTPUT_ID` created after the assistant-visible Exploration/READY block was shown. If `pre-edit` refuses with `visible output record missing or stale`, run `implementation show-ready --task <TASK-ID>`, paste the complete Display Layer block into the assistant-visible conversation, run `implementation visible-output record` with `--display-channel main-chat` and a main-chat assertion for same-agent work, then retry `pre-edit`.
+- **Next-action display controller rule**: before tracked edits or clean-context compliance review, run `implementation next-action --task <TASK-ID>` for the intended files. If it returns `NEEDS_READY`, `NEEDS_TASK_ENTRY`, or `NEEDS_VISIBLE_OUTPUT_RECORD`, do not edit and do not accept the transcript as compliant until the required Exploration/READY Display Layer fields appear in the assistant-visible body and `implementation visible-output record` captures them with the correct display channel. `next-action` is read-only and does not physically intercept native edit tools; host-level interception remains `host-required`.
 - **Tool-layer edit wrapper rule**: `implementation guarded-apply --task <TASK-ID> --patch-file <path>` is the default tracked edit path when an edit can be represented as a git patch. The wrapper resolves the active bundle, checks patch paths, requires visible Exploration and READY Focus for the current TASK, requires a non-overlapping lease, runs `implementation pre-edit`, captures `PRE_EDIT_OK_ID`, verifies the patch with `git apply --check`, then applies it with `git apply`. If a tracked edit cannot use `guarded-apply`, record a fallback reason in Implementer evidence and still cite the current `READY_TASK_OUTPUT_ID` and `PRE_EDIT_OK_ID`; do not describe the fallback edit as wrapper-compliant. Current Codex-native edit tools are still not host-level blocked by this skill; until host pre-edit hooks exist, native-tool bypass remains a `residual risk` and must not be described as impossible.
 - **Host pre-edit hook contract rule**: use `host-hook pre-edit-contract --json` when specifying or reviewing the native edit interception contract. The command describes required host checks and evidence IDs, but its enforcement boundary is `host-required`; do not treat the contract command as physical interception.
 - **Multi-role regression rule**: after changing lifecycle, exploration, READY, validation, review, or output-compliance guidance, run or update the multi-role output compliance scenario in `references/roles-and-state.md#multi-role-output-compliance`, covering Planner, Implementer, Validator, Reviewer, Closer, and ordinary-answer boundary expectations, then record expected versus observed behavior and any instruction drift.
@@ -255,8 +262,8 @@ Action boundary for this checklist:
 - `tracked-edit`: repository files, skill files, tests, config, scripts, or tracked bundle artifacts are about to be changed for a READY TASK/REQ. Run the pre-edit self-check and require visible READY first.
 - `plan-correction`: bundle planning files are being corrected so READY can accurately describe the work. Make the smallest planning correction, refresh READY, then run the tracked-edit branch before implementation edits.
 - `read-only-status`: the user asks status/progress/where are we. Read allowed current bundle state and answer or use `render-status` for formal tracked status; do not run pre-edit READY because no edit is starting.
-- `ordinary-answer`: explanation, naming discussion, clarification, or lightweight working update without file edits. Keep the answer natural and concise; do not use the fixed status fields and do not run READY only for the answer.
-- `formal-tracked-handoff`: install, validation, commit, delivery, blocked, review, keep/revise/rollback, or final status for tracked work. Run `render-status` first, or state why unavailable and use the fixed field contract manually.
+- `ordinary-answer`: explanation, naming discussion, clarification, or lightweight working update without tracked edits, install, validation, checkpoint, finalize, or tracked status delivery in this turn. Keep the answer natural and concise; do not use the fixed status fields and do not run READY only for the answer.
+- `formal-tracked-handoff`: install, validation, commit, delivery, blocked, review, keep/revise/rollback, or final status for tracked work. This branch is selected by the actions actually performed in the turn, not only by the initial user prompt. Run `render-status` first, or state why unavailable and use the fixed field contract manually.
 - `related-session-follow-up`: the user refers to previous work, says "we", "this flow", "all tasks", "the earlier issue", "continue", "is it done", "you said", or otherwise ties the message to prior session context. First audit the related scope and state whether it is `same scope`, `scope correction`, `new related scope`, or `unrelated ordinary answer`. Do not answer from only the most recent local bundle if older related context in the same conversation is material.
 - `multi-issue-master-backlog`: the user gives several related problems or asks to fix a list such as "1-6". Create stable `MB-*` IDs, register matching REQ/TASK coverage, run `backlog sync`, and show which MB IDs are Required Now, pending, deferred, or out of scope before implementation.
 - `enumerated-scope-reference`: the user refers to a prior numbered list, such as "the 1-7", "number 4", "all seven", "A/B/C", or "the above points". First preserve or reconstruct the exact prior IDs. If a new grouping is useful, show a mapping table before using the new grouping. Do not continue with an unannounced renumbering.
@@ -277,7 +284,15 @@ On the first idea/requirement message, record a compact intake in `00-idea.md` b
 - `Need Confirmation`: `yes` or `no`.
 - `Confirmation Reason`: why confirmation is or is not required.
 
-After Intake Gate and before Task Classification, record Controlled Exploration in `00-idea.md`. This is the controlled brainstorming step: it explores uncertainty only when needed, records options as hypotheses, and forces one decision before implementation planning.
+After Intake Gate and before Task Classification, record Controlled Exploration in `00-idea.md`. This is the controlled brainstorming step: it explores uncertainty only when needed, records options or broad findings as hypotheses, and forces one synthesized decision before implementation planning.
+
+Controlled Exploration has adaptive modes, not separate lifecycle phases:
+
+- `no-fork`: one clear low-risk path; record why exploration is safely skipped.
+- `option-comparison`: the existing bounded exploration behavior for real route, architecture, API, data, security, cost, migration, ambiguity, or verification forks.
+- `role-sweep`: broad idea discovery for vague, high-risk, unstable, or multi-domain ideas where several perspectives may reveal different candidate problems before synthesis.
+
+Do not collapse this into "small / medium / broad" task sizing. `option-comparison` is not "all medium uncertainty"; it is specifically for comparing meaningful route choices. `role-sweep` is not a new stage before exploration; it is a Controlled Exploration mode used when coverage of the problem space is the risk. These modes are control semantics, not a hard visible-output template.
 
 Use this shape:
 
@@ -285,6 +300,7 @@ Use this shape:
 ## Controlled Exploration
 
 - Exploration Needed: yes|no
+- Exploration Mode: no-fork|option-comparison|role-sweep
 - Trigger: <why exploration is needed or safely skipped>
 - Constraints:
   - <hard constraint from user, repository, governance, or runtime>
@@ -300,6 +316,18 @@ Use this shape:
     - Risk:
     - Verification path:
     - Rejection condition:
+- Role Sweep Findings:
+  - Product:
+  - Engineering:
+  - UX:
+  - Business:
+  - Skeptic:
+- Synthesis:
+  - Common findings:
+  - Conflicting findings:
+  - Accepted problems:
+  - Rejected findings:
+  - Deferred / unverified:
 - Decision:
   - Chosen option:
   - Decision reason:
@@ -314,6 +342,9 @@ Decision table:
 | Clear, low-risk task with one direct path | no | Record the skip Trigger and continue. |
 | Real user-visible, architecture, API, cross-module, security, data, cost, migration, destructive-action, ambiguity, failure-cause, verification, or meaningful risk fork | yes | Compare 2-4 options and choose one decision before `implementation ready`. |
 | User's requested implementation is clearly flawed | yes | Treat it as a candidate, explain the issue, and recommend a better default path. |
+| Broad, vague, unstable, or multi-domain idea where missing problem categories is the main risk | yes | Use `role-sweep`, gather candidate findings from useful perspectives, then use `Synthesis` to accept, reject, defer, or mark findings unverified before REQ/TASK creation. |
+
+Role-sweep candidate findings must not directly become TASKs. A valid role-sweep records at least three concrete perspective findings before synthesis. Only synthesized accepted problems that are also in `Planned Scope` / `Required Now` may become REQ/TASK rows. If real subagents or fresh agents are unavailable, run the perspectives as same-agent analysis and disclose the evidence boundary; do not claim independent role-sweep evidence without a usable `delegation record`.
 
 Controlled Exploration is not a hidden planning note. It must be surfaced through the Exploration Visibility Gate before READY.
 
@@ -324,6 +355,8 @@ Use three display layers:
 - `Exploration Result` / `Exploration Decision Request`: shows user goal, `Planned Scope`, route decision/options, and what can move to READY.
 - `READY Focus`: shows the current TASK/REQ info that is about to be edited or executed.
 - `Full Plan`: shows all TASK/IMP blocks only for audit, review, or explicit `--full-plan` use.
+
+These are planning/READY Display Layers. They do not replace the final tracked handoff Display Layer. After tracked edits, install, validation, checkpoint, or finalize, `render-status` still reports the actual delivery outcome through the fixed Console Response Contract. Role-sweep findings and synthesized exploration scope can be cited by `EXPLORATION_OUTPUT_ID`, but role-sweep findings do not replace `render-status`.
 
 When `Need Confirmation: no`, the Planner chooses and records the decision autonomously, then shows the `Planned Scope`, selected approach, and why it will proceed. Do not dump alternative routes or ask for routine approval.
 
@@ -348,6 +381,8 @@ The user-visible shapes are:
 [idea-to-code][Planner/agent] Exploration Result | Bundle: <slug>
 EXPLORATION_OUTPUT_ID: <id>
 Display Layer: Exploration Result
+Display Step: 1/2
+Display Boundary: This block authorizes no file edits; show READY as a separate assistant-visible block before edit authorization.
 Next Layer: READY Focus after this output is visible; Full Plan only on --full-plan.
 Planned Scope:
 - Required Now: <scope included now>
@@ -365,6 +400,8 @@ Implementation Will Proceed To:
 [idea-to-code][Planner/agent] Confirmation Required | Bundle: <slug>
 EXPLORATION_OUTPUT_ID: <id>
 Display Layer: Exploration Decision Request
+Display Step: 1/2
+Display Boundary: This block authorizes no file edits; show READY as a separate assistant-visible block before edit authorization.
 Next Layer: READY Focus after this output is visible; Full Plan only on --full-plan.
 Planned Scope:
 - Required Now: <scope included now>
@@ -408,7 +445,7 @@ Use `Need Confirmation: yes` when the idea is ambiguous, risky, architecture-sha
 
 Use `Need Confirmation: no` when the task is clear, low-risk, reversible, and the acceptance criteria can be stated concretely. In that case, restate the intake and proceed autonomously without asking a routine confirmation question.
 
-`Need Confirmation: no` skips the approval wait; it does not skip exploration and task-list visibility. `implementation ready` prints the generated Exploration Visibility Gate output when needed and then the `[idea-to-code][Planner/agent] Implementation Gate: READY` output, or `[idea-to-code/<profile>][Planner/agent] Implementation Gate: READY` when an upper-layer skill passes a profile, including `EXPLORATION_OUTPUT_ID` and `READY_TASK_OUTPUT_ID`; send both outputs to the user before any product-file edit, and only then continue implementation. By default, READY prints the focused first TASK/IMP excerpt and records `ready_task_output_scope: focused-default`; use `implementation ready --full-plan` or `implementation show-ready --full-plan` only when a full audit list is needed. The full READY plan remains in `00-idea.md`. Command stdout, tool output, or a folded transcript is not enough by itself; the Exploration Result plus READY TASK list or focused excerpt for the TASKs about to be executed must appear in normal assistant messages. Every time execution enters a different current TASK, show that TASK's focused READY info with `implementation show-ready --task TASK-N` before editing files for that TASK, unless the user explicitly waived repeated visibility after the first display. Profile prefixes are display-only: they do not alter lifecycle gates, bundle state, requirements, role evidence, checkpoints, ledger semantics, finalize behavior, or permissions. This message is transparency, not an approval request, so continue implementation immediately after sending it unless the user interrupts.
+`Need Confirmation: no` skips the approval wait; it does not skip exploration and task-list visibility. `implementation ready` prints the generated Exploration Visibility Gate output when needed and then the `[idea-to-code][Planner/agent] Implementation Gate: READY` output, or `[idea-to-code/<profile>][Planner/agent] Implementation Gate: READY` when an upper-layer skill passes a profile, including `EXPLORATION_OUTPUT_ID` and `READY_TASK_OUTPUT_ID`; send both outputs to the user before any product-file edit, and only then continue implementation. Treat them as separate user-visible blocks: `Exploration Result` is `Display Step: 1/2` and authorizes no edits; `Implementation Gate: READY` is `Display Step: 2/2` and edit authorization still starts only after visible-output record, lease, and pre-edit pass. By default, READY prints the focused first TASK/IMP excerpt and records `ready_task_output_scope: focused-default`; use `implementation ready --full-plan` or `implementation show-ready --full-plan` only when a full audit list is needed. The full READY plan remains in `00-idea.md`. Command stdout, tool output, or a folded transcript is not enough by itself; the Exploration Result plus READY TASK list or focused excerpt for the TASKs about to be executed must appear in normal assistant messages. Every time execution enters a different current TASK, show that TASK's focused READY info with `implementation show-ready --task TASK-N` before editing files for that TASK, unless the user explicitly waived repeated visibility after the first display. Profile prefixes are display-only: they do not alter lifecycle gates, bundle state, requirements, role evidence, checkpoints, ledger semantics, finalize behavior, or permissions. This message is transparency, not an approval request, so continue implementation immediately after sending it unless the user interrupts.
 
 For clear, low-risk, single-slice tasks such as a small README or documentation edit, prefer the lightweight quickstart path instead of manually drafting every bundle section:
 
@@ -979,6 +1016,8 @@ If the message is a short answer rather than a lifecycle update, still start wit
 ### Console Response Contract
 
 Use the fixed field contract only for formal tracked delivery status: final closeout, blocked handoff, review handoff, keep/revise/rollback handoff, or when the user explicitly asks for progress, completion, summary, validation, or commit/publish state for work that entered todo/REQ/TASK accounting.
+
+Response mode is action-derived, not prompt-derived. A message can begin as an ordinary explanation or architecture question, but once the assistant performs tracked repository/skill/artifact edits, install, validation, checkpoint, finalize, or tracked status delivery in that turn, the closeout for that turn is formal tracked delivery status and must use `render-status`. Conversely, ordinary read-only answers stay natural when no tracked delivery action occurred.
 
 Do not use the fixed field contract for ordinary questions, explanations, naming discussions, quick clarifications, or lightweight working updates, even when a bundle is active. Those replies should stay concise and natural while still starting with a role/source prefix such as `[idea-to-code][Planner/agent]` when this skill is active. The boundary is semantic: if no tracked delivery status, install, validation, commit, blocked handoff, review handoff, keep/revise/rollback decision, or final status is being reported, answer naturally and do not add READY, `render-status`, or fixed fields just because a bundle exists.
 

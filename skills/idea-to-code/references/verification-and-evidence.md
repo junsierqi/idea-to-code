@@ -204,15 +204,15 @@ Use:
 python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" exploration render --root "$(pwd)" --slug <slug>
 ```
 
-For `Need Confirmation: no`, the output must be `Exploration Result` and include `EXPLORATION_OUTPUT_ID`, `Display Layer`, `Next Layer`, `Planned Scope`, selected approach, why it was chosen, and that implementation proceeds to READY. It must not ask for routine approval.
+For `Need Confirmation: no`, the output must be `Exploration Result` and include `EXPLORATION_OUTPUT_ID`, `Display Layer`, `Display Step: 1/2`, a no-edit `Display Boundary`, `Next Layer`, `Planned Scope`, selected approach, why it was chosen, and that implementation proceeds to READY. It must not ask for routine approval.
 
-For `Need Confirmation: yes`, the output must be `Confirmation Required` and include `EXPLORATION_OUTPUT_ID`, `Display Layer`, `Next Layer`, `Planned Scope`, `Decision Options`, a recommended option, and reply choices including `approve`, `choose: <option>`, `change: <correction>`, `explore more: <direction>`, `pause`, and `cancel`.
+For `Need Confirmation: yes`, the output must be `Confirmation Required` and include `EXPLORATION_OUTPUT_ID`, `Display Layer`, `Display Step: 1/2`, a no-edit `Display Boundary`, `Next Layer`, `Planned Scope`, `Decision Options`, a recommended option, and reply choices including `approve`, `choose: <option>`, `change: <correction>`, `explore more: <direction>`, `pause`, and `cancel`.
 
 When the user revises exploration, the next output must use a new `EXPLORATION_OUTPUT_ID` and show `Required Now`, `Deferred`, `Rejected Options`, `New / Selected Option`, and `What READY Will Cover`. If the user only provides a direction for more exploration, keep the output as `Confirmation Required` with new candidate options; do not treat the direction as a selected route. Deferred scope must not appear in READY except as deferred/follow-up context, and rejected options must not remain the default route.
 
 `implementation ready` may print Exploration Visibility Gate output before READY when it must refresh the output. That does not remove the user-visible message obligation. If the output was missing before earlier edits, later printing is remediation only and must be recorded as noncompliance.
 
-For large ideas, keep Exploration Visibility Gate output separate from READY. Exploration explains the selected approach; focused READY excerpts explain the next TASK. Future grouped READY summaries may reduce visual clutter, but cannot replace focused TASK/REQ execution visibility.
+For large ideas, keep Exploration Visibility Gate output separate from READY. Exploration explains the selected approach; focused READY excerpts explain the next TASK. Future grouped READY summaries may reduce visual clutter, but cannot replace focused TASK/REQ execution visibility. The required visible sequence is `Display Step: 1/2` for Exploration and `Display Step: 2/2` for READY; if these appear as one merged paragraph, the display is not considered controlled even when the IDs are present.
 
 Before product-file edits, the READY task list must be visible to the user in a normal assistant message, not only command stdout, tool output, or a folded transcript.
 
@@ -222,7 +222,7 @@ Use the output compliance helper when checking the exact distinction between gen
 python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" output-compliance check --kind ready --tool-stdout-file <ready-command-output.txt> --assistant-body-file <assistant-ready-message.txt>
 ```
 
-The helper must fail when `Exploration Result` or `Implementation Gate: READY` exists only in `tool_stdout`, or when the visible body omits `Required Now`, `Deferred`, `Selected Option`, `What READY Will Cover`, `Files`, `Execution Details`, `Done Criteria`, or `Planned Verification`.
+The helper must fail when `Exploration Result` or `Implementation Gate: READY` exists only in `tool_stdout`, or when the visible body omits `Display Step: 1/2`, the no-edit Exploration `Display Boundary`, `Display Step: 2/2`, the edit-authorization READY `Display Boundary`, `Required Now`, `Deferred`, `Selected Option`, `What READY Will Cover`, `Files`, `Execution Details`, `Done Criteria`, or `Planned Verification`.
 
 READY visibility has two layers:
 
@@ -233,7 +233,7 @@ For multi-task work, default user-visible execution display to the current TASK'
 
 Use `implementation enter-task --task <TASK-ID>` as the normal transition command. It records `current_task_id`, preserves the current `READY_TASK_OUTPUT_ID`, and prints `Display Layer: READY Focus`. Use `implementation overview` for read-only progress questions; it must show `Planned Scope`, current TASK, next TASKs, and the `--full-plan` audit hint without mutating implementation evidence.
 
-Use `implementation next-action --task <TASK-ID>` as the read-only Display Layer controller before tracked edits or compliance review. Its stable action codes are `NEEDS_READY`, `NEEDS_TASK_ENTRY`, `NEEDS_VISIBLE_OUTPUT_RECORD`, `NEEDS_LEASE`, `NEEDS_PRE_EDIT`, and `READY_FOR_EDIT`. If it reports `assistant_visible_required: true`, the agent, subagent, or fresh-agent transcript is not compliant until the assistant-visible body contains the required Exploration/READY fields and `implementation visible-output record` captures that body. The command does not physically intercept native edit tools; that boundary remains host-required.
+Use `implementation next-action --task <TASK-ID>` as the read-only Display Layer controller before tracked edits or compliance review. Its stable action codes are `NEEDS_READY`, `NEEDS_TASK_ENTRY`, `NEEDS_VISIBLE_OUTPUT_RECORD`, `NEEDS_LEASE`, `NEEDS_PRE_EDIT`, and `READY_FOR_EDIT`. If it reports `assistant_visible_required: true`, the agent, subagent, or fresh-agent transcript is not compliant until the assistant-visible body contains the required Exploration/READY fields and `implementation visible-output record` captures that body. For same-agent work, the record must declare `--display-channel main-chat` and a `--display-assertion` that the full Display Layer was sent in the main chat assistant-visible body, not tool stdout. Subagent or external transcript display can be recorded as separate evidence, but it does not satisfy same-agent main-chat visibility. The command does not physically intercept native edit tools; that boundary remains host-required.
 
 Use the READY task filter when a long bundle would hide the current work:
 
@@ -241,7 +241,7 @@ Use the READY task filter when a long bundle would hide the current work:
 python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation show-ready --root "$(pwd)" --slug <slug> --task TASK-17
 ```
 
-Focused READY output is for user visibility only. It does not change bundle scope, requirements, gate state, or role evidence expectations. The output should identify `Display Layer: READY Focus`; full audit output should identify `Display Layer: Full Plan`.
+Focused READY output is for user visibility only. It does not change bundle scope, requirements, gate state, or role evidence expectations. The output should identify `Display Layer: READY Focus`, `Display Step: 2/2`, and the edit-authorization `Display Boundary`; full audit output should identify `Display Layer: Full Plan`.
 
 READY output must also show the trace hierarchy and implementation granularity. The required hierarchy is `IDEA-* -> REQ-* -> TASK-* -> optional IMP-*`. Use `Implementation Granularity: task-only` when the visible plan has no `IMP-*` blocks, and `Implementation Granularity: task+imp` when it does. This is an additive visibility rule, not a new mandatory layer: missing `IMP-*` in task-only work is acceptable, but missing `TASK-*` or `REQ-*` visibility is still a flow-control failure.
 
