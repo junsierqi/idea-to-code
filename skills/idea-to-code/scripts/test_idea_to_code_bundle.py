@@ -1507,6 +1507,10 @@ class BundleTest(unittest.TestCase):
             "caller-provided and display-only",
             "does not change lifecycle gates, state files, ledger semantics, permissions, or closeout rules",
             "Do not infer trust, ownership, permissions, or scope from a profile name",
+            "must still invoke or faithfully surface the standard `Exploration Result`, `Implementation Gate: READY`, and final `render-status` fixed-field outputs",
+            "The profile prefix is not a lifecycle signal",
+            "A profile-prefixed natural-language completion summary is noncompliant after tracked work",
+            "A profile-prefixed tracked response without the full Exploration/READY Display Layers is noncompliant before implementation",
             "default or profile-aware idea-to-code role/source prefix",
             "Do not remove or shorten existing READY TASK, confirmation, validation, or closeout fields",
         ]:
@@ -2021,6 +2025,34 @@ class BundleTest(unittest.TestCase):
         for mb_id in ("MB-1", "MB-2", "MB-3", "MB-4", "MB-5"):
             self.assertIn(mb_id, payload["backlog_hits"])
 
+    def test_output_compliance_transcript_audit_rejects_profile_prefix_without_gates(self) -> None:
+        bad_profile_transcript = f"""
+› 使用 design-to-code，它基于 idea-to-code profile 做 tracked work
+
+• [idea-to-code/design-to-code][Planner/agent] 我会开始实现这个界面。
+
+• Ran python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation ready --root . --slug sample --profile design-to-code
+  └ {self.sample_visible_ready_body().replace("[idea-to-code][Planner/agent]", "[idea-to-code/design-to-code][Planner/agent]").replace(chr(10), chr(10) + '    ')}
+
+• [idea-to-code/design-to-code][Implementer/agent] 已完成实现并测试。
+
+• Ran python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" render-status --root . --slug sample --status Completed --profile design-to-code
+  └ {self.sample_formal_status_body().replace("[idea-to-code][Closer/agent]", "[idea-to-code/design-to-code][Closer/agent]").replace(chr(10), chr(10) + '    ')}
+
+• [idea-to-code/design-to-code][Closer/agent] 完成了，测试通过。
+"""
+        bundle = load_bundle_module()
+
+        payload = bundle.audit_transcript_output(bad_profile_transcript)
+
+        self.assertFalse(payload["ok"])
+        messages = [problem["message"] for problem in payload["problems"]]
+        self.assertIn("Exploration Result was only present in tool stdout, not assistant-visible body", messages)
+        self.assertIn("Implementation Gate: READY was only present in tool stdout, not assistant-visible body", messages)
+        self.assertIn("tracked final status appears in transcript but no assistant-visible Closer status body was found", messages)
+        for mb_id in ("MB-1", "MB-2"):
+            self.assertIn(mb_id, payload["backlog_hits"])
+
     def test_output_compliance_transcript_audit_accepts_visible_blocks(self) -> None:
         good_transcript = f"""
 › 使用idea-to-code，做一个示例
@@ -2129,6 +2161,38 @@ class BundleTest(unittest.TestCase):
 
         self.assertIn("render-status output was only present in tool stdout, not assistant-visible body", problems)
         self.assertIn("assistant-visible body missing fixed field: Changes:", problems)
+
+    def test_output_compliance_rejects_profile_prefixed_final_summary_without_fixed_fields(self) -> None:
+        bundle = load_bundle_module()
+        tool_stdout = self.sample_formal_status_body().replace(
+            "[idea-to-code][Closer/agent]",
+            "[idea-to-code/design-to-code][Closer/agent]",
+            1,
+        )
+        assistant_body = "[idea-to-code/design-to-code][Closer/agent] 完成了，测试通过，已按要求实现。"
+
+        problems = bundle.validate_formal_status_visible_output(tool_stdout, assistant_body)
+
+        self.assertIn("render-status output was only present in tool stdout, not assistant-visible body", problems)
+        self.assertIn("assistant-visible body missing fixed field: Changes:", problems)
+        self.assertIn("assistant-visible body missing fixed field: Key Technical Details:", problems)
+
+    def test_output_compliance_rejects_profile_prefixed_ready_summary_without_display_layers(self) -> None:
+        bundle = load_bundle_module()
+        tool_stdout = self.sample_visible_ready_body().replace(
+            "[idea-to-code][Planner/agent]",
+            "[idea-to-code/design-to-code][Planner/agent]",
+        )
+        assistant_body = (
+            "[idea-to-code/design-to-code][Planner/agent] 我会开始实现，"
+            "READY Focus TASK-1 / REQ-1: files are sample.py."
+        )
+
+        problems = bundle.validate_visible_ready_output(tool_stdout, assistant_body)
+
+        self.assertIn("Exploration Result was only present in tool stdout, not assistant-visible body", problems)
+        self.assertIn("Implementation Gate: READY was only present in tool stdout, not assistant-visible body", problems)
+        self.assertIn("assistant-visible READY is only a one-line summary; show the READY Focus Display Layer block", problems)
 
     def test_output_compliance_accepts_formal_status_body_and_rejects_missing_field(self) -> None:
         bundle = load_bundle_module()

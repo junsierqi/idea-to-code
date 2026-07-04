@@ -6805,7 +6805,10 @@ def audit_transcript_output(transcript: str) -> dict[str, Any]:
     if late_bundle:
         problems.append(_transcript_problem("active-bundle-binding", late_bundle, "MB-5"))
 
-    helper_or_status_seen = "[idea-to-code][Closer/agent] Status:" in transcript or "[idea-to-code][Closer/subagent] Status:" in transcript
+    helper_or_status_seen = bool(re.search(
+        r"\[idea-to-code(?:/[^\]]+)?\]\[Closer/(?:agent|subagent)\] Status:",
+        transcript,
+    ))
     final_messages = [
         message for message in messages
         if re.match(r"^\[idea-to-code(?:/[^\]]+)?\]\[Closer/(?:agent|subagent)\] Status: (Completed|Progress|Blocked)", message)

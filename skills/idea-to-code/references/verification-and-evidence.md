@@ -192,6 +192,8 @@ The helper must fail when the final body does not start with `[idea-to-code][Clo
 
 For final closeout of tracked work, run this check whenever the assistant-visible final body is available as text before handoff or review. If the host cannot expose the final body before sending, record that as `host-required` rather than silently skipping the check. Running `render-status` alone is generation evidence; passing `output-compliance check --kind formal-status` is body-compliance evidence.
 
+For upper-layer profile work, pass the same profile through `render-status --profile <profile-name>` or preserve the exact profile-prefixed fixed fields. A final message such as `[idea-to-code/design-to-code][Closer/agent] 完成了，测试通过` is still noncompliant because it lacks the fixed `Changes`, `Completed Items`, `Incomplete Items`, `Validation Results`, `Unverified Items`, `Residual Risks`, and `Key Technical Details` fields.
+
 ## READY Visibility Check
 
 ## Exploration Visibility Check
@@ -223,6 +225,8 @@ python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" output-
 ```
 
 The helper must fail when `Exploration Result` or `Implementation Gate: READY` exists only in `tool_stdout`, or when the visible body omits `Display Step: 1/2`, the no-edit Exploration `Display Boundary`, `Display Step: 2/2`, the edit-authorization READY `Display Boundary`, `Required Now`, `Deferred`, `Selected Option`, `What READY Will Cover`, `Files`, `Execution Details`, `Done Criteria`, or `Planned Verification`.
+
+For upper-layer profile work, run the same check against `[idea-to-code/<profile-name>]` outputs. The profile prefix is accepted only as a prefix variant; it does not reduce the required Exploration/READY fields and does not permit a prose-only profile-prefixed planning message.
 
 READY visibility has two layers:
 
