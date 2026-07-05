@@ -117,7 +117,9 @@ class BundleTest(unittest.TestCase):
             "Key Technical Details:\n"
             "- EXPLORATION_OUTPUT_ID: sample-explore\n"
             "- READY_TASK_OUTPUT_ID: sample-ready\n"
-            "- No commit made\n"
+            "- No commit made\n\n"
+            "Next Action:\n"
+            "- No unresolved task remains in this scope.\n"
         )
 
     def sample_visible_ready_body(self) -> str:
@@ -340,11 +342,11 @@ class BundleTest(unittest.TestCase):
             "implementation enter-task",
             "implementation lease acquire",
             "implementation pre-edit",
-            "scoped edit",
+            "Controlled Repair: scoped edit",
             "Implementer evidence",
             "Validator evidence: validation type + command",
             "Reviewer evidence: scope fit + branch closure",
-            "checkpoint --covers",
+            "checkpoint --covers or implementation close-task",
             "pre-close verify",
             "Closer evidence",
             "finalize",
@@ -550,7 +552,7 @@ class BundleTest(unittest.TestCase):
             "Standard flow:",
             "route/current -> init/resume bundle -> intake gate -> controlled exploration -> requirements/REQs -> acceptance matrix -> design -> TASK plan",
             "-> Exploration Visibility Gate -> implementation ready -> enter-task -> lease -> visible-output record -> pre-edit",
-            "-> implement -> validate -> review -> checkpoint -> pre-close verify -> closer/finalize -> final verify -> render-status -> structured closeout response",
+            "-> controlled repair -> validate -> review -> checkpoint or close-task -> pre-close verify -> closer/finalize -> final verify -> render-status -> structured closeout response",
             "Tool-owned gates are not optional",
             "does not narrow ordinary coding capability",
         ]:
@@ -919,6 +921,7 @@ class BundleTest(unittest.TestCase):
             "Unverified Items:",
             "Residual Risks:",
             "Key Technical Details:",
+            "Next Action:",
             "TASK-*",
             "REQ-1",
             "EXPLORATION_OUTPUT_ID:",
@@ -1579,6 +1582,7 @@ class BundleTest(unittest.TestCase):
             "Unverified Items:",
             "Residual Risks:",
             "Key Technical Details:",
+            "Next Action:",
         ]
         last_index = -1
         for field in expected_order:
@@ -1605,7 +1609,7 @@ class BundleTest(unittest.TestCase):
             "If `render-status` is unavailable or fails, state that reason",
             "Closer formal tracked status fails compliance",
             "omits any fixed field",
-            "`Changes`, `Completed Items`, `Incomplete Items`, `Validation Results`, `Unverified Items`, `Residual Risks`, or `Key Technical Details`",
+            "`Changes`, `Completed Items`, `Incomplete Items`, `Validation Results`, `Unverified Items`, `Residual Risks`, `Key Technical Details`, or `Next Action`",
             "drops TASK/REQ mapping from `Changes`, `Completed Items`, `Incomplete Items`, or `Validation Results`",
             "puts `No commit made` under `Incomplete Items`",
             "hand-writes a formal tracked handoff without first using `render-status` when it is available",
@@ -1804,7 +1808,8 @@ class BundleTest(unittest.TestCase):
             "Key Technical Details:\n"
             "- EXPLORATION_OUTPUT_ID: sample-explore\n"
             "- READY_TASK_OUTPUT_ID: sample-ready\n"
-            "- No commit made.\n"
+            "- No commit made.\n\n"
+            "Next Action:\n- No unresolved task remains in this scope.\n"
         )
 
         problems = bundle.validate_formal_status_visible_output(body, body)
@@ -1827,7 +1832,8 @@ class BundleTest(unittest.TestCase):
             "Unverified Items:\n- none\n\n"
             "Residual Risks:\n- none\n\n"
             "Key Technical Details:\n"
-            "- No commit made.\n"
+            "- No commit made.\n\n"
+            "Next Action:\n- No unresolved task remains in this scope.\n"
         )
 
         problems = bundle.validate_formal_status_visible_output("", body)
@@ -1848,7 +1854,8 @@ class BundleTest(unittest.TestCase):
             "Key Technical Details:\n"
             "- EXPLORATION_OUTPUT_ID: <EXPLORATION_OUTPUT_ID>\n"
             "- READY_TASK_OUTPUT_ID: <READY_TASK_OUTPUT_ID>\n"
-            "- No commit made.\n"
+            "- No commit made.\n\n"
+            "Next Action:\n- No unresolved task remains in this scope.\n"
         )
 
         problems = bundle.validate_formal_status_visible_output(body, body)
@@ -2053,6 +2060,36 @@ class BundleTest(unittest.TestCase):
         for mb_id in ("MB-1", "MB-2"):
             self.assertIn(mb_id, payload["backlog_hits"])
 
+    def test_output_compliance_transcript_audit_rejects_tracked_actions_with_casual_closer_summary(self) -> None:
+        bad_tracked_transcript = f"""
+› 可以按照三点改造并验收，不要 commit
+
+• {self.sample_visible_ready_body()}
+
+• Ran apply_patch
+  └ Success. Updated the following files:
+    M skills/idea-to-code/SKILL.md
+
+• Ran python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" test-batch --profile output
+  └ PASS total_tests=73
+
+• Ran python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" install-parity check --source . --installed "$HOME/.codex/skills/idea-to-code"
+  └ PASS files_match=11
+
+• [idea-to-code][Closer/agent] 已按三点改造并验收。
+"""
+        bundle = load_bundle_module()
+
+        payload = bundle.audit_transcript_output(bad_tracked_transcript)
+
+        self.assertFalse(payload["ok"])
+        self.assertTrue(payload["hard_output_seen"]["tracked_delivery_action"])
+        messages = [problem["message"] for problem in payload["problems"]]
+        self.assertIn(
+            "tracked delivery actions occurred but no assistant-visible formal status body was found",
+            messages,
+        )
+
     def test_output_compliance_transcript_audit_accepts_visible_blocks(self) -> None:
         good_transcript = f"""
 › 使用idea-to-code，做一个示例
@@ -2148,6 +2185,23 @@ class BundleTest(unittest.TestCase):
 
         self.assertEqual([], bundle.validate_formal_status_visible_output(body, body))
 
+    def test_output_compliance_rejects_profile_prefixed_formal_status_without_final_next_action(self) -> None:
+        bundle = load_bundle_module()
+        body = self.sample_formal_status_body().replace(
+            "[idea-to-code][Closer/agent]",
+            "[idea-to-code/wrapper-skill][Closer/agent]",
+            1,
+        )
+        missing_next_action = body.replace(
+            "\nNext Action:\n- No unresolved task remains in this scope.\n",
+            "\n",
+        )
+
+        problems = bundle.validate_formal_status_visible_output(body, missing_next_action)
+
+        self.assertIn("assistant-visible body missing fixed field: Next Action:", problems)
+        self.assertIn("Next Action section must name the next recommended action or state that no unresolved task remains", problems)
+
     def test_output_compliance_detects_profile_prefixed_render_status_only_in_tool_stdout(self) -> None:
         bundle = load_bundle_module()
         tool_stdout = self.sample_formal_status_body().replace(
@@ -2204,6 +2258,36 @@ class BundleTest(unittest.TestCase):
         missing_field = assistant_body.replace("\nResidual Risks:\n- none\n", "\n")
         problems = bundle.validate_formal_status_visible_output(tool_stdout, missing_field)
         self.assertIn("assistant-visible body missing fixed field: Residual Risks:", problems)
+
+    def test_output_compliance_requires_final_next_action(self) -> None:
+        bundle = load_bundle_module()
+        tool_stdout = self.sample_formal_status_body()
+        assistant_body = self.sample_formal_status_body()
+
+        missing_next_action = assistant_body.replace(
+            "\nNext Action:\n- No unresolved task remains in this scope.\n",
+            "\n",
+        )
+        missing_problems = bundle.validate_formal_status_visible_output(tool_stdout, missing_next_action)
+        self.assertIn("assistant-visible body missing fixed field: Next Action:", missing_problems)
+        self.assertIn("Next Action section must name the next recommended action or state that no unresolved task remains", missing_problems)
+
+        misplaced_next_action = assistant_body.replace(
+            "Key Technical Details:\n"
+            "- EXPLORATION_OUTPUT_ID: sample-explore\n"
+            "- READY_TASK_OUTPUT_ID: sample-ready\n"
+            "- No commit made\n\n"
+            "Next Action:\n"
+            "- No unresolved task remains in this scope.\n",
+            "Next Action:\n"
+            "- No unresolved task remains in this scope.\n\n"
+            "Key Technical Details:\n"
+            "- EXPLORATION_OUTPUT_ID: sample-explore\n"
+            "- READY_TASK_OUTPUT_ID: sample-ready\n"
+            "- No commit made\n",
+        )
+        misplaced_problems = bundle.validate_formal_status_visible_output(tool_stdout, misplaced_next_action)
+        self.assertIn("assistant-visible body field out of order: Next Action:", misplaced_problems)
 
     def test_output_compliance_preserves_ordinary_answer_boundary(self) -> None:
         bundle = load_bundle_module()
@@ -2418,7 +2502,8 @@ class BundleTest(unittest.TestCase):
                 "Validation Results:\n- TASK-1 / REQ-1: source-only unittest passed\n\n"
                 "Unverified Items:\n- none\n\nResidual Risks:\n- none\n\n"
                 "Key Technical Details:\n- EXPLORATION_OUTPUT_ID: sample-explore-r1-20260101000000\n"
-                "- READY_TASK_OUTPUT_ID: sample-r1-20260101000001\n- No commit made"
+                "- READY_TASK_OUTPUT_ID: sample-r1-20260101000001\n- No commit made\n\n"
+                "Next Action:\n- No unresolved task remains in this scope."
             ),
             "ordinary": (
                 "[idea-to-code][Planner/agent] Controlled Exploration means the planner briefly evaluates "
@@ -2442,6 +2527,7 @@ class BundleTest(unittest.TestCase):
             "Unverified Items:",
             "Residual Risks:",
             "Key Technical Details:",
+            "Next Action:",
         ]:
             self.assertIn(field, outputs["closer"])
         self.assertIn("EXPLORATION_OUTPUT_ID:", outputs["closer"])
@@ -4114,6 +4200,144 @@ Planned Verification:
         self.assertEqual(status["current_task_id"], "TASK-1")
         self.assertEqual(status["current_task_ready_output_id"], status["ready_task_output_id"])
         self.assertTrue(status["current_task_event_sequence"])
+        self.assertEqual(status["current_task_status"], "in_progress")
+
+    def write_two_task_implementation_plan(self, slug: str) -> None:
+        implementation = """# Implementation
+
+Gate Status: READY
+
+## TASK-1: Verify sample bundle flow
+
+Status: pending
+
+Files:
+- state.json
+
+Execution Details:
+- Record one requirement and all role evidence.
+
+Done Criteria:
+- REQ-1 has milestone coverage.
+
+Planned Verification:
+- source-only checkpoint command exits zero.
+
+## TASK-2: Verify follow-up task control
+
+Status: pending
+
+Files:
+- state.json
+
+Execution Details:
+- Enter the second task only after TASK-1 is closed.
+
+Done Criteria:
+- TASK-2 READY Focus is visible after TASK-1 closure.
+
+Planned Verification:
+- source-only enter-task command exits zero.
+"""
+        impl_path = self.root / "implementation-two-task-control.md"
+        impl_path.write_text(implementation, encoding="utf-8")
+        self.run_bundle("update", "--root", str(self.root), "--slug", slug, "--file", "implementation", "--content-file", str(impl_path))
+
+    def test_enter_task_refuses_to_switch_until_current_task_is_closed(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        self.write_two_task_implementation_plan(slug)
+        self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("implementation", "enter-task", "--root", str(self.root), "--slug", slug, "--task", "TASK-1")
+
+        blocked = self.run_bundle("implementation", "enter-task", "--root", str(self.root), "--slug", slug, "--task", "TASK-2", check=False)
+
+        self.assertNotEqual(blocked.returncode, 0)
+        self.assertIn("current TASK TASK-1 is still open", blocked.stderr)
+
+        closed = self.run_bundle(
+            "implementation", "close-task",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--task", "TASK-1",
+            "--status", "skipped",
+            "--reason", "User deferred this first task in the current run.",
+            "--next", "Resume TASK-1 only if the user reopens it.",
+        )
+        self.assertIn("TASK Closure: skipped", closed.stdout)
+        entered = self.run_bundle("implementation", "enter-task", "--root", str(self.root), "--slug", slug, "--task", "TASK-2")
+        self.assertIn("TASK-2: Verify follow-up task control", entered.stdout)
+        status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(status["task_closure_records"][-1]["task_id"], "TASK-1")
+        self.assertEqual(status["task_closure_records"][-1]["status"], "skipped")
+
+        rendered = self.run_bundle("render-status", "--root", str(self.root), "--slug", slug, "--status", "Progress")
+        self.assertIn("TASK-1 skipped", rendered.stdout)
+        self.assertIn("TASK closures: TASK-1=skipped", rendered.stdout)
+
+    def test_checkpoint_closes_current_task_and_allows_next_task(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        self.write_two_task_implementation_plan(slug)
+        self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("implementation", "enter-task", "--root", str(self.root), "--slug", slug, "--task", "TASK-1")
+
+        self.checkpoint(slug)
+        entered = self.run_bundle("implementation", "enter-task", "--root", str(self.root), "--slug", slug, "--task", "TASK-2")
+
+        self.assertIn("TASK-2: Verify follow-up task control", entered.stdout)
+        status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(status["task_closure_records"][-1]["task_id"], "TASK-1")
+        self.assertEqual(status["task_closure_records"][-1]["status"], "verified")
+
+    def test_render_status_ignores_replan_closure_after_later_verified_task_supersedes_it(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        self.write_two_task_implementation_plan(slug)
+        self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("implementation", "enter-task", "--root", str(self.root), "--slug", slug, "--task", "TASK-1")
+        self.run_bundle(
+            "implementation", "close-task",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--task", "TASK-1",
+            "--status", "replan",
+            "--reason", "Superseded by TASK-2 after user corrected the immediate scope.",
+            "--next", "Continue with TASK-2 after refreshed READY is visible.",
+        )
+        self.run_bundle("implementation", "enter-task", "--root", str(self.root), "--slug", slug, "--task", "TASK-2")
+        self.run_bundle(
+            "checkpoint",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--milestone", "TASK-2 verified follow-up",
+            "--delivered", "TASK-2 / REQ-1 completed the superseding replan path.",
+            "--verified", "source-only command flow evidence in 01-progress.md",
+            "--next", "No unresolved task remains in this scope.",
+            "--focus", "closing",
+            "--gate", "acceptance",
+            "--gate-status", "pass",
+            "--covers", "REQ-1",
+        )
+
+        rendered = self.run_bundle("render-status", "--root", str(self.root), "--slug", slug, "--status", "Progress")
+
+        incomplete = rendered.stdout.split("Incomplete Items:\n", 1)[1].split("\n\nValidation Results:", 1)[0]
+        self.assertEqual("- none", incomplete.strip())
+        self.assertIn("Next Action:\n- No unresolved task remains in this scope.", rendered.stdout)
+
+    def test_verify_reports_open_current_task_after_interruption(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("implementation", "enter-task", "--root", str(self.root), "--slug", slug, "--task", "TASK-1")
+
+        status = self.run_bundle("implementation", "status", "--root", str(self.root), "--slug", slug, check=False)
+        payload = json.loads(status.stdout)
+        self.assertTrue(payload["current_task_open"])
+
+        verify = self.run_bundle("verify", "--root", str(self.root), "--slug", slug, check=False)
+        self.assertIn("current TASK TASK-1 is still open", verify.stdout)
 
     def test_implementation_overview_reports_scope_current_task_and_full_plan_hint(self) -> None:
         slug = self.init_bundle()
@@ -4365,6 +4589,198 @@ Planned Verification:
         self.assertIn("Remaining Backlog: MB-2=deferred", rendered.stdout)
         self.assertIn("Next Batch: MB-2", rendered.stdout)
         self.assertNotIn("Master backlog incomplete", rendered.stdout)
+
+    def test_render_status_surfaces_skipped_backlog_as_incomplete_carryover(self) -> None:
+        slug = self.init_bundle()
+        self.write_master_backlog_bundle(slug)
+        self.run_bundle("backlog", "sync", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("backlog", "mark", "--root", str(self.root), "--slug", slug, "--id", "MB-1", "--status", "covered", "--reason", "REQ-1 covered in this batch")
+        self.run_bundle("backlog", "mark", "--root", str(self.root), "--slug", slug, "--id", "MB-2", "--status", "skipped", "--reason", "User skipped this backlog item for the current run.")
+
+        rendered = self.run_bundle("render-status", "--root", str(self.root), "--slug", slug, "--status", "Progress")
+
+        self.assertIn("Master backlog incomplete: MB-2 (skipped)", rendered.stdout)
+        self.assertIn("Master backlog: MB-1=covered, MB-2=skipped", rendered.stdout)
+        self.assertIn("Remaining Backlog: MB-2=skipped", rendered.stdout)
+        self.assertIn("Next Batch: MB-2", rendered.stdout)
+        self.assertIn("Next Action:\n- User decision needed for MB-2 (skipped): resume it, defer it, or close it out of scope.", rendered.stdout)
+
+    def test_render_status_keeps_superseded_backlog_visible_without_incomplete(self) -> None:
+        slug = self.init_bundle()
+        self.write_master_backlog_bundle(slug)
+        idea_path = self.root / ".idea-to-code" / slug / "00-idea.md"
+        idea_text = idea_path.read_text(encoding="utf-8").replace(
+            "| REQ-2 / MB-2 | MB-2 remains visible as pending.",
+            "| REQ-2 / MB-2 | MB-2 remains visible as pending.\n"
+            "| MB-3 | Replacement issue split from MB-1.\n"
+            "| MB-4 | Second replacement issue split from MB-1.",
+        )
+        idea_path.write_text(idea_text, encoding="utf-8")
+        self.run_bundle("backlog", "sync", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("backlog", "mark", "--root", str(self.root), "--slug", slug, "--id", "MB-1", "--status", "superseded", "--reason", "MB-1 split into MB-3 and MB-4 during replan.")
+        self.run_bundle("backlog", "mark", "--root", str(self.root), "--slug", slug, "--id", "MB-2", "--status", "covered", "--reason", "REQ-2 covered outside this split fixture.")
+
+        rendered = self.run_bundle("render-status", "--root", str(self.root), "--slug", slug, "--status", "Progress")
+
+        self.assertIn("Master backlog: MB-1=superseded, MB-2=covered, MB-3=pending, MB-4=pending", rendered.stdout)
+        self.assertIn("Master backlog incomplete: MB-3 (pending), MB-4 (pending)", rendered.stdout)
+        self.assertNotIn("Master backlog incomplete: MB-1", rendered.stdout)
+        self.assertIn("Next Action:\n- Continue with MB-3 (pending). It remains unresolved in this scope.", rendered.stdout)
+
+    def test_scope_override_blocks_verify_and_preserves_original_carryover(self) -> None:
+        slug = self.init_bundle()
+        self.write_master_backlog_bundle(slug)
+        self.run_bundle("backlog", "sync", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("backlog", "mark", "--root", str(self.root), "--slug", slug, "--id", "MB-1", "--status", "covered", "--reason", "REQ-1 covered in this batch")
+
+        self.run_bundle(
+            "scope", "override",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--requested-item", "Unverified Items: run independent fresh-agent review before MB-2.",
+            "--classification", "same-ledger-verification",
+            "--decision", "create-child-task",
+            "--rationale", "User explicitly asked to handle an Unverified Item before the current Next Action.",
+            "--user-request", "Run Unverified Items before continuing the remaining backlog.",
+            "--related-task", "TASK-3",
+        )
+
+        status = self.run_bundle("scope", "status", "--root", str(self.root), "--slug", slug)
+        payload = json.loads(status.stdout)
+        self.assertEqual(1, len(payload["open_scope_overrides"]))
+        self.assertEqual("same-ledger-verification", payload["open_scope_overrides"][0]["classification"])
+        self.assertTrue(any(
+            item.get("type") == "master-backlog"
+            and item.get("id") == "MB-2"
+            and item.get("status") == "pending"
+            for item in payload["open_scope_overrides"][0]["carryover_snapshot"]
+        ))
+
+        rendered = self.run_bundle("render-status", "--root", str(self.root), "--slug", slug, "--status", "Progress")
+        self.assertIn("Scope Override open:", rendered.stdout)
+        self.assertIn("Scope Override original carryover: MB-2 (pending)", rendered.stdout)
+        self.assertIn("Next Action:\n- Resolve Scope Override", rendered.stdout)
+        self.assertIn("override execution/resolution evidence is not recorded yet", rendered.stdout)
+
+        verified = self.run_bundle("verify", "--root", str(self.root), "--slug", slug, check=False)
+        self.assertNotEqual(0, verified.returncode)
+        self.assertIn("open Scope Override records must be resolved before verification", verified.stdout)
+
+    def test_scope_override_resolve_restores_original_next_action(self) -> None:
+        slug = self.init_bundle()
+        self.write_master_backlog_bundle(slug)
+        self.run_bundle("backlog", "sync", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("backlog", "mark", "--root", str(self.root), "--slug", slug, "--id", "MB-1", "--status", "covered", "--reason", "REQ-1 covered in this batch")
+        self.run_bundle(
+            "scope", "override",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--requested-item", "Unverified Items: run transcript audit before MB-2.",
+            "--classification", "same-ledger-verification",
+            "--decision", "create-child-task",
+            "--rationale", "User explicitly asked for verification before the current backlog Next Action.",
+            "--user-request", "Run the Unverified Item first.",
+            "--related-task", "TASK-3",
+        )
+        status = json.loads(self.run_bundle("scope", "status", "--root", str(self.root), "--slug", slug).stdout)
+        override_id = status["open_scope_overrides"][0]["id"]
+
+        self.run_bundle(
+            "scope", "override-resolve",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--id", override_id,
+            "--outcome", "child-task-created",
+            "--evidence", "TASK-3 was created to run the same-ledger verification override.",
+            "--related-task", "TASK-3",
+        )
+
+        rendered = self.run_bundle("render-status", "--root", str(self.root), "--slug", slug, "--status", "Progress")
+        self.assertNotIn("Scope Override open:", rendered.stdout)
+        self.assertIn("Latest Scope Override:", rendered.stdout)
+        self.assertIn("=resolved | same-ledger-verification -> create-child-task", rendered.stdout)
+        self.assertIn("Post-override Next Action: - Continue with MB-2 (pending). It remains unresolved in this scope.", rendered.stdout)
+        self.assertIn("Next Action:\n- Continue with MB-2 (pending). It remains unresolved in this scope.", rendered.stdout)
+
+    def test_scope_override_new_ledger_resolution_requires_related_slug(self) -> None:
+        slug = self.init_bundle()
+        self.write_master_backlog_bundle(slug)
+        self.run_bundle("backlog", "sync", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("backlog", "mark", "--root", str(self.root), "--slug", slug, "--id", "MB-1", "--status", "covered", "--reason", "REQ-1 covered in this batch")
+        self.run_bundle(
+            "scope", "override",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--requested-item", "Residual Risks: build a PowerShell fail-fast wrapper.",
+            "--classification", "new-ledger-improvement",
+            "--decision", "create-new-ledger",
+            "--rationale", "The requested residual-risk work is a workflow capability improvement rather than current delivery verification.",
+            "--user-request", "Handle the residual risk before continuing MB-2.",
+        )
+        status = json.loads(self.run_bundle("scope", "status", "--root", str(self.root), "--slug", slug).stdout)
+        override_id = status["open_scope_overrides"][0]["id"]
+
+        failed = self.run_bundle(
+            "scope", "override-resolve",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--id", override_id,
+            "--outcome", "new-ledger-created",
+            "--evidence", "New related ledger was created for the workflow capability improvement.",
+            check=False,
+        )
+        self.assertNotEqual(0, failed.returncode)
+        self.assertIn("new-ledger-created requires --related-slug", failed.stderr)
+
+        self.run_bundle(
+            "scope", "override-resolve",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--id", override_id,
+            "--outcome", "new-ledger-created",
+            "--evidence", "New related ledger fail-fast-wrapper was created for the workflow capability improvement.",
+            "--related-slug", "fail-fast-wrapper",
+        )
+        status = json.loads(self.run_bundle("scope", "status", "--root", str(self.root), "--slug", slug).stdout)
+        self.assertEqual([], status["open_scope_overrides"])
+        self.assertEqual("fail-fast-wrapper", status["scope_override_records"][-1]["related_slug"])
+
+    def test_acceptance_matrix_missing_validation_type_returns_problem_not_crash(self) -> None:
+        bundle = load_bundle_module()
+        requirements_text = """# Requirements
+
+## Acceptance Matrix
+
+| ID | User Goal Fit |
+|---|---|
+| REQ-1 | Sample user goal fit is present. |
+"""
+        problems = bundle._acceptance_matrix_problems(
+            requirements_text,
+            [{"id": "REQ-1", "state": "open"}],
+        )
+        self.assertIn("00-idea.md: Acceptance Matrix header missing column: Validation Type", problems)
+
+    def test_acceptance_matrix_ignores_later_id_tables(self) -> None:
+        bundle = load_bundle_module()
+        requirements_text = f"""# Requirements
+
+## Acceptance Matrix
+
+{TEST_ACCEPTANCE_HEADER}
+| REQ-1 | User goal is covered by the workflow. | Acceptance example is concrete. | Counterexample is concrete. | Non-goal boundary is concrete. | Expected path is concrete. | Negative input is concrete. | Boundary case is concrete. | State persistence is concrete. | Rollback path is concrete. | Error reporting is concrete. | Observability is concrete. | Real path is concrete. | source-only |
+
+## Requirements
+
+| ID | Type | Description | Acceptance |
+| --- | --- | --- | --- |
+| REQ-1 | functional | Later requirements table should not override the acceptance matrix header. | Accepted. |
+"""
+        problems = bundle._acceptance_matrix_problems(
+            requirements_text,
+            [{"id": "REQ-1", "state": "open"}],
+        )
+        self.assertNotIn("00-idea.md: Acceptance Matrix header missing column: Validation Type", problems)
 
     def test_master_backlog_parser_expands_mb_ranges(self) -> None:
         bundle = load_bundle_module()
@@ -5273,6 +5689,42 @@ Planned Verification:
         rendered = self.run_bundle("render-status", "--root", str(self.root), "--slug", slug, "--status", "Progress")
         self.assertIn("Pre-edit noncompliance open", rendered.stdout)
 
+    def test_pre_edit_noncompliance_resolve_preserves_history_without_open_blocker(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("implementation", "enter-task", "--root", str(self.root), "--slug", slug, "--task", "TASK-1")
+        self.acquire_lease(slug)
+        self.run_bundle("implementation", "pre-edit", "--root", str(self.root), "--slug", slug, "--task", "TASK-1", "--file", "state.json")
+
+        recorded = self.run_bundle(
+            "implementation", "noncompliance",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--task", "TASK-1",
+            "--reason", "edited file before the visible pre-edit guard",
+            "--file", "state.json",
+        )
+        event_id = re.search(r"NONCOMPLIANCE_ID: (\S+)", recorded.stdout).group(1)
+
+        resolved = self.run_bundle(
+            "implementation", "noncompliance-resolve",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--id", event_id,
+            "--resolution", "accepted as historical process lapse after refreshed visible gates passed",
+        )
+        self.assertIn("Pre-Edit Noncompliance: resolved", resolved.stdout)
+
+        status = self.run_bundle("implementation", "status", "--root", str(self.root), "--slug", slug)
+        payload = json.loads(status.stdout)
+        self.assertEqual([], payload["problems"])
+        self.assertEqual(event_id, payload["pre_edit_noncompliance"][0]["id"])
+        self.assertIn("resolved_at_utc", payload["pre_edit_noncompliance"][0])
+
+        rendered = self.run_bundle("render-status", "--root", str(self.root), "--slug", slug, "--status", "Progress")
+        self.assertNotIn("Pre-edit noncompliance open", rendered.stdout)
+
     def test_master_backlog_sync_records_mb_ids_and_blocks_ready_until_synced(self) -> None:
         slug = self.init_bundle()
         self.write_master_backlog_bundle(slug)
@@ -5494,6 +5946,42 @@ Planned Verification:
         self.assertIn("Enforcement Boundary: host-required", result.stdout)
         self.assertIn("Required Checks:", result.stdout)
 
+    def test_host_hook_final_response_contract_json_exposes_required_checks_and_boundary(self) -> None:
+        result = self.run_bundle("host-hook", "final-response-contract", "--json")
+        payload = json.loads(result.stdout)
+
+        self.assertEqual("idea-to-code.host-hook.final-response-contract.v1", payload["schema"])
+        self.assertEqual("host-required", payload["enforcement_boundary"])
+        self.assertIn("output-compliance check --kind formal-status", "\n".join(payload["required_checks"]))
+        self.assertIn("Next Action is present as the final formal field", "\n".join(payload["required_checks"]))
+        self.assertIn("profile-prefixed upper-layer output omits the underlying idea-to-code gates", "\n".join(payload["deny_when"]))
+        self.assertIn("Profile wrappers and upper-layer skills must call this same contract", "\n".join(payload["host_integration_notes"]))
+
+    def test_install_parity_check_passes_and_fails_on_hash_mismatch(self) -> None:
+        source = self.root / "source-skill"
+        target = self.root / "target-skill"
+        (source / "scripts").mkdir(parents=True)
+        (target / "scripts").mkdir(parents=True)
+        (source / "SKILL.md").write_text("source skill\n", encoding="utf-8")
+        (target / "SKILL.md").write_text("source skill\n", encoding="utf-8")
+        (source / "scripts" / "tool.py").write_text("print('ok')\n", encoding="utf-8")
+        (target / "scripts" / "tool.py").write_text("print('ok')\n", encoding="utf-8")
+
+        passed = self.run_bundle("install-parity", "check", "--source", str(source), "--target", str(target), "--json")
+        pass_payload = json.loads(passed.stdout)
+        self.assertTrue(pass_payload["ok"])
+        self.assertEqual([], pass_payload["missing"])
+        self.assertEqual([], pass_payload["extra"])
+        self.assertEqual([], pass_payload["different"])
+
+        (target / "scripts" / "tool.py").write_text("print('old')\n", encoding="utf-8")
+        failed = self.run_bundle("install-parity", "check", "--source", str(source), "--target", str(target), "--json", check=False)
+        fail_payload = json.loads(failed.stdout)
+        self.assertNotEqual(0, failed.returncode)
+        self.assertFalse(fail_payload["ok"])
+        self.assertEqual(["scripts/tool.py"], fail_payload["different"])
+        self.assertIn("install or sync the skill", fail_payload["next_required_action"])
+
     def test_user_facing_language_contract_preserves_protocol_english(self) -> None:
         skill = SKILL_MD.read_text(encoding="utf-8")
         workflow = WORKFLOW_MD.read_text(encoding="utf-8")
@@ -5520,11 +6008,13 @@ Planned Verification:
             "$CODEX_HOME/skills/idea-to-code",
             "installed focused tests",
             "source/installed SHA256 parity",
+            "install-parity check",
             "files changed by the batch",
             "No commit made",
             "Key Technical Details",
             "not under `Incomplete Items`",
             "do not claim the latest skill code is installed and verified",
+            "wrapper skills",
             "Formal install, validation, or final status must name the relevant TASK/REQ",
             "Report the gap in `Unverified Items`",
         ]:
@@ -6833,6 +7323,7 @@ Planned Verification:
             "idea-ledger",
             "scope-classification",
             "master-backlog",
+            "controlled-repair",
             "enumerated-scope",
             "current-task-entry",
             "implementation-lease",

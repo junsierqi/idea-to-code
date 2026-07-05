@@ -666,7 +666,7 @@ Expected response shape:
 
 - Uses `render-status` before the final response when the helper is available.
 - Final assistant-visible body starts with `[idea-to-code][Closer/agent] Status: Completed` or `Progress`/`Blocked` as evidence supports.
-- Includes fixed fields: `Changes`, `Completed Items`, `Incomplete Items`, `Validation Results`, `Unverified Items`, `Residual Risks`, and `Key Technical Details`.
+- Includes fixed fields: `Changes`, `Completed Items`, `Incomplete Items`, `Validation Results`, `Unverified Items`, `Residual Risks`, `Key Technical Details`, and final `Next Action`.
 - Maps tracked work to concrete `TASK-*` and `REQ-*` IDs that were shown in the visible READY excerpt.
 - Keeps `No commit made` under `Key Technical Details`, not `Incomplete Items`.
 - Does not justify ordinary output by saying the initial prompt was an explanation after tracked edits, install, validation, checkpoint, finalize, or tracked status delivery occurred.

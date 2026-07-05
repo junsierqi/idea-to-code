@@ -43,6 +43,26 @@ USER_INPUT_CLASSIFICATIONS = (
     "no-op",
 )
 SESSION_RELATIONS = ("same-scope", "scope-correction", "new-related-scope", "unrelated")
+SCOPE_OVERRIDE_CLASSIFICATIONS = (
+    "same-ledger-verification",
+    "same-ledger-repair",
+    "new-ledger-improvement",
+    "accepted-residual",
+)
+SCOPE_OVERRIDE_DECISIONS = (
+    "continue-current-ledger",
+    "create-child-task",
+    "create-new-ledger",
+    "stop",
+    "accepted-residual",
+)
+SCOPE_OVERRIDE_OUTCOMES = (
+    "completed",
+    "child-task-created",
+    "new-ledger-created",
+    "accepted-residual",
+    "cancelled",
+)
 PLAN_CHANGING_CLASSIFICATIONS = {"expand", "switch", "clarification"}
 VALIDATION_TYPES = (
     "real-product-path",
@@ -55,6 +75,8 @@ VALIDATION_TYPES = (
 )
 DELEGATION_STATUSES = ("usable", "timeout", "unusable", "planned", "unverified")
 ENFORCEMENT_BOUNDARIES = ("repo-enforced", "skill-enforced", "host-required")
+INSTALL_PARITY_EXCLUDED_DIRS = {"__pycache__", ".git", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
+INSTALL_PARITY_EXCLUDED_SUFFIXES = {".pyc", ".pyo"}
 TASK_REQUIRED_SECTIONS = ("Files:", "Execution Details:", "Done Criteria:", "Planned Verification:")
 TASK_SECTION_RESERVED_HEADINGS = {
     "## Requirements",
@@ -118,7 +140,8 @@ PRE_EDIT_OUTPUT_FIELDS = (
     "pre_edit_ready_task_output_id",
     "pre_edit_exploration_output_id",
 )
-MASTER_BACKLOG_STATUSES = ("pending", "active", "deferred", "covered", "completed", "blocked")
+MASTER_BACKLOG_STATUSES = ("pending", "active", "deferred", "covered", "completed", "blocked", "skipped", "partial", "failed", "superseded")
+TASK_CLOSURE_STATUSES = ("verified", "partial", "blocked", "skipped", "deferred", "failed", "replan")
 IDEA_RECORD_STATUSES = ("active", "completed", "deferred", "rejected", "superseded", "blocked", "reference")
 PLAN_UPDATE_SECTIONS = ("requirements", "design", "implementation")
 BRANCH_COVERAGE_MAP = [
@@ -171,12 +194,28 @@ BRANCH_COVERAGE_MAP = [
         "failure_handling": "classify before planning, editing, or claiming tracked status",
     },
     {
+        "id": "scope-override",
+        "workflow_branch": "Scope Override branch",
+        "entry": "incomplete work exists and user asks to handle non-Next Action work such as Unverified Items or Residual Risks",
+        "exit": "scope override records classification, decision, original carryover snapshot, and resolution evidence",
+        "validation": "verify refuses open override records and render-status keeps original Incomplete Items plus updated Next Action visible",
+        "failure_handling": "classify as same-ledger verification, same-ledger repair, new-ledger improvement, or accepted residual before executing the override",
+    },
+    {
         "id": "master-backlog",
         "workflow_branch": "Master backlog branch",
         "entry": "one related request contains multiple issues or work items",
         "exit": "backlog sync assigns stable MB-* IDs before READY",
-        "validation": "READY and closeout keep pending or deferred MB IDs visible",
+        "validation": "READY and closeout keep pending, deferred, skipped, blocked, partial, or failed MB IDs visible",
         "failure_handling": "accepted closeout is refused while master backlog items remain incomplete",
+    },
+    {
+        "id": "controlled-repair",
+        "workflow_branch": "Controlled repair branch",
+        "entry": "implementation has entered a current TASK",
+        "exit": "current TASK is closed by checkpoint or implementation close-task before switching TASKs",
+        "validation": "enter-task refuses switching while current_task_id is open and verify/render-status expose open or incomplete TASK state",
+        "failure_handling": "checkpoint, close-task, or return to Execution Planning before another TASK becomes current",
     },
     {
         "id": "enumerated-scope",
@@ -190,9 +229,9 @@ BRANCH_COVERAGE_MAP = [
         "id": "current-task-entry",
         "workflow_branch": "Current TASK entry branch",
         "entry": "agent is about to work on a READY TASK",
-        "exit": "implementation enter-task records current_task_id and prints READY Focus",
-        "validation": "current task state matches the TASK being edited",
-        "failure_handling": "use show-ready only as a fallback with a recorded reason",
+        "exit": "implementation enter-task records current_task_id, prints READY Focus, and refuses switching while the prior TASK is open",
+        "validation": "current task state matches the TASK being edited and task_closure_records show closed TASK transitions",
+        "failure_handling": "use show-ready only as a fallback with a recorded reason; close open TASKs before switching",
     },
     {
         "id": "validation-type-preflight",
@@ -233,6 +272,14 @@ BRANCH_COVERAGE_MAP = [
         "exit": "wrapper verifies bundle, exploration, READY, lease, pre-edit, file scope, edit, and evidence linkage",
         "validation": "absence of the wrapper remains visible as residual risk",
         "failure_handling": "do not claim physical edit blocking until a real wrapper or host hook exists",
+    },
+    {
+        "id": "final-response-host-hook",
+        "workflow_branch": "Final response host hook branch",
+        "entry": "host can inspect assistant-visible final body before sending",
+        "exit": "host runs output-compliance check against render-status/tool stdout and the final assistant body",
+        "validation": "host-hook final-response-contract exposes the required machine-readable checks",
+        "failure_handling": "if the host cannot intercept final body, disclose the boundary as host-required",
     },
     {
         "id": "pre-edit-noncompliance",
@@ -289,6 +336,14 @@ BRANCH_COVERAGE_MAP = [
         "exit": "official chunked runner records total test count, chunks, and pass/fail output",
         "validation": "test-batch --chunk-size 40 --timeout-seconds 180 is accepted self-validation evidence",
         "failure_handling": "record slow or flaky full-suite limits instead of claiming unrun coverage",
+    },
+    {
+        "id": "installed-skill-parity",
+        "workflow_branch": "Installed skill parity branch",
+        "entry": "tracked work changes idea-to-code source and claims installed runtime behavior",
+        "exit": "install-parity check proves source and installed skill files match by path and SHA256",
+        "validation": "install-parity check fails on missing, extra, or different installed files",
+        "failure_handling": "do not claim latest installed behavior; report the mismatch under Unverified Items or incomplete TASK/REQ",
     },
     {
         "id": "user-facing-language",
@@ -355,6 +410,22 @@ BRANCH_INVARIANT_OVERRIDES = {
         "test": "test-batch and full-suite regression tests",
         "closeout_surface": "Validation Results",
         "enforcement_boundary": "repo-enforced",
+    },
+    "installed-skill-parity": {
+        "owner": "references/verification-and-evidence.md + scripts/idea_to_code_bundle.py",
+        "gate": "install-parity check",
+        "evidence": "path and SHA256 comparison for source and installed skill files",
+        "test": "install-parity command regression tests",
+        "closeout_surface": "Validation Results, Unverified Items, and Key Technical Details",
+        "enforcement_boundary": "repo-enforced",
+    },
+    "final-response-host-hook": {
+        "owner": "references/verification-and-evidence.md + references/workflow.md",
+        "gate": "host-hook final-response-contract",
+        "evidence": "host-side output-compliance check for assistant-visible final body",
+        "test": "host-hook final-response-contract regression tests",
+        "closeout_surface": "Residual Risks or Unverified Items when host interception is unavailable",
+        "enforcement_boundary": "host-required",
     },
     "display-artifact": {
         "owner": "references/verification-and-evidence.md + references/roles-and-state.md",
@@ -872,6 +943,10 @@ def _migrate_current_task_fields(status: dict) -> None:
     status.setdefault("current_task_entered_at_utc", None)
     status.setdefault("current_task_event_sequence", None)
     status.setdefault("current_task_ready_output_id", None)
+    status.setdefault("current_task_status", None)
+    status.setdefault("current_task_closed_at_utc", None)
+    status.setdefault("current_task_closure_event_sequence", None)
+    status.setdefault("task_closure_records", [])
 
 
 def _migrate_pre_edit_output_fields(status: dict) -> None:
@@ -891,6 +966,7 @@ def _migrate_pre_edit_output_fields(status: dict) -> None:
     status.setdefault("delegation_records", [])
     status.setdefault("session_continuity_audits", [])
     status.setdefault("scope_classifications", [])
+    status.setdefault("scope_override_records", [])
     status.setdefault("visible_output_required", False)
     status.setdefault("visible_output_id", None)
     status.setdefault("visible_output_records", [])
@@ -990,6 +1066,64 @@ def _verify_is_older_than_entry(status: dict, entry: dict) -> bool:
     entry_timestamp = entry.get("timestamp_utc", "")
     verified_timestamp = status.get("last_verified_at_utc", "")
     return bool(entry_timestamp and verified_timestamp < entry_timestamp)
+
+
+def _latest_task_closure(status: dict, task_id: str | None = None) -> dict | None:
+    normalized_task_id = (task_id or status.get("current_task_id") or "").strip().upper()
+    if not normalized_task_id:
+        return None
+    current_entry_sequence = int(status.get("current_task_event_sequence") or 0)
+    for record in reversed(status.get("task_closure_records", [])):
+        if (record.get("task_id") or "").strip().upper() != normalized_task_id:
+            continue
+        if current_entry_sequence and int(record.get("entry_event_sequence") or 0) != current_entry_sequence:
+            continue
+        return record
+    return None
+
+
+def _current_task_is_open(status: dict) -> bool:
+    current_task = (status.get("current_task_id") or "").strip().upper()
+    if not current_task:
+        return False
+    return _latest_task_closure(status, current_task) is None
+
+
+def _current_task_switch_problem(status: dict, next_task_id: str) -> str | None:
+    current_task = (status.get("current_task_id") or "").strip().upper()
+    normalized_next = next_task_id.strip().upper()
+    if not current_task or current_task == normalized_next:
+        return None
+    if _current_task_is_open(status):
+        return (
+            f"current TASK {current_task} is still open; close it with checkpoint or "
+            "implementation close-task before entering another TASK"
+        )
+    return None
+
+
+def _record_task_closure(status: dict, task_id: str, task_status: str, reason: str, next_step: str) -> dict:
+    normalized_task_id = task_id.strip().upper()
+    normalized_status = task_status.strip().lower()
+    if normalized_status not in TASK_CLOSURE_STATUSES:
+        raise SystemExit("task closure status must be one of: " + ", ".join(TASK_CLOSURE_STATUSES))
+    event_sequence = _next_event_sequence(status)
+    record = {
+        "task_id": normalized_task_id,
+        "status": normalized_status,
+        "reason": reason,
+        "next": next_step,
+        "timestamp_utc": utc_now(),
+        "event_sequence": event_sequence,
+        "entry_event_sequence": status.get("current_task_event_sequence"),
+        "ready_task_output_id": status.get("current_task_ready_output_id"),
+    }
+    status.setdefault("task_closure_records", []).append(record)
+    if (status.get("current_task_id") or "").strip().upper() == normalized_task_id:
+        status["current_task_status"] = normalized_status
+        status["current_task_closed_at_utc"] = record["timestamp_utc"]
+        status["current_task_closure_event_sequence"] = event_sequence
+    return record
 
 
 def _clear_ready_output(status: dict) -> None:
@@ -1121,7 +1255,7 @@ def _master_backlog_item_map(status: dict) -> dict[str, dict]:
 def _master_backlog_incomplete_items(status: dict) -> list[dict]:
     incomplete = []
     for item in status.get("master_backlog", []):
-        if item.get("status") not in {"covered", "completed", "deferred"}:
+        if item.get("status") not in {"covered", "completed", "deferred", "superseded"}:
             incomplete.append(item)
     return incomplete
 
@@ -1129,9 +1263,115 @@ def _master_backlog_incomplete_items(status: dict) -> list[dict]:
 def _master_backlog_remaining_items(status: dict) -> list[dict]:
     remaining = []
     for item in status.get("master_backlog", []):
-        if item.get("status") not in {"covered", "completed"}:
+        if item.get("status") not in {"covered", "completed", "superseded"}:
             remaining.append(item)
     return remaining
+
+
+def _task_closure_incomplete_records(status: dict) -> list[dict]:
+    current_verified_sequence = int(status.get("current_task_closure_event_sequence") or 0)
+    current_verified = status.get("current_task_status") == "verified" and current_verified_sequence > 0
+    def is_superseded_replan(record: dict) -> bool:
+        if record.get("status") != "replan" or not current_verified:
+            return False
+        return int(record.get("event_sequence") or 0) < current_verified_sequence
+
+    return [
+        record for record in status.get("task_closure_records", [])
+        if record.get("status") in {"partial", "blocked", "skipped", "deferred", "failed", "replan"}
+        and not is_superseded_replan(record)
+    ]
+
+
+def _scope_override_open_records(status: dict) -> list[dict]:
+    return [
+        record for record in status.get("scope_override_records", [])
+        if record.get("status", "open") == "open"
+    ]
+
+
+def _scope_override_carryover_snapshot(status: dict) -> list[dict]:
+    snapshot: list[dict] = []
+    if _current_task_is_open(status):
+        snapshot.append({
+            "type": "current-task",
+            "id": status.get("current_task_id") or "current TASK",
+            "status": status.get("current_task_status") or "in_progress",
+            "next": "checkpoint or close current TASK",
+        })
+    for record in _task_closure_incomplete_records(status):
+        snapshot.append({
+            "type": "task-closure",
+            "id": record.get("task_id"),
+            "status": record.get("status"),
+            "reason": record.get("reason", ""),
+            "next": record.get("next", ""),
+        })
+    for item in _master_backlog_incomplete_items(status):
+        snapshot.append({
+            "type": "master-backlog",
+            "id": item.get("id"),
+            "status": item.get("status", "pending"),
+            "title": item.get("title", ""),
+            "reason": item.get("update_reason") or item.get("deferred_reason") or "",
+        })
+    return snapshot
+
+
+def _render_next_action_line(status: dict, incomplete_backlog: list[dict], remaining_backlog: list[dict]) -> str:
+    open_overrides = _scope_override_open_records(status)
+    if open_overrides:
+        latest = open_overrides[-1]
+        return (
+            f"- Resolve Scope Override {latest.get('id')} before continuing normal Next Action. "
+            f"Original carryover remains open."
+        )
+    if _current_task_is_open(status):
+        current_task = status.get("current_task_id") or "current TASK"
+        return f"- Resume or close {current_task}; it is still open."
+    actionable_backlog = [
+        item for item in remaining_backlog
+        if item.get("status") in {"pending", "active", "partial", "failed"}
+    ]
+    if actionable_backlog:
+        item = actionable_backlog[0]
+        return (
+            f"- Continue with {item.get('id')} ({item.get('status', 'pending')}). "
+            "It remains unresolved in this scope."
+        )
+    if incomplete_backlog:
+        item = incomplete_backlog[0]
+        return (
+            f"- User decision needed for {item.get('id')} ({item.get('status', 'pending')}): "
+            "resume it, defer it, or close it out of scope."
+        )
+    if remaining_backlog:
+        item = remaining_backlog[0]
+        return (
+            f"- No active next action. Carryover remains {item.get('status', 'pending')} "
+            f"for future resume: {item.get('id')}."
+        )
+    incomplete_task = next(iter(_task_closure_incomplete_records(status)), None)
+    if incomplete_task:
+        return (
+            f"- User decision needed for {incomplete_task.get('task_id')} "
+            f"({incomplete_task.get('status')}): {incomplete_task.get('next') or 'choose resume, defer, or close'}."
+        )
+    open_delegation_findings = _open_delegation_findings(status)
+    if open_delegation_findings:
+        record = open_delegation_findings[0]
+        return (
+            f"- Resolve delegation evidence finding {record.get('id', 'unknown')} "
+            f"({record.get('role', 'unknown')}={record.get('status', 'unknown')}) or carry it as risk."
+        )
+    open_pre_edit_noncompliance = _open_pre_edit_noncompliance(status)
+    if open_pre_edit_noncompliance:
+        event = open_pre_edit_noncompliance[0]
+        return (
+            f"- Resolve pre-edit noncompliance {event.get('id', 'unknown')} "
+            f"for {event.get('task_id') or 'unknown TASK'} before accepted closeout."
+        )
+    return "- No unresolved task remains in this scope."
 
 
 def _master_backlog_problems(target: Path, status: dict) -> list[str]:
@@ -2043,6 +2283,10 @@ def checkpoint_bundle(
                 "covers": covers,
             }
         )
+        current_task_id = (status.get("current_task_id") or "").strip().upper()
+        if current_task_id and _current_task_is_open(status):
+            closure_status = {"pass": "verified", "partial": "partial", "fail": "failed"}.get((gate_status or "").lower(), "partial")
+            _record_task_closure(status, current_task_id, closure_status, f"checkpoint {milestone}: {delivered}", next_step)
         _update_master_backlog_coverage(status, covers, milestone)
         status["last_verify_ok"] = False
         status["last_verified_plan_revision"] = None
@@ -3361,6 +3605,9 @@ def implementation_enter_task(
         if ready_output_problem:
             raise SystemExit("implementation enter-task refused - " + ready_output_problem)
         normalized_task_id = task_id.strip().upper()
+        switch_problem = _current_task_switch_problem(status, normalized_task_id)
+        if switch_problem:
+            raise SystemExit("implementation enter-task refused - " + switch_problem)
         blocks = _filter_ready_task_blocks(_ready_task_blocks(target), [normalized_task_id])
         output_id = status["ready_task_output_id"]
         lines = _format_ready_output(
@@ -3382,9 +3629,59 @@ def implementation_enter_task(
         status["current_task_entered_at_utc"] = utc_now()
         status["current_task_event_sequence"] = _next_event_sequence(status)
         status["current_task_ready_output_id"] = output_id
+        status["current_task_status"] = "in_progress"
+        status["current_task_closed_at_utc"] = None
+        status["current_task_closure_event_sequence"] = None
         write_status(target, status)
         append_ledger(target, "implementation-enter-task", f"Entered {normalized_task_id}; ready_output={output_id}")
     print("\n".join(lines))
+    return 0
+
+
+def implementation_close_task(
+    root: Path,
+    slug: str,
+    task_id: str,
+    task_status: str,
+    reason: str,
+    next_step: str,
+) -> int:
+    normalized_task_id = task_id.strip().upper()
+    normalized_status = task_status.strip().lower()
+    if normalized_status not in TASK_CLOSURE_STATUSES:
+        raise SystemExit("implementation close-task refused - --status must be one of: " + ", ".join(TASK_CLOSURE_STATUSES))
+    if normalized_status == "verified":
+        raise SystemExit("implementation close-task refused - verified TASKs must be closed by checkpoint evidence")
+    if _weak_text_value(reason, min_len=8) or _weak_text_value(next_step, min_len=4):
+        raise SystemExit("implementation close-task refused - --reason and --next must be concrete.")
+    if not _is_ascii(reason) or not _is_ascii(next_step):
+        raise SystemExit("implementation close-task refused - --reason and --next must be English-only ASCII text.")
+    target = ensure_active_bundle(root, slug)
+    with bundle_lock(target):
+        status = read_status(target)
+        current_task = (status.get("current_task_id") or "").strip().upper()
+        if current_task != normalized_task_id:
+            raise SystemExit(
+                "implementation close-task refused - current_task_id is "
+                f"{current_task or '(missing)'}; enter {normalized_task_id} before closing it."
+            )
+        if not _current_task_is_open(status):
+            latest = _latest_task_closure(status, normalized_task_id) or {}
+            raise SystemExit(
+                "implementation close-task refused - "
+                f"{normalized_task_id} is already closed as {latest.get('status', 'unknown')}."
+            )
+        record = _record_task_closure(status, normalized_task_id, normalized_status, reason, next_step)
+        status["last_verify_ok"] = False
+        status["last_verified_plan_revision"] = None
+        write_status(target, status)
+        append_ledger(target, "implementation-close-task", f"{normalized_task_id} -> {normalized_status}: {reason}")
+    print(f"[idea-to-code][Implementer/agent] TASK Closure: {normalized_status}")
+    print("")
+    print(f"TASK: {normalized_task_id}")
+    print(f"Reason: {reason}")
+    print(f"Next: {next_step}")
+    print(f"Event Sequence: {record.get('event_sequence')}")
     return 0
 
 
@@ -3990,9 +4287,155 @@ def scope_status(root: Path, slug: str) -> int:
         "path": str(target),
         "scope_classifications": records,
         "latest": records[-1] if records else None,
+        "scope_override_records": status.get("scope_override_records", []),
+        "open_scope_overrides": _scope_override_open_records(status),
     }
     print(json.dumps(payload, indent=2, ensure_ascii=False))
     return 0
+
+
+def scope_override(
+    root: Path,
+    slug: str,
+    requested_item: str,
+    classification: str,
+    decision: str,
+    rationale: str,
+    user_request: str,
+    related_task: str = "",
+    related_slug: str = "",
+) -> Path:
+    target = ensure_active_bundle(root, slug, allow_blocked=True)
+    if classification not in SCOPE_OVERRIDE_CLASSIFICATIONS:
+        raise SystemExit(
+            "scope override refused - --classification must be one of: "
+            + ", ".join(SCOPE_OVERRIDE_CLASSIFICATIONS)
+        )
+    if decision not in SCOPE_OVERRIDE_DECISIONS:
+        raise SystemExit(
+            "scope override refused - --decision must be one of: "
+            + ", ".join(SCOPE_OVERRIDE_DECISIONS)
+        )
+    for label, value in {
+        "requested-item": requested_item,
+        "rationale": rationale,
+        "user-request": user_request,
+        "related-task": related_task,
+        "related-slug": related_slug,
+    }.items():
+        if value and not _is_ascii(value):
+            raise SystemExit(f"scope override refused - --{label} must be English-only ASCII text.")
+    for label, value in {"requested-item": requested_item, "rationale": rationale, "user-request": user_request}.items():
+        if _weak_text_value(value, min_len=10):
+            raise SystemExit(f"scope override refused - --{label} is too vague.")
+    allowed_decisions = {
+        "same-ledger-verification": {"continue-current-ledger", "create-child-task"},
+        "same-ledger-repair": {"create-child-task", "continue-current-ledger"},
+        "new-ledger-improvement": {"create-new-ledger"},
+        "accepted-residual": {"accepted-residual", "stop"},
+    }
+    if decision not in allowed_decisions[classification]:
+        raise SystemExit(
+            f"scope override refused - {classification} requires decision one of: "
+            + ", ".join(sorted(allowed_decisions[classification]))
+        )
+    with bundle_lock(target):
+        status = read_status(target)
+        if _scope_override_open_records(status):
+            raise SystemExit("scope override refused - an open Scope Override already exists; resolve it before recording another.")
+        carryover = _scope_override_carryover_snapshot(status)
+        if not carryover:
+            raise SystemExit("scope override refused - no Incomplete Items are currently detectable; use normal scope classify or planning instead.")
+        timestamp = utc_now()
+        compact_time = re.sub(r"[^0-9]", "", timestamp)[:14]
+        event_sequence = _next_event_sequence(status)
+        override_id = f"{slug}-override-r{status.get('plan_revision', 0)}-{compact_time}"
+        current_next_action = _render_next_action_line(
+            status,
+            _master_backlog_incomplete_items(status),
+            _master_backlog_remaining_items(status),
+        )
+        record = {
+            "id": override_id,
+            "status": "open",
+            "requested_item": requested_item,
+            "classification": classification,
+            "decision": decision,
+            "rationale": rationale,
+            "user_request": user_request,
+            "current_next_action": current_next_action,
+            "carryover_snapshot": carryover,
+            "related_task": related_task,
+            "related_slug": related_slug,
+            "plan_revision": int(status.get("plan_revision", 0)),
+            "event_sequence": event_sequence,
+            "recorded_at_utc": timestamp,
+        }
+        status.setdefault("scope_override_records", []).append(record)
+        write_status(target, status)
+        append_ledger(target, "scope-override", f"{override_id}: {classification} {decision} {requested_item}")
+    return target
+
+
+def scope_override_resolve(
+    root: Path,
+    slug: str,
+    override_id: str,
+    outcome: str,
+    evidence: str,
+    related_task: str = "",
+    related_slug: str = "",
+) -> Path:
+    target = ensure_active_bundle(root, slug, allow_blocked=True)
+    if outcome not in SCOPE_OVERRIDE_OUTCOMES:
+        raise SystemExit(
+            "scope override-resolve refused - --outcome must be one of: "
+            + ", ".join(SCOPE_OVERRIDE_OUTCOMES)
+        )
+    for label, value in {
+        "id": override_id,
+        "evidence": evidence,
+        "related-task": related_task,
+        "related-slug": related_slug,
+    }.items():
+        if value and not _is_ascii(value):
+            raise SystemExit(f"scope override-resolve refused - --{label} must be English-only ASCII text.")
+    if _weak_text_value(evidence, min_len=12):
+        raise SystemExit("scope override-resolve refused - --evidence is too vague.")
+    with bundle_lock(target):
+        status = read_status(target)
+        records = status.setdefault("scope_override_records", [])
+        record = next((item for item in records if item.get("id") == override_id), None)
+        if not record:
+            raise SystemExit(f"scope override-resolve refused - unknown override id: {override_id}")
+        if record.get("status") != "open":
+            raise SystemExit(f"scope override-resolve refused - override is already {record.get('status')}")
+        decision = record.get("decision")
+        if decision == "create-new-ledger" and outcome != "new-ledger-created":
+            raise SystemExit("scope override-resolve refused - create-new-ledger decision requires outcome new-ledger-created.")
+        if outcome == "new-ledger-created" and not (related_slug or record.get("related_slug")):
+            raise SystemExit("scope override-resolve refused - new-ledger-created requires --related-slug.")
+        if outcome == "child-task-created" and not (related_task or record.get("related_task")):
+            raise SystemExit("scope override-resolve refused - child-task-created requires --related-task.")
+        timestamp = utc_now()
+        event_sequence = _next_event_sequence(status)
+        record["status"] = "resolved"
+        record["outcome"] = outcome
+        record["resolution_evidence"] = evidence
+        record["resolved_at_utc"] = timestamp
+        record["resolved_event_sequence"] = event_sequence
+        if related_task:
+            record["related_task"] = related_task
+        if related_slug:
+            record["related_slug"] = related_slug
+        record["post_override_next_action"] = _render_next_action_line(
+            {**status, "scope_override_records": [r for r in records if r.get("id") != override_id]},
+            _master_backlog_incomplete_items(status),
+            _master_backlog_remaining_items(status),
+        )
+        write_status(target, status)
+        append_ledger(target, "scope-override-resolve", f"{override_id}: {outcome} {evidence}")
+    return target
 
 
 def implementation_visible_output_record(
@@ -4382,6 +4825,52 @@ def implementation_noncompliance(
     return 0
 
 
+def implementation_noncompliance_resolve(
+    root: Path,
+    slug: str,
+    event_id: str,
+    resolution: str,
+    profile: str | None = None,
+) -> int:
+    target = ensure_active_bundle(root, slug)
+    if _weak_text_value(resolution, min_len=12):
+        raise SystemExit("implementation noncompliance resolve refused - --resolution must describe the disposition.")
+    if not _is_ascii(resolution):
+        raise SystemExit("implementation noncompliance resolve refused - --resolution must be English-only ASCII text.")
+    with bundle_lock(target):
+        status = read_status(target)
+        wanted = event_id.strip()
+        event = None
+        for item in status.get("pre_edit_noncompliance", []):
+            if item.get("id") == wanted:
+                event = item
+                break
+        if not event:
+            raise SystemExit(f"implementation noncompliance resolve refused - unknown NONCOMPLIANCE_ID: {wanted}")
+        if event.get("resolved_at_utc"):
+            raise SystemExit(f"implementation noncompliance resolve refused - already resolved: {wanted}")
+        timestamp = utc_now()
+        event["resolved_at_utc"] = timestamp
+        event["resolution"] = resolution
+        event["resolved_event_sequence"] = _next_event_sequence(status)
+        write_status(target, status)
+        append_ledger(target, "implementation-noncompliance-resolve", f"{wanted}: {resolution}")
+    lines = [
+        f"{_visibility_prefix(profile, 'implementer', 'agent')} Pre-Edit Noncompliance: resolved | Bundle: {slug}",
+        "",
+        "Display Layer: Pre-Edit Noncompliance Resolution",
+        f"NONCOMPLIANCE_ID: {wanted}",
+        "",
+        "Resolution:",
+        f"- {resolution}",
+        "",
+        "Effect:",
+        "- The historical noncompliance remains recorded but no longer blocks later TASK evidence; final status may still cite it as residual or historical risk.",
+    ]
+    print("\n".join(lines))
+    return 0
+
+
 def implementation_status(root: Path, slug: str) -> int:
     target = ensure_bundle(root, slug)
     problems = implementation_gate_problems(target)
@@ -4408,7 +4897,10 @@ def implementation_status(root: Path, slug: str) -> int:
         "ready_task_output_plan_revision": status.get("ready_task_output_plan_revision"),
         "ready_task_output_history": status.get("ready_task_output_history", []),
         "current_task_id": status.get("current_task_id"),
+        "current_task_status": status.get("current_task_status"),
+        "current_task_open": _current_task_is_open(status),
         "current_task_ready_output_id": status.get("current_task_ready_output_id"),
+        "task_closure_records": status.get("task_closure_records", []),
         "visible_output_required": status.get("visible_output_required", False),
         "visible_output_id": status.get("visible_output_id"),
         "visible_output_records": status.get("visible_output_records", []),
@@ -4422,6 +4914,8 @@ def implementation_status(root: Path, slug: str) -> int:
         "delegation_records": status.get("delegation_records", []),
         "session_continuity_audits": status.get("session_continuity_audits", []),
         "scope_classifications": status.get("scope_classifications", []),
+        "scope_override_records": status.get("scope_override_records", []),
+        "open_scope_overrides": _scope_override_open_records(status),
         "idea_records": status.get("idea_records", []),
         "master_backlog_required": status.get("master_backlog_required"),
         "master_backlog_plan_revision": status.get("master_backlog_plan_revision"),
@@ -4537,9 +5031,10 @@ def master_backlog_mark(root: Path, slug: str, mb_id: str, item_status: str, rea
             raise SystemExit(f"backlog mark refused - unknown master backlog ID: {mb_id}. Run backlog sync first.")
         item = items[mb_id]
         item["status"] = item_status
-        if item_status == "deferred":
+        if item_status in {"deferred", "blocked", "skipped", "partial", "failed", "superseded"}:
             if _weak_text_value(reason, min_len=8):
-                raise SystemExit("backlog mark refused - deferred items require a concrete --reason.")
+                raise SystemExit(f"backlog mark refused - {item_status} items require a concrete --reason.")
+        if item_status == "deferred":
             item["deferred_reason"] = reason
         item["updated_at_utc"] = utc_now()
         item["update_reason"] = reason
@@ -5702,8 +6197,16 @@ def _acceptance_matrix_problems(requirements_text: str, requirements: list[dict]
 
     header_cells: list[str] | None = None
     rows: dict[str, list[str]] = {}
+    in_matrix = False
     for line in requirements_text.splitlines():
         stripped = line.strip()
+        if re.match(r"^##\s+Acceptance Matrix\b", stripped, re.I):
+            in_matrix = True
+            continue
+        if in_matrix and stripped.startswith("## "):
+            break
+        if not in_matrix:
+            continue
         if not stripped.startswith("|") or not stripped.endswith("|"):
             continue
         cells = [cell.strip() for cell in stripped.strip("|").split("|")]
@@ -5727,7 +6230,11 @@ def _acceptance_matrix_problems(requirements_text: str, requirements: list[dict]
         problems.append(f"{IDEA_FILE}: no open requirements recorded; accepted closeout requires at least one open REQ-* with acceptance matrix coverage")
 
     expected_columns = len(header_cells or ACCEPTANCE_MATRIX_COLUMNS)
-    validation_type_index = (header_cells or list(ACCEPTANCE_MATRIX_COLUMNS)).index("Validation Type")
+    validation_type_index = -1
+    if header_cells and "Validation Type" in header_cells:
+        validation_type_index = header_cells.index("Validation Type")
+    elif header_cells is None:
+        validation_type_index = list(ACCEPTANCE_MATRIX_COLUMNS).index("Validation Type")
     for requirement in open_requirements:
         rid = requirement["id"]
         cells = rows.get(rid)
@@ -5740,9 +6247,10 @@ def _acceptance_matrix_problems(requirements_text: str, requirements: list[dict]
         for index, cell in enumerate(cells[1:expected_columns], start=2):
             if _weak_text_value(cell, min_len=8):
                 problems.append(f"{IDEA_FILE}: Acceptance Matrix row for {rid} has weak column {index}: {cell or '(empty)'}")
-        validation_type = cells[validation_type_index].strip().lower()
-        if validation_type not in VALIDATION_TYPES:
-            problems.append(f"{IDEA_FILE}: Acceptance Matrix row for {rid} has invalid validation type: {cells[validation_type_index]}")
+        if validation_type_index >= 0 and validation_type_index < len(cells):
+            validation_type = cells[validation_type_index].strip().lower()
+            if validation_type not in VALIDATION_TYPES:
+                problems.append(f"{IDEA_FILE}: Acceptance Matrix row for {rid} has invalid validation type: {cells[validation_type_index]}")
     return problems
 
 
@@ -5811,6 +6319,17 @@ def _bundle_integrity_problems(target: Path, require_closer: bool) -> list[str]:
     problems.extend(implementation_gate_problems(target))
     problems.extend(_pre_edit_compliance_problems(target, status))
     problems.extend(_delegation_problems(status))
+    open_scope_overrides = _scope_override_open_records(status)
+    if open_scope_overrides:
+        problems.append(
+            f"{STATE_FILE}: open Scope Override records must be resolved before verification: "
+            + ", ".join(record.get("id", "unknown") for record in open_scope_overrides)
+        )
+    if _current_task_is_open(status):
+        problems.append(
+            f"{STATE_FILE}: current TASK {status.get('current_task_id')} is still open; "
+            "checkpoint it or run implementation close-task before pre-close verification"
+        )
     problems.extend(_english_only_doc_problems(target))
     problems.extend(_unexpected_bundle_doc_problems(target))
 
@@ -6357,8 +6876,23 @@ def render_status_response(
     open_delegation_findings = _open_delegation_findings(status)
     session_audits = status.get("session_continuity_audits", [])
     scope_classifications = status.get("scope_classifications", [])
+    scope_overrides = status.get("scope_override_records", [])
+    open_scope_overrides = _scope_override_open_records(status)
     incomplete_line = "- none"
     incomplete_lines: list[str] = []
+    if open_scope_overrides:
+        incomplete_lines.extend(
+            f"- Scope Override open: {record.get('id')} ({record.get('classification')} -> {record.get('decision')}); requested: {record.get('requested_item')}"
+            for record in open_scope_overrides
+        )
+    if _current_task_is_open(status):
+        incomplete_lines.append(f"- Current TASK open: {status.get('current_task_id')} (checkpoint or close-task required)")
+    incomplete_task_records = _task_closure_incomplete_records(status)
+    if incomplete_task_records:
+        incomplete_lines.extend(
+            f"- {record.get('task_id')} {record.get('status')}: {record.get('reason') or 'reason missing'}; next: {record.get('next') or 'next step missing'}"
+            for record in incomplete_task_records
+        )
     if backlog and incomplete_backlog:
         incomplete_lines.append("- Master backlog incomplete: " + ", ".join(
             f"{item.get('id')} ({item.get('status', 'pending')})" for item in incomplete_backlog
@@ -6385,13 +6919,30 @@ def render_status_response(
         remaining_backlog_line = "Remaining Backlog: " + ", ".join(
             f"{item.get('id')}={item.get('status', 'pending')}" for item in remaining_backlog
         )
-        next_batch_items = remaining_backlog[:5]
+        def backlog_sort_key(item: dict) -> tuple[int, int]:
+            match = re.search(r"(\d+)$", str(item.get("id", "")))
+            index = int(match.group(1)) if match else 0
+            priority = 0 if item.get("status") in {"pending", "active", "partial", "failed"} else 1
+            return priority, index
+        next_batch_items = sorted(
+            remaining_backlog,
+            key=backlog_sort_key,
+        )[:5]
         next_batch_line = "Next Batch: " + ", ".join(
             f"{item.get('id')} ({item.get('title', '').strip() or 'untitled'})" for item in next_batch_items
         )
     change_lines, completed_lines, validation_lines = _render_status_evidence_lines(status, req_hint)
     unverified_lines = _same_agent_only_unverified_lines(status, requirements) or ["- none"]
+    if open_scope_overrides:
+        unverified_lines = [
+            *([] if unverified_lines == ["- none"] else unverified_lines),
+            *[
+                f"- {record.get('id')}: override execution/resolution evidence is not recorded yet."
+                for record in open_scope_overrides
+            ],
+        ]
     idea_records = status.get("idea_records", [])
+    next_action_line = _render_next_action_line(status, incomplete_backlog, remaining_backlog)
 
     lines = [
         f"{prefix} Status: {status_label}",
@@ -6423,6 +6974,14 @@ def render_status_response(
     ]
     if backlog_line:
         lines.append(f"- {backlog_line}")
+    if status.get("task_closure_records"):
+        lines.append(
+            "- TASK closures: "
+            + ", ".join(
+                f"{record.get('task_id')}={record.get('status')}"
+                for record in status.get("task_closure_records", [])
+            )
+        )
     if remaining_backlog_line:
         lines.append(f"- {remaining_backlog_line}")
     if next_batch_line:
@@ -6447,6 +7006,28 @@ def render_status_response(
             f"- Latest scope classification: {latest_scope.get('classification')} | "
             f"{latest_scope.get('summary')}"
         )
+    if scope_overrides:
+        latest_override = scope_overrides[-1]
+        lines.append(
+            f"- Latest Scope Override: {latest_override.get('id')}="
+            f"{latest_override.get('status', 'open')} | {latest_override.get('classification')} -> "
+            f"{latest_override.get('decision')}"
+        )
+        carryover = latest_override.get("carryover_snapshot") or []
+        if carryover:
+            lines.append(
+                "- Scope Override original carryover: "
+                + ", ".join(
+                    f"{item.get('id')} ({item.get('status')})" for item in carryover[:8]
+                )
+            )
+        if latest_override.get("post_override_next_action"):
+            lines.append(f"- Post-override Next Action: {latest_override.get('post_override_next_action')}")
+    lines.extend([
+        "",
+        "Next Action:",
+        next_action_line,
+    ])
     print("\n".join(lines))
     return 0
 
@@ -6459,6 +7040,7 @@ FORMAL_STATUS_FIELDS = [
     "Unverified Items:",
     "Residual Risks:",
     "Key Technical Details:",
+    "Next Action:",
 ]
 
 FORMAL_STATUS_PREFIX_PATTERN = r"\[idea-to-code(?:/[^\]]+)?\]\[Closer/(?:agent|subagent)\] Status: (Completed|Progress|Blocked)"
@@ -6617,7 +7199,10 @@ def validate_formal_status_visible_output(tool_stdout: str, assistant_visible_bo
             problems.append("Unverified Items must disclose same-agent-only independent evidence gap")
         elif not CONCRETE_SCOPE_ID_RE.search(unverified):
             problems.append("Unverified Items same-agent disclosure must use concrete TASK/REQ/MB/IDEA scope")
-    key_details = _section_between(assistant_visible_body, "Key Technical Details:", None)
+    next_action = _section_between(assistant_visible_body, "Next Action:", None)
+    if not next_action.strip():
+        problems.append("Next Action section must name the next recommended action or state that no unresolved task remains")
+    key_details = _section_between(assistant_visible_body, "Key Technical Details:", "Next Action:")
     exploration_match = re.search(r"EXPLORATION_OUTPUT_ID:\s*(\S+)", key_details)
     ready_match = re.search(r"READY_TASK_OUTPUT_ID:\s*(\S+)", key_details)
     if not exploration_match:
@@ -6785,6 +7370,32 @@ def detect_late_active_bundle_binding(transcript: str) -> str | None:
     return None
 
 
+TRACKED_DELIVERY_ACTION_PATTERNS = (
+    "apply_patch",
+    "*** begin patch",
+    "• edited ",
+    "• added ",
+    "• deleted ",
+    " install_skill.py",
+    " test-batch",
+    " output-compliance",
+    " lifecycle-audit",
+    " install-parity",
+    " implementation visible-output record",
+    " implementation lease acquire",
+    " implementation pre-edit",
+    " checkpoint ",
+    " finalize ",
+    " verify --root",
+    " git apply",
+)
+
+
+def transcript_has_tracked_delivery_action(transcript: str) -> bool:
+    lowered = transcript.lower()
+    return any(pattern in lowered for pattern in TRACKED_DELIVERY_ACTION_PATTERNS)
+
+
 def audit_transcript_output(transcript: str) -> dict[str, Any]:
     messages = extract_visible_assistant_messages(transcript)
     visible_body = "\n\n".join(messages)
@@ -6809,15 +7420,21 @@ def audit_transcript_output(transcript: str) -> dict[str, Any]:
         r"\[idea-to-code(?:/[^\]]+)?\]\[Closer/(?:agent|subagent)\] Status:",
         transcript,
     ))
+    tracked_delivery_action_seen = transcript_has_tracked_delivery_action(transcript)
     final_messages = [
         message for message in messages
         if re.match(r"^\[idea-to-code(?:/[^\]]+)?\]\[Closer/(?:agent|subagent)\] Status: (Completed|Progress|Blocked)", message)
     ]
-    if helper_or_status_seen:
+    if helper_or_status_seen or tracked_delivery_action_seen:
         if not final_messages:
+            message = (
+                "tracked final status appears in transcript but no assistant-visible Closer status body was found"
+                if helper_or_status_seen
+                else "tracked delivery actions occurred but no assistant-visible formal status body was found"
+            )
             problems.append(_transcript_problem(
                 "formal-status-visible-body",
-                "tracked final status appears in transcript but no assistant-visible Closer status body was found",
+                message,
             ))
         else:
             for problem in validate_formal_status_visible_output(transcript, final_messages[-1]):
@@ -6834,6 +7451,7 @@ def audit_transcript_output(transcript: str) -> dict[str, Any]:
             "exploration": "Exploration Result | Bundle:" in transcript,
             "ready": "Implementation Gate: READY | Bundle:" in transcript,
             "formal_status": helper_or_status_seen,
+            "tracked_delivery_action": tracked_delivery_action_seen,
         },
         "problems": problems,
     }
@@ -6894,7 +7512,8 @@ def _sample_formal_status_body() -> str:
         "Validation Results:\n- TASK-1 / REQ-1: source-only validation passed.\n\n"
         "Unverified Items:\n- none\n\n"
         "Residual Risks:\n- none\n\n"
-        "Key Technical Details:\n- EXPLORATION_OUTPUT_ID: sample-explore\n- READY_TASK_OUTPUT_ID: sample-ready\n- No commit made\n"
+        "Key Technical Details:\n- EXPLORATION_OUTPUT_ID: sample-explore\n- READY_TASK_OUTPUT_ID: sample-ready\n- No commit made\n\n"
+        "Next Action:\n- No unresolved task remains in this scope.\n"
     )
 
 
@@ -7369,6 +7988,97 @@ def lifecycle_audit(json_only: bool) -> int:
     return 0 if not problems else 1
 
 
+def _install_parity_should_skip(path: Path) -> bool:
+    return path.name in INSTALL_PARITY_EXCLUDED_DIRS or path.suffix in INSTALL_PARITY_EXCLUDED_SUFFIXES
+
+
+def _iter_install_parity_files(root: Path) -> list[Path]:
+    if not root.exists():
+        return []
+    if not root.is_dir():
+        raise SystemExit(f"install-parity refused - path is not a directory: {root}")
+    files: list[Path] = []
+    for path in root.rglob("*"):
+        relative = path.relative_to(root)
+        if any(_install_parity_should_skip(part) for part in relative.parents if str(part) != "."):
+            continue
+        if _install_parity_should_skip(path):
+            continue
+        if path.is_file():
+            files.append(relative)
+    return sorted(files)
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def install_parity_check(source: str | None, target: str | None, json_only: bool) -> int:
+    source_path = Path(source).expanduser().resolve() if source else Path(__file__).resolve().parent.parent
+    target_path = Path(target).expanduser().resolve() if target else Path.home() / ".codex" / "skills" / "idea-to-code"
+    if not source_path.is_dir():
+        raise SystemExit(f"install-parity refused - source skill directory does not exist: {source_path}")
+    if not target_path.exists():
+        target_files: list[Path] = []
+    elif not target_path.is_dir():
+        raise SystemExit(f"install-parity refused - target exists and is not a directory: {target_path}")
+    else:
+        target_files = _iter_install_parity_files(target_path)
+    source_files = _iter_install_parity_files(source_path)
+    source_set = set(source_files)
+    target_set = set(target_files)
+    missing = sorted(source_set - target_set)
+    extra = sorted(target_set - source_set)
+    different = sorted(
+        relative
+        for relative in source_set & target_set
+        if _file_sha256(source_path / relative) != _file_sha256(target_path / relative)
+    )
+    payload = {
+        "schema": "idea-to-code.install-parity.v1",
+        "ok": not missing and not extra and not different,
+        "source": str(source_path),
+        "target": str(target_path),
+        "source_file_count": len(source_files),
+        "target_file_count": len(target_files),
+        "missing": [path.as_posix() for path in missing],
+        "extra": [path.as_posix() for path in extra],
+        "different": [path.as_posix() for path in different],
+        "enforcement_boundary": "repo-enforced",
+        "next_required_action": (
+            "source and installed skill match"
+            if not missing and not extra and not different
+            else "install or sync the skill, then rerun install-parity check before claiming installed behavior"
+        ),
+    }
+    if json_only:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    elif payload["ok"]:
+        print("[idea-to-code][Validator/agent] Install Parity: PASS")
+        print(f"Source: {payload['source']}")
+        print(f"Target: {payload['target']}")
+        print(f"Files: {payload['source_file_count']}")
+    else:
+        print("[idea-to-code][Validator/agent] Install Parity: FAIL")
+        print(f"Source: {payload['source']}")
+        print(f"Target: {payload['target']}")
+        print(f"Missing: {len(missing)}")
+        for path in missing:
+            print(f"- missing: {path.as_posix()}")
+        print(f"Extra: {len(extra)}")
+        for path in extra:
+            print(f"- extra: {path.as_posix()}")
+        print(f"Different: {len(different)}")
+        for path in different:
+            print(f"- different: {path.as_posix()}")
+        print("Next Required Action: " + payload["next_required_action"])
+    return 0 if payload["ok"] else 1
+
+
 COMMAND_GUIDE_FLOWS: dict[str, list[dict[str, str]]] = {
     "start": [
         {
@@ -7450,6 +8160,11 @@ COMMAND_GUIDE_FLOWS: dict[str, list[dict[str, str]]] = {
             "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation pre-edit --root "$(pwd)" --slug <slug> --task TASK-1 --files <path-a> <path-b>',
             "notes": "Do not edit until this prints PRE_EDIT_OK_ID.",
         },
+        {
+            "step": "Close non-verified current TASK outcomes before switching",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation close-task --root "$(pwd)" --slug <slug> --task TASK-1 --status skipped --reason "<why this run is not resolving it>" --next "<resume condition or next step>"',
+            "notes": "Use checkpoint for verified implementation evidence; use close-task for skipped, blocked, deferred, partial, failed, or replan outcomes.",
+        },
     ],
     "evidence": [
         {
@@ -7505,9 +8220,19 @@ COMMAND_GUIDE_FLOWS: dict[str, list[dict[str, str]]] = {
             "notes": "Run after finalize before final status.",
         },
         {
+            "step": "Check installed skill parity when claiming runtime skill behavior",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" install-parity check --source <source-skill-dir> --target "$HOME/.codex/skills/idea-to-code"',
+            "notes": "Required before claiming latest installed behavior after idea-to-code source changes.",
+        },
+        {
             "step": "Render formal status",
             "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" render-status --root "$(pwd)" --slug <slug> --status Completed',
             "notes": "Use generated fields for formal tracked handoff.",
+        },
+        {
+            "step": "Validate final assistant body when available",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" output-compliance check --kind formal-status --tool-stdout-file <render-status.txt> --assistant-body-file <final-body.txt>',
+            "notes": "Host hooks should enforce this before sending; otherwise disclose the host-required boundary.",
         },
     ],
 }
@@ -7591,6 +8316,62 @@ def host_pre_edit_contract(json_only: bool) -> int:
     print("")
     print("Allow Evidence:")
     for item in payload["allow_evidence"]:
+        print(f"- {item}")
+    return 0
+
+
+def host_final_response_contract(json_only: bool) -> int:
+    payload = {
+        "schema": "idea-to-code.host-hook.final-response-contract.v1",
+        "enforcement_boundary": "host-required",
+        "purpose": "Physically block malformed formal tracked handoffs before the assistant-visible final response is sent.",
+        "required_inputs": ["response_kind", "tool_stdout", "assistant_visible_body", "profile"],
+        "required_checks": [
+            "when response_kind is formal tracked status, run output-compliance check --kind formal-status",
+            "assistant_visible_body contains the render-status fixed fields, not only a summary",
+            "profile-prefixed callers preserve Exploration/READY and final formal status fields",
+            "Next Action is present as the final formal field",
+            "TASK/REQ mappings are concrete and no TASK-* or REQ-* placeholders remain",
+            "ordinary read-only answers do not include READY, render-status, or fixed status fields",
+        ],
+        "deny_when": [
+            "render-status or READY appears only in tool_stdout",
+            "assistant_visible_body omits any formal status field",
+            "Next Action is missing or not the final formal field",
+            "tracked delivery actions occurred but final body is an ordinary summary",
+            "profile-prefixed upper-layer output omits the underlying idea-to-code gates",
+        ],
+        "allow_evidence": [
+            "output-compliance check --kind formal-status PASS",
+            "output-compliance check --kind ready PASS when READY/Exploration was generated",
+            "output-compliance check --kind ordinary PASS for read-only ordinary replies",
+            "output-compliance transcript-audit PASS when an exported transcript is available",
+        ],
+        "host_integration_notes": [
+            "This repository can validate supplied text, but cannot intercept the final response unless the host provides the assistant-visible body before send.",
+            "If the host cannot expose the final body, closeout must disclose that limitation as host-required rather than claim body-level enforcement.",
+            "Profile wrappers and upper-layer skills must call this same contract; a profile prefix does not relax output compliance.",
+        ],
+    }
+    if json_only:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return 0
+    print("[idea-to-code][Reviewer/agent] Host Hook Contract: final-response")
+    print("")
+    print(f"Schema: {payload['schema']}")
+    print(f"Enforcement Boundary: {payload['enforcement_boundary']}")
+    print(f"Purpose: {payload['purpose']}")
+    print("")
+    print("Required Checks:")
+    for check in payload["required_checks"]:
+        print(f"- {check}")
+    print("")
+    print("Deny When:")
+    for item in payload["deny_when"]:
+        print(f"- {item}")
+    print("")
+    print("Host Integration Notes:")
+    for item in payload["host_integration_notes"]:
         print(f"- {item}")
     return 0
 
@@ -7841,6 +8622,13 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("lifecycle-audit", help="Validate lifecycle branch invariant coverage.")
     p.add_argument("--json", action="store_true", help="Print machine-readable JSON only.")
 
+    p = sub.add_parser("install-parity", help="Verify source and installed idea-to-code skill files match by SHA256.")
+    ip_sub = p.add_subparsers(dest="install_parity_command", required=True)
+    ipc = ip_sub.add_parser("check", help="Compare source and installed skill directories.")
+    ipc.add_argument("--source", default=None, help="Source skill directory. Defaults to the currently running skill directory.")
+    ipc.add_argument("--target", default=None, help="Installed skill directory. Defaults to ~/.codex/skills/idea-to-code.")
+    ipc.add_argument("--json", action="store_true", help="Print machine-readable JSON only.")
+
     p = sub.add_parser("command-guide", help="Print valid command shapes for common lifecycle flows.")
     p.add_argument("--flow", default="all", choices=[*COMMAND_GUIDE_FLOWS.keys(), "all"])
     p.add_argument("--json", action="store_true", help="Print machine-readable JSON only.")
@@ -7849,6 +8637,8 @@ def build_parser() -> argparse.ArgumentParser:
     host_sub = p.add_subparsers(dest="host_hook_command", required=True)
     hpc = host_sub.add_parser("pre-edit-contract", help="Print the native edit preflight hook contract.")
     hpc.add_argument("--json", action="store_true", help="Print machine-readable JSON only.")
+    hfc = host_sub.add_parser("final-response-contract", help="Print the native final response compliance hook contract.")
+    hfc.add_argument("--json", action="store_true", help="Print machine-readable JSON only.")
 
     p = sub.add_parser("output-compliance", help="Check user-visible output against tool stdout for display-layer compliance.")
     oc_sub = p.add_subparsers(dest="output_compliance_command", required=True)
@@ -7981,6 +8771,24 @@ def build_parser() -> argparse.ArgumentParser:
     sc.add_argument("--summary", required=True)
     sc.add_argument("--rationale", required=True)
     sc.add_argument("--action", required=True)
+    so = scope_sub.add_parser("override", help="Record a hard Scope Override Gate before doing non-Next Action work while incomplete work exists.")
+    so.add_argument("--root", required=True)
+    so.add_argument("--slug", required=True)
+    so.add_argument("--requested-item", required=True, help="The Unverified Item, Residual Risk, or other non-Next Action work requested by the user.")
+    so.add_argument("--classification", required=True, choices=SCOPE_OVERRIDE_CLASSIFICATIONS)
+    so.add_argument("--decision", required=True, choices=SCOPE_OVERRIDE_DECISIONS)
+    so.add_argument("--rationale", required=True)
+    so.add_argument("--user-request", required=True)
+    so.add_argument("--related-task", default="", help="Child TASK expected to execute the override when already known.")
+    so.add_argument("--related-slug", default="", help="New ledger slug expected to execute the override when already known.")
+    sor = scope_sub.add_parser("override-resolve", help="Resolve a Scope Override after execution, child-task creation, new-ledger creation, accepted residual, or cancellation.")
+    sor.add_argument("--root", required=True)
+    sor.add_argument("--slug", required=True)
+    sor.add_argument("--id", required=True)
+    sor.add_argument("--outcome", required=True, choices=SCOPE_OVERRIDE_OUTCOMES)
+    sor.add_argument("--evidence", required=True)
+    sor.add_argument("--related-task", default="")
+    sor.add_argument("--related-slug", default="")
     st = scope_sub.add_parser("status", help="Print scope classification records.")
     st.add_argument("--root", required=True)
     st.add_argument("--slug", required=True)
@@ -8046,6 +8854,13 @@ def build_parser() -> argparse.ArgumentParser:
     iet.add_argument("--slug", required=True)
     iet.add_argument("--task", required=True, help="TASK/IMP id to enter, such as TASK-2.")
     iet.add_argument("--profile", default=None, help="Optional upper-layer profile label for READY output.")
+    ict = impl_sub.add_parser("close-task", help="Close the current TASK as partial, blocked, skipped, deferred, failed, or replan.")
+    ict.add_argument("--root", required=True)
+    ict.add_argument("--slug", required=True)
+    ict.add_argument("--task", required=True, help="Current TASK/IMP id to close, such as TASK-2.")
+    ict.add_argument("--status", required=True, choices=TASK_CLOSURE_STATUSES[1:], help="Non-verified closure status.")
+    ict.add_argument("--reason", required=True)
+    ict.add_argument("--next", required=True, help="Resume condition or next step.")
     iov = impl_sub.add_parser("overview", help="Print a closed-loop implementation overview without changing state.")
     iov.add_argument("--root", required=True)
     iov.add_argument("--slug", required=True)
@@ -8114,6 +8929,12 @@ def build_parser() -> argparse.ArgumentParser:
     inc.add_argument("--reason", required=True)
     inc.add_argument("--file", action="append", default=[], help="Affected file path. Repeat for multiple files.")
     inc.add_argument("--profile", default=None, help="Optional upper-layer profile label for noncompliance output.")
+    inr = impl_sub.add_parser("noncompliance-resolve", help="Resolve a recorded pre-edit compliance lapse without deleting history.")
+    inr.add_argument("--root", required=True)
+    inr.add_argument("--slug", required=True)
+    inr.add_argument("--id", required=True, help="NONCOMPLIANCE_ID to resolve.")
+    inr.add_argument("--resolution", required=True, help="Disposition or remediation note.")
+    inr.add_argument("--profile", default=None, help="Optional upper-layer profile label for resolution output.")
     ist = impl_sub.add_parser("status", help="Print implementation gate status.")
     ist.add_argument("--root", required=True)
     ist.add_argument("--slug", required=True)
@@ -8227,12 +9048,18 @@ def main(argv: Iterable[str] | None = None) -> int:
     if args.command == "lifecycle-audit":
         return lifecycle_audit(args.json)
 
+    if args.command == "install-parity":
+        if args.install_parity_command == "check":
+            return install_parity_check(args.source, args.target, args.json)
+
     if args.command == "command-guide":
         return command_guide(args.flow, args.json)
 
     if args.command == "host-hook":
         if args.host_hook_command == "pre-edit-contract":
             return host_pre_edit_contract(args.json)
+        if args.host_hook_command == "final-response-contract":
+            return host_final_response_contract(args.json)
 
     if args.command == "output-compliance":
         if args.output_compliance_command == "check":
@@ -8365,6 +9192,30 @@ def main(argv: Iterable[str] | None = None) -> int:
         if args.scope_command == "classify":
             print(scope_classify(root, args.slug, args.classification, args.summary, args.rationale, args.action))
             return 0
+        if args.scope_command == "override":
+            print(scope_override(
+                root,
+                args.slug,
+                args.requested_item,
+                args.classification,
+                args.decision,
+                args.rationale,
+                args.user_request,
+                args.related_task,
+                args.related_slug,
+            ))
+            return 0
+        if args.scope_command == "override-resolve":
+            print(scope_override_resolve(
+                root,
+                args.slug,
+                args.id,
+                args.outcome,
+                args.evidence,
+                args.related_task,
+                args.related_slug,
+            ))
+            return 0
         if args.scope_command == "status":
             return scope_status(root, args.slug)
 
@@ -8400,6 +9251,8 @@ def main(argv: Iterable[str] | None = None) -> int:
             return implementation_plan_check(root, args.slug, args.json)
         if args.implementation_command == "enter-task":
             return implementation_enter_task(root, args.slug, args.task, args.profile)
+        if args.implementation_command == "close-task":
+            return implementation_close_task(root, args.slug, args.task, args.status, args.reason, args.next)
         if args.implementation_command == "overview":
             return implementation_overview(root, args.slug, args.profile)
         if args.implementation_command == "next-action":
@@ -8433,6 +9286,8 @@ def main(argv: Iterable[str] | None = None) -> int:
             return implementation_guarded_apply(root, args.slug, args.task, args.patch_file, args.owner, args.profile)
         if args.implementation_command == "noncompliance":
             return implementation_noncompliance(root, args.slug, args.task, args.reason, args.file, args.profile)
+        if args.implementation_command == "noncompliance-resolve":
+            return implementation_noncompliance_resolve(root, args.slug, args.id, args.resolution, args.profile)
         if args.implementation_command == "status":
             return implementation_status(root, args.slug)
 

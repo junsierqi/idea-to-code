@@ -165,6 +165,27 @@ is optional lower-level implementation granularity inside a TASK. Do not force
 one-to-one numbering across those IDs. Do not add `IMP-*` merely to make a
 task-only plan look complete.
 
+For multi-issue repair work, use `MB-*` as the stable issue-list index before READY. Each `MB-*` item must map to a `REQ-*`/`TASK-*` path or to an explicit deferred, skipped, blocked, rejected, partial, or carryover decision. Do not let a user-provided issue list exist only as prose once implementation begins.
+
+During Controlled Repair, the loop unit is the current `TASK-*`, not the whole issue list and not a newly invented derived-task ID. Derived work follows this policy:
+
+- blocking: record under the current TASK, fix only what is needed to complete or verify the parent TASK, then return to the parent TASK;
+- non-blocking: record as deferred/carryover, usually with `MB-*` or risk/follow-up evidence, and do not repair immediately;
+- scope-changing: stop implementation, revise Execution Planning, and refresh READY before further edits.
+
+Before moving to another TASK, the current TASK must close through checkpoint evidence or `implementation close-task`. Valid non-verified closure outcomes are `partial`, `blocked`, `skipped`, `deferred`, `failed`, and `replan`; none of these means Done.
+
+If a planned issue splits into multiple independently verifiable issues during repair, treat it as scope-changing derived work. Close the current TASK as `replan`, revise Controlled Exploration or Execution Planning, keep the old `MB-*` visible as `superseded`, and add the replacement `MB-*` / `REQ-*` / `TASK-*` items with a source note that names the superseded item. Do not delete or silently rewrite the old item; future status must show how the old issue maps to the new work.
+
+If `Incomplete Items` or remaining `MB-*` carryover exists and the user asks to handle `Unverified Items`, `Residual Risks`, or another non-`Next Action` item first, this is not ordinary derived repair. Run `scope override` before execution and classify it as:
+
+- `same-ledger-verification`: validates the current ledger result, such as fresh-agent review or transcript audit;
+- `same-ledger-repair`: fixes a defect that affects the current ledger's validity;
+- `new-ledger-improvement`: starts a new ledger for capability/process work and references the prior carryover;
+- `accepted-residual`: records the user's decision to accept the risk without execution.
+
+The override can change execution order, but it cannot delete or complete the original incomplete items. After execution or decision, run `scope override-resolve`; final status must still show remaining carryover and the recomputed `Next Action`.
+
 During intake and discovery, the same `TASK-*` or chosen `IMP-*` entries are
 also the visible task list. It is acceptable for DRAFT plans to use placeholder
 values such as `...` when concrete files, execution details, done criteria, or
