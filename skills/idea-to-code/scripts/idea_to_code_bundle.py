@@ -75,6 +75,13 @@ VALIDATION_TYPES = (
 )
 DELEGATION_STATUSES = ("usable", "timeout", "unusable", "planned", "unverified")
 ENFORCEMENT_BOUNDARIES = ("repo-enforced", "skill-enforced", "host-required")
+RESPONSE_KINDS = (
+    "ordinary-answer",
+    "read-only-status",
+    "mixed-review",
+    "formal-tracked-handoff",
+    "blocked-handoff",
+)
 INSTALL_PARITY_EXCLUDED_DIRS = {"__pycache__", ".git", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
 INSTALL_PARITY_EXCLUDED_SUFFIXES = {".pyc", ".pyo"}
 TASK_REQUIRED_SECTIONS = ("Files:", "Execution Details:", "Done Criteria:", "Planned Verification:")
@@ -320,6 +327,14 @@ BRANCH_COVERAGE_MAP = [
         "exit": "render-status runs first or the response states why it could not",
         "validation": "fixed fields map formal claims to TASK/REQ evidence",
         "failure_handling": "manual fixed-field status is only allowed with explicit render-status failure reason",
+    },
+    {
+        "id": "response-classification",
+        "workflow_branch": "Response classification branch",
+        "entry": "agent must choose ordinary, mixed, read-only status, formal tracked handoff, or blocked handoff output shape",
+        "exit": "response classify returns a stable response_kind with required checks and forbidden output shapes",
+        "validation": "response classify tests cover ordinary, read-only, mixed, formal, blocked, and tracked-action override cases",
+        "failure_handling": "prefer the stricter formal or blocked handoff path when tracked delivery actions or blocker signals are present",
     },
     {
         "id": "display-artifact",
@@ -7398,6 +7413,174 @@ def transcript_has_tracked_delivery_action(transcript: str) -> bool:
     return any(pattern in lowered for pattern in TRACKED_DELIVERY_ACTION_PATTERNS)
 
 
+STATUS_PROMPT_RE = re.compile(
+    r"\b(status|progress|done|complete|completed|commit|committed|validation|validated|verify|verified|summary|where are we)\b"
+    r"|状态|进度|完成|提交|验证|验收|总结|现在到哪",
+    re.I,
+)
+REVIEW_PROMPT_RE = re.compile(
+    r"\b(review|analy[sz]e|evaluate|suggest|recommend|improve|risk|weakness|gap|next hardening)\b"
+    r"|分析|建议|改进|风险|问题|弱点|硬化|下一步",
+    re.I,
+)
+BLOCKED_PROMPT_RE = re.compile(
+    r"\b(blocked|blocker|cannot continue|can't continue|stuck|failed|failure|refused)\b"
+    r"|阻塞|无法继续|失败|卡住|拒绝",
+    re.I,
+)
+FORMAL_STATUS_SEEN_RE = re.compile(
+    r"\[idea-to-code(?:/[^\]]+)?\]\[Closer/(?:agent|subagent)\] Status: (Completed|Progress|Blocked)"
+)
+
+
+def classify_response_mode(
+    prompt: str = "",
+    transcript: str = "",
+    actions: list[str] | None = None,
+) -> dict[str, Any]:
+    action_values = [item.strip().lower() for item in (actions or []) if item.strip()]
+    prompt_text = prompt or ""
+    transcript_text = transcript or ""
+    combined = "\n".join([prompt_text, transcript_text]).lower()
+    tracked_action = transcript_has_tracked_delivery_action(transcript_text) or any(
+        action in {
+            "edit",
+            "install",
+            "validation",
+            "verify",
+            "commit",
+            "finalize",
+            "checkpoint",
+            "render-status",
+            "output-compliance",
+            "tracked-delivery",
+        }
+        for action in action_values
+    )
+    formal_status_seen = bool(FORMAL_STATUS_SEEN_RE.search(transcript_text))
+    blocked_signal = "blocked" in action_values or bool(BLOCKED_PROMPT_RE.search(prompt_text)) or " status: blocked" in combined
+    status_signal = "status" in action_values or bool(STATUS_PROMPT_RE.search(prompt_text))
+    review_signal = "review" in action_values or bool(REVIEW_PROMPT_RE.search(prompt_text))
+
+    if blocked_signal:
+        response_kind = "blocked-handoff"
+        reason = "Blocked or failure signal requires a blocked handoff instead of an ordinary answer."
+        action_derived = tracked_action or "blocked" in action_values
+    elif tracked_action or formal_status_seen:
+        response_kind = "formal-tracked-handoff"
+        reason = "Tracked delivery action or formal status evidence requires fixed formal handoff fields."
+        action_derived = True
+    elif status_signal and review_signal:
+        response_kind = "mixed-review"
+        reason = "Prompt combines tracked status/navigation with ordinary review or improvement discussion."
+        action_derived = False
+    elif status_signal:
+        response_kind = "read-only-status"
+        reason = "Prompt asks for status without tracked delivery action evidence."
+        action_derived = False
+    else:
+        response_kind = "ordinary-answer"
+        reason = "No tracked delivery action, blocker, or status signal was detected."
+        action_derived = False
+
+    required_checks_by_kind = {
+        "ordinary-answer": [
+            "output-compliance check --kind ordinary when auditing the assistant-visible body",
+        ],
+        "read-only-status": [
+            "use render-status for formal tracked status when bundle accounting is in scope",
+            "do not run pre-edit because no edit starts",
+        ],
+        "mixed-review": [
+            "answer tracked status in one concise sentence",
+            "answer review/evaluation naturally without a second fixed template",
+            "upgrade to formal-tracked-handoff if tracked delivery actions occur",
+        ],
+        "formal-tracked-handoff": [
+            "run render-status first when available",
+            "run output-compliance check --kind formal-status when assistant-visible body is available",
+            "preserve final Next Action bullet",
+        ],
+        "blocked-handoff": [
+            "use fixed formal status fields with Status: Blocked",
+            "include concrete blocker and Next Action bullet",
+        ],
+    }
+    forbidden_shapes_by_kind = {
+        "ordinary-answer": [
+            "Changes:",
+            "Completed Items:",
+            "Implementation Gate: READY",
+            "render-status fixed fields",
+        ],
+        "read-only-status": [
+            "tracked edits",
+            "pre-edit READY flow",
+            "casual all-done claims without state evidence",
+        ],
+        "mixed-review": [
+            "full fixed-field template for the ordinary review portion",
+            "second status template",
+            "casual completion summary after tracked actions",
+        ],
+        "formal-tracked-handoff": [
+            "casual summary",
+            "missing fixed fields",
+            "Next Action paragraph without '- ' bullet",
+        ],
+        "blocked-handoff": [
+            "Status: Completed",
+            "hiding blockers in Key Technical Details only",
+            "missing Next Action",
+        ],
+    }
+    next_action_by_kind = {
+        "ordinary-answer": "answer naturally and avoid fixed tracked status fields",
+        "read-only-status": "render or summarize current tracked status without starting edits",
+        "mixed-review": "split status from review; keep review natural unless delivery actions occur",
+        "formal-tracked-handoff": "generate render-status and validate the assistant-visible body",
+        "blocked-handoff": "render blocked status with blocker evidence and a Next Action bullet",
+    }
+    return {
+        "schema": "idea-to-code.response-classification.v1",
+        "response_kind": response_kind,
+        "action_derived": action_derived,
+        "reason": reason,
+        "signals": {
+            "tracked_delivery_action": tracked_action,
+            "formal_status_seen": formal_status_seen,
+            "blocked": blocked_signal,
+            "status": status_signal,
+            "review": review_signal,
+        },
+        "required_checks": required_checks_by_kind[response_kind],
+        "forbidden_shapes": forbidden_shapes_by_kind[response_kind],
+        "next_required_action": next_action_by_kind[response_kind],
+    }
+
+
+def response_classify(prompt: str, transcript: str, actions: list[str], json_only: bool) -> int:
+    payload = classify_response_mode(prompt=prompt, transcript=transcript, actions=actions)
+    if json_only:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return 0
+    print("[idea-to-code][Planner/agent] Response Classification")
+    print(f"Response Kind: {payload['response_kind']}")
+    print(f"Action Derived: {str(payload['action_derived']).lower()}")
+    print(f"Reason: {payload['reason']}")
+    print("")
+    print("Required Checks:")
+    for item in payload["required_checks"]:
+        print(f"- {item}")
+    print("")
+    print("Forbidden Shapes:")
+    for item in payload["forbidden_shapes"]:
+        print(f"- {item}")
+    print("")
+    print(f"Next Required Action: {payload['next_required_action']}")
+    return 0
+
+
 def audit_transcript_output(transcript: str) -> dict[str, Any]:
     messages = extract_visible_assistant_messages(transcript)
     visible_body = "\n\n".join(messages)
@@ -7423,6 +7606,7 @@ def audit_transcript_output(transcript: str) -> dict[str, Any]:
         transcript,
     ))
     tracked_delivery_action_seen = transcript_has_tracked_delivery_action(transcript)
+    response_classification = classify_response_mode(transcript=transcript)
     final_messages = [
         message for message in messages
         if re.match(r"^\[idea-to-code(?:/[^\]]+)?\]\[Closer/(?:agent|subagent)\] Status: (Completed|Progress|Blocked)", message)
@@ -7455,6 +7639,7 @@ def audit_transcript_output(transcript: str) -> dict[str, Any]:
             "formal_status": helper_or_status_seen,
             "tracked_delivery_action": tracked_delivery_action_seen,
         },
+        "response_classification": response_classification,
         "problems": problems,
     }
     return payload
@@ -8654,6 +8839,18 @@ def build_parser() -> argparse.ArgumentParser:
     hfc = host_sub.add_parser("final-response-contract", help="Print the native final response compliance hook contract.")
     hfc.add_argument("--json", action="store_true", help="Print machine-readable JSON only.")
 
+    p = sub.add_parser("response", help="Classify response mode before selecting ordinary, mixed, status, formal, or blocked output.")
+    response_sub = p.add_subparsers(dest="response_command", required=True)
+    rc = response_sub.add_parser("classify", help="Return the required response shape for a prompt, transcript, or action set.")
+    rc.add_argument("--prompt", default="", help="User prompt or short summary to classify.")
+    rc.add_argument("--prompt-file", help="File containing prompt text to classify.")
+    rc.add_argument("--transcript", default="", help="Transcript text to inspect for tracked delivery actions.")
+    rc.add_argument("--transcript-file", help="File containing transcript text to inspect.")
+    rc.add_argument("--action", action="append", default=[],
+                    choices=("edit", "install", "validation", "verify", "commit", "finalize", "checkpoint", "render-status", "output-compliance", "tracked-delivery", "status", "review", "blocked"),
+                    help="Observed action signal. Repeat to pass multiple signals.")
+    rc.add_argument("--json", action="store_true", help="Print machine-readable JSON only.")
+
     p = sub.add_parser("output-compliance", help="Check user-visible output against tool stdout for display-layer compliance.")
     oc_sub = p.add_subparsers(dest="output_compliance_command", required=True)
     occ = oc_sub.add_parser("check", help="Validate READY, formal status, or ordinary answer output shape.")
@@ -9074,6 +9271,12 @@ def main(argv: Iterable[str] | None = None) -> int:
             return host_pre_edit_contract(args.json)
         if args.host_hook_command == "final-response-contract":
             return host_final_response_contract(args.json)
+
+    if args.command == "response":
+        if args.response_command == "classify":
+            prompt = read_content_arg(args.prompt, args.prompt_file) if args.prompt or args.prompt_file else ""
+            transcript = read_content_arg(args.transcript, args.transcript_file) if args.transcript or args.transcript_file else ""
+            return response_classify(prompt, transcript, args.action, args.json)
 
     if args.command == "output-compliance":
         if args.output_compliance_command == "check":

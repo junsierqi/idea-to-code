@@ -434,16 +434,27 @@ Review-discovered TODO capture rule: when natural review or formal review identi
 
 ### Response Mode Check
 
-Before a user-facing response at the end of a turn, choose the output shape:
+Before a user-facing response at the end of a tracked or possibly tracked turn, classify the output shape:
+
+```bash
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" response classify \
+  --prompt "<summary of the user request>" \
+  --action validation \
+  --json
+```
+
+Use `--action` for observed delivery actions such as `edit`, `install`, `validation`, `verify`, `commit`, `finalize`, `checkpoint`, `render-status`, `output-compliance`, `tracked-delivery`, `status`, `review`, or `blocked`. The command returns `response_kind`, `required_checks`, `forbidden_shapes`, `action_derived`, and `next_required_action`. Tracked delivery actions override prompt wording and force `formal-tracked-handoff` unless a blocker forces `blocked-handoff`.
 
 | Response situation | Output shape |
 |---|---|
-| Formal tracked delivery status or final handoff | Fixed fields. |
-| Mixed tracked status plus ordinary review/evaluation | Concise tracked status sentence, then natural review sections. |
-| Ordinary question/explanation/naming discussion | Natural concise answer. |
+| `formal-tracked-handoff` | Fixed fields through `render-status`; validate final body with `output-compliance check --kind formal-status` when available. |
+| `blocked-handoff` | Fixed fields with `Status: Blocked`, concrete blocker, and final `Next Action` bullet. |
+| `mixed-review` / Mixed tracked status plus ordinary review/evaluation | Concise tracked status sentence, then natural review sections. |
+| `read-only-status` | Render or summarize tracked status without starting edit gates. |
+| `ordinary-answer` | Natural concise answer; optionally audit with `output-compliance check --kind ordinary`. |
 | In-progress commentary update | Short action-oriented update. |
 
-If uncertain, use fixed fields only when the user needs formal tracked delivery status. Otherwise answer naturally and concisely.
+If uncertain, use the stricter formal path only when tracked delivery actions, blocker signals, or formal status evidence are present. Otherwise answer naturally and concisely. `output-compliance transcript-audit` exposes `response_classification` in JSON so reviewers can see whether the final output shape matched the observed transcript actions.
 
 ## Confirmation Handoff Check
 

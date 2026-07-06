@@ -2092,6 +2092,97 @@ class BundleTest(unittest.TestCase):
             messages,
         )
 
+    def test_response_classify_distinguishes_ordinary_status_mixed_and_formal(self) -> None:
+        ordinary = self.run_bundle(
+            "response", "classify",
+            "--prompt", "解释一下 Controlled Exploration 和 READY 的关系。",
+            "--json",
+        )
+        ordinary_payload = json.loads(ordinary.stdout)
+        self.assertEqual("ordinary-answer", ordinary_payload["response_kind"])
+        self.assertFalse(ordinary_payload["action_derived"])
+        self.assertIn("output-compliance check --kind ordinary", "\n".join(ordinary_payload["required_checks"]))
+
+        status = self.run_bundle(
+            "response", "classify",
+            "--prompt", "现在这个任务完成了吗，验证结果是什么？",
+            "--json",
+        )
+        status_payload = json.loads(status.stdout)
+        self.assertEqual("read-only-status", status_payload["response_kind"])
+
+        mixed = self.run_bundle(
+            "response", "classify",
+            "--prompt", "现在完成了吗？再分析一下还有什么改进建议。",
+            "--json",
+        )
+        mixed_payload = json.loads(mixed.stdout)
+        self.assertEqual("mixed-review", mixed_payload["response_kind"])
+        self.assertIn("split status from review", mixed_payload["next_required_action"])
+
+        formal = self.run_bundle(
+            "response", "classify",
+            "--prompt", "先解释一下。",
+            "--action", "validation",
+            "--action", "commit",
+            "--json",
+        )
+        formal_payload = json.loads(formal.stdout)
+        self.assertEqual("formal-tracked-handoff", formal_payload["response_kind"])
+        self.assertTrue(formal_payload["action_derived"])
+        self.assertIn("output-compliance check --kind formal-status", "\n".join(formal_payload["required_checks"]))
+
+    def test_response_classify_blocked_is_stricter_than_review_or_status(self) -> None:
+        result = self.run_bundle(
+            "response", "classify",
+            "--prompt", "测试失败，当前无法继续，给我状态和建议。",
+            "--json",
+        )
+        payload = json.loads(result.stdout)
+
+        self.assertEqual("blocked-handoff", payload["response_kind"])
+        self.assertIn("Status: Blocked", "\n".join(payload["required_checks"]))
+        self.assertIn("Status: Completed", "\n".join(payload["forbidden_shapes"]))
+
+    def test_response_classify_detects_tracked_actions_from_transcript(self) -> None:
+        transcript = """
+› 先分析一下
+
+• Ran python scripts/install_skill.py
+• Ran python skills/idea-to-code/scripts/idea_to_code_bundle.py output-compliance self-test
+
+• [idea-to-code][Closer/agent] 已完成，测试通过。
+"""
+        result = self.run_bundle(
+            "response", "classify",
+            "--transcript", transcript,
+            "--json",
+        )
+        payload = json.loads(result.stdout)
+
+        self.assertEqual("formal-tracked-handoff", payload["response_kind"])
+        self.assertTrue(payload["signals"]["tracked_delivery_action"])
+
+    def test_transcript_audit_reports_response_classification(self) -> None:
+        transcript = """
+› 先分析一下
+
+• Ran python skills/idea-to-code/scripts/idea_to_code_bundle.py output-compliance self-test
+
+• [idea-to-code][Closer/agent] 已完成，测试通过。
+"""
+        result = self.run_bundle(
+            "output-compliance", "transcript-audit",
+            "--transcript", transcript,
+            "--json",
+            check=False,
+        )
+        payload = json.loads(result.stdout)
+
+        self.assertFalse(payload["ok"])
+        self.assertEqual("formal-tracked-handoff", payload["response_classification"]["response_kind"])
+        self.assertTrue(payload["response_classification"]["action_derived"])
+
     def test_output_compliance_transcript_audit_accepts_visible_blocks(self) -> None:
         good_transcript = f"""
 › 使用idea-to-code，做一个示例
@@ -7345,6 +7436,7 @@ Planned Verification:
             "read-only-status",
             "ordinary-answer",
             "formal-tracked-handoff",
+            "response-classification",
             "display-artifact",
             "skill-self-validation",
             "user-facing-language",

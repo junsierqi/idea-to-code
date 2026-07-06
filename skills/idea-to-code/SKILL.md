@@ -1005,7 +1005,8 @@ Never translate these categories in user-visible output, bundle artifacts, repor
 - Display and gate labels: `Exploration Result`, `Confirmation Required`, `Implementation Gate: READY`, `Display Layer`, `Next Layer`, `READY Focus`, `Full Plan`.
 - Scope and trace IDs: `TASK-*`, `REQ-*`, `IDEA-*`, `MB-*`, `IMP-*`.
 - Output and guard IDs: `EXPLORATION_OUTPUT_ID`, `READY_TASK_OUTPUT_ID`, `PRE_EDIT_OK_ID`, `LEASE_ID`.
-- CLI command names and arguments: `render-status`, `implementation ready`, `implementation enter-task`, `implementation close-task`, `implementation pre-edit`, `implementation lease acquire`, `implementation noncompliance`, `implementation noncompliance-resolve`, `idea record`, `idea status`, `backlog sync`, `scope override`, `scope override-resolve`, `--root`, `--slug`, `--task`, `--file`, `--files`, `--covers`.
+- CLI command names and arguments: `render-status`, `response classify`, `implementation ready`, `implementation enter-task`, `implementation close-task`, `implementation pre-edit`, `implementation lease acquire`, `implementation noncompliance`, `implementation noncompliance-resolve`, `idea record`, `idea status`, `backlog sync`, `scope override`, `scope override-resolve`, `--root`, `--slug`, `--task`, `--file`, `--files`, `--covers`.
+- Response kinds: `ordinary-answer`, `read-only-status`, `mixed-review`, `formal-tracked-handoff`, `blocked-handoff`.
 - Scope override terms: `Scope Override`, `same-ledger-verification`, `same-ledger-repair`, `new-ledger-improvement`, `accepted-residual`, `create-child-task`, `create-new-ledger`, `child-task-created`, `new-ledger-created`.
 - File, artifact, and state names: `00-idea.md`, `01-progress.md`, `02-report.md`, `state.json`, `bundle`, `ledger`, `current.json`.
 - Validation types: `real-product-path`, `mock-only`, `fixture-only`, `source-only`, `dom-only`, `manual-inspection`, `unverified`.
@@ -1033,9 +1034,9 @@ If the message is a short answer rather than a lifecycle update, still start wit
 
 ### Console Response Contract
 
-Use the fixed field contract only for formal tracked delivery status: final closeout, blocked handoff, review handoff, keep/revise/rollback handoff, or when the user explicitly asks for progress, completion, summary, validation, or commit/publish state for work that entered todo/REQ/TASK accounting.
+Use the fixed field contract only for formal tracked delivery status, also called formal delivery status in older checks: final closeout, blocked handoff, review handoff, keep/revise/rollback handoff, or when the user explicitly asks for progress, completion, summary, validation, or commit/publish state for work that entered todo/REQ/TASK accounting.
 
-Response mode is action-derived, not prompt-derived. A message can begin as an ordinary explanation or architecture question, but once the assistant performs tracked repository/skill/artifact edits, install, validation, checkpoint, finalize, or tracked status delivery in that turn, the closeout for that turn is formal tracked delivery status and must use `render-status`. Conversely, ordinary read-only answers stay natural when no tracked delivery action occurred.
+A message can begin as an ordinary explanation or architecture question, but once the assistant performs tracked repository/skill/artifact edits, install, validation, checkpoint, finalize, or tracked status delivery in that turn, the closeout for that turn is formal tracked delivery status and must use `render-status`. Before choosing the final response shape for any tracked or possibly tracked turn, run or mentally mirror `response classify --prompt "<summary>"` with any observed `--action` flags such as `validation`, `install`, `commit`, `blocked`, or `review`. The command returns one stable `response_kind`: `ordinary-answer`, `read-only-status`, `mixed-review`, `formal-tracked-handoff`, or `blocked-handoff`, plus required checks and forbidden shapes. Response mode is action-derived, not prompt-derived: once the assistant performs tracked repository/skill/artifact edits, install, validation, checkpoint, finalize, commit, or tracked status delivery in that turn, classification must become `formal-tracked-handoff` or `blocked-handoff` even when the prompt began as ordinary analysis. Conversely, ordinary read-only answers stay natural when no tracked delivery action occurred.
 
 Do not use the fixed field contract for ordinary questions, explanations, naming discussions, quick clarifications, or lightweight working updates, even when a bundle is active. Those replies should stay concise and natural while still starting with a role/source prefix such as `[idea-to-code][Planner/agent]` when this skill is active. The boundary is semantic: if no tracked delivery status, install, validation, commit, blocked handoff, review handoff, keep/revise/rollback decision, or final status is being reported, answer naturally and do not add READY, `render-status`, or fixed fields just because a bundle exists.
 
@@ -1053,12 +1054,14 @@ Decision table:
 
 | Response situation | Output shape |
 |---|---|
-| Formal tracked delivery status or final handoff | Use fixed fields. |
-| Mixed tracked status plus ordinary review/evaluation | Concise tracked status sentence, then natural review sections; no second fixed template. |
-| Ordinary question/explanation/naming discussion | Natural concise answer. |
+| `formal-tracked-handoff` | Use fixed fields and `render-status`. |
+| `blocked-handoff` | Use fixed fields with `Status: Blocked`. |
+| `mixed-review` / Mixed tracked status plus ordinary review/evaluation | Concise tracked status sentence, then natural review sections; no second fixed template. |
+| `read-only-status` | Render or summarize tracked status without starting edits. |
+| `ordinary-answer` | Natural concise answer. |
 | In-progress commentary update | Short action-oriented update. |
 
-If ambiguous, use fixed fields only when the user needs formal delivery status.
+If ambiguous, prefer the stricter `formal-tracked-handoff` path only when tracked delivery actions, blocker signals, or formal status evidence are present. Otherwise keep ordinary explanations natural.
 
 For formal tracked delivery status, run the read-only render helper before writing the response whenever the helper is available. If `render-status` is unavailable or fails, state that reason in the response and then use the same fixed field contract manually. Do not skip the helper because the answer seems short.
 
