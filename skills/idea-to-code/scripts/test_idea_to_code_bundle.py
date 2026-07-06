@@ -5410,8 +5410,19 @@ Planned Verification:
         )
 
         self.assertIn("Guarded Apply: applied", result.stdout)
+        self.assertIn("GUARDED_APPLY_ID:", result.stdout)
         self.assertIn("PRE_EDIT_OK_ID:", result.stdout)
         self.assertEqual((self.root / "state.json").read_text(encoding="utf-8"), "new\n")
+        status_result = self.run_bundle("implementation", "status", "--root", str(self.root), "--slug", slug, check=False)
+        status_payload = json.loads(status_result.stdout)
+        self.assertEqual(status_payload["edit_wrapper_compliance"]["state"], "wrapper-compliant")
+        self.assertEqual(len(status_payload["guarded_apply_records"]), 1)
+        self.assertEqual(status_payload["guarded_apply_records"][0]["task_id"], "TASK-1")
+        self.assertTrue(status_payload["guarded_apply_records"][0]["wrapper_compliant"])
+
+        rendered = self.run_bundle("render-status", "--root", str(self.root), "--slug", slug, "--status", "Progress")
+        self.assertIn("Edit wrapper compliance: wrapper-compliant", rendered.stdout)
+        self.assertIn("guarded_apply_count=1", rendered.stdout)
 
     def test_implementation_guarded_apply_rejects_out_of_scope_patch(self) -> None:
         slug = self.init_bundle()
@@ -6158,6 +6169,8 @@ Planned Verification:
             "patch-expressible edits",
             "fallback reason",
             "fallback edits are not wrapper-compliant",
+            "guarded_apply_records",
+            "edit_wrapper_compliance",
             "READY_TASK_OUTPUT_ID",
             "PRE_EDIT_OK_ID",
             "native-tool bypass remains a `residual risk`",

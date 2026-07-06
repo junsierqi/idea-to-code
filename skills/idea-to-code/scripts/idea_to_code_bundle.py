@@ -977,6 +977,7 @@ def _migrate_pre_edit_output_fields(status: dict) -> None:
     status.setdefault("pre_edit_exploration_output_id", None)
     status.setdefault("pre_edit_records", [])
     status.setdefault("pre_edit_noncompliance", [])
+    status.setdefault("guarded_apply_records", [])
     status.setdefault("implementation_leases", [])
     status.setdefault("delegation_records", [])
     status.setdefault("session_continuity_audits", [])
@@ -1414,6 +1415,43 @@ def _open_pre_edit_noncompliance(status: dict) -> list[dict]:
         event for event in status.get("pre_edit_noncompliance", [])
         if not event.get("resolved_at_utc")
     ]
+
+
+def _edit_wrapper_compliance_summary(status: dict) -> dict:
+    guarded_records = status.get("guarded_apply_records", [])
+    open_noncompliance = _open_pre_edit_noncompliance(status)
+    if open_noncompliance:
+        state = "noncompliant"
+        reason = "open pre-edit noncompliance exists"
+    elif guarded_records:
+        state = "wrapper-compliant"
+        reason = "latest tracked edit used implementation guarded-apply"
+    elif status.get("pre_edit_records"):
+        state = "pre-edit-only"
+        reason = "pre-edit guard exists, but no guarded-apply wrapper record exists"
+    else:
+        state = "not-started"
+        reason = "no tracked edit wrapper evidence recorded"
+    latest_guarded = guarded_records[-1] if guarded_records else None
+    return {
+        "state": state,
+        "reason": reason,
+        "guarded_apply_count": len(guarded_records),
+        "open_noncompliance_count": len(open_noncompliance),
+        "latest_guarded_apply_id": (latest_guarded or {}).get("id"),
+        "latest_pre_edit_ok_id": status.get("pre_edit_ok_id"),
+        "host_physical_interception": "host-required",
+    }
+
+
+def _render_edit_wrapper_compliance(status: dict) -> str:
+    summary = _edit_wrapper_compliance_summary(status)
+    latest_id = summary.get("latest_guarded_apply_id") or "none"
+    return (
+        f"Edit wrapper compliance: {summary['state']} "
+        f"({summary['reason']}; guarded_apply_count={summary['guarded_apply_count']}; "
+        f"latest_guarded_apply_id={latest_id}; host_physical_interception=host-required)"
+    )
 
 
 def _pre_edit_records_for_task(status: dict, task_id: str) -> list[dict]:
@@ -4758,10 +4796,34 @@ def implementation_guarded_apply(
 
     status = read_status(target)
     pre_edit_id = status.get("pre_edit_ok_id") or "<PRE_EDIT_OK_ID>"
+    timestamp = utc_now()
+    compact_time = re.sub(r"[^0-9]", "", timestamp)[:14]
+    event_sequence = _next_event_sequence(status)
+    guarded_apply_id = f"{slug}-guarded-apply-r{status.get('plan_revision', 0)}-{compact_time}"
+    record = {
+        "id": guarded_apply_id,
+        "task_id": task_id.strip().upper(),
+        "owner": owner,
+        "files": changed_files,
+        "patch_file": str(patch_path),
+        "pre_edit_ok_id": pre_edit_id,
+        "ready_task_output_id": status.get("ready_task_output_id"),
+        "exploration_output_id": status.get("exploration_output_id"),
+        "visible_output_id": status.get("visible_output_id"),
+        "plan_revision": status.get("plan_revision", 0),
+        "event_sequence": event_sequence,
+        "at_utc": timestamp,
+        "wrapper_compliant": True,
+    }
+    status["event_sequence"] = event_sequence
+    status["updated_at_utc"] = timestamp
+    status.setdefault("guarded_apply_records", []).append(record)
+    write_status(target, status)
     lines = [
         f"{_visibility_prefix(profile, 'implementer', 'agent')} Guarded Apply: applied | Bundle: {slug}",
         "",
         "Display Layer: Guarded Apply",
+        f"GUARDED_APPLY_ID: {guarded_apply_id}",
         f"{PRE_EDIT_OK_ID_LABEL}: {pre_edit_id}",
         f"{READY_TASK_OUTPUT_ID_LABEL}: {status.get('ready_task_output_id')}",
         f"{EXPLORATION_OUTPUT_ID_LABEL}: {status.get('exploration_output_id')}",
@@ -4925,6 +4987,8 @@ def implementation_status(root: Path, slug: str) -> int:
         "pre_edit_owner": status.get("pre_edit_owner"),
         "pre_edit_records": status.get("pre_edit_records", []),
         "pre_edit_noncompliance": status.get("pre_edit_noncompliance", []),
+        "guarded_apply_records": status.get("guarded_apply_records", []),
+        "edit_wrapper_compliance": _edit_wrapper_compliance_summary(status),
         "implementation_leases": status.get("implementation_leases", []),
         "delegation_records": status.get("delegation_records", []),
         "session_continuity_audits": status.get("session_continuity_audits", []),
@@ -6984,6 +7048,7 @@ def render_status_response(
         f"- EXPLORATION_OUTPUT_ID: {exploration_id}",
         f"- READY_TASK_OUTPUT_ID: {ready_id}",
         f"- READY_TASK_OUTPUT_HISTORY: {_ready_history_summary(status)}",
+        f"- {_render_edit_wrapper_compliance(status)}",
         f"- {commit_note}",
         "- Bundle finalization/commit/publish state belongs here unless explicitly in scope.",
     ]
