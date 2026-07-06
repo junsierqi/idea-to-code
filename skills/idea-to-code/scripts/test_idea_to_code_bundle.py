@@ -1934,6 +1934,7 @@ class BundleTest(unittest.TestCase):
             "ready_summary_rejected",
             "formal_status_valid",
             "formal_status_missing_fields_rejected",
+            "formal_status_non_bullet_next_action_rejected",
             "ordinary_answer_valid",
             "ordinary_overtemplated_rejected",
         ]:
@@ -1941,6 +1942,7 @@ class BundleTest(unittest.TestCase):
             self.assertTrue(names[required]["pass"])
         self.assertFalse(names["exploration_summary_rejected"]["actual_ok"])
         self.assertFalse(names["ready_summary_rejected"]["actual_ok"])
+        self.assertFalse(names["formal_status_non_bullet_next_action_rejected"]["actual_ok"])
         self.assertFalse(names["ordinary_overtemplated_rejected"]["actual_ok"])
 
     def test_output_compliance_transcript_audit_rejects_tool_only_ready(self) -> None:
@@ -2271,6 +2273,13 @@ class BundleTest(unittest.TestCase):
         missing_problems = bundle.validate_formal_status_visible_output(tool_stdout, missing_next_action)
         self.assertIn("assistant-visible body missing fixed field: Next Action:", missing_problems)
         self.assertIn("Next Action section must name the next recommended action or state that no unresolved task remains", missing_problems)
+
+        non_bullet_next_action = assistant_body.replace(
+            "\nNext Action:\n- No unresolved task remains in this scope.\n",
+            "\nNext Action:\nNo unresolved task remains in this scope.\n",
+        )
+        non_bullet_problems = bundle.validate_formal_status_visible_output(tool_stdout, non_bullet_next_action)
+        self.assertIn("Next Action section must use a bullet line starting with '- '", non_bullet_problems)
 
         misplaced_next_action = assistant_body.replace(
             "Key Technical Details:\n"
@@ -5954,6 +5963,8 @@ Planned Verification:
         self.assertEqual("host-required", payload["enforcement_boundary"])
         self.assertIn("output-compliance check --kind formal-status", "\n".join(payload["required_checks"]))
         self.assertIn("Next Action is present as the final formal field", "\n".join(payload["required_checks"]))
+        self.assertIn("Next Action content uses a bullet line starting with '- '", "\n".join(payload["required_checks"]))
+        self.assertIn("Next Action content is plain paragraph text instead of a bullet line", "\n".join(payload["deny_when"]))
         self.assertIn("profile-prefixed upper-layer output omits the underlying idea-to-code gates", "\n".join(payload["deny_when"]))
         self.assertIn("Profile wrappers and upper-layer skills must call this same contract", "\n".join(payload["host_integration_notes"]))
 

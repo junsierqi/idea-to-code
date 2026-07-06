@@ -7202,6 +7202,8 @@ def validate_formal_status_visible_output(tool_stdout: str, assistant_visible_bo
     next_action = _section_between(assistant_visible_body, "Next Action:", None)
     if not next_action.strip():
         problems.append("Next Action section must name the next recommended action or state that no unresolved task remains")
+    elif not re.search(r"(?m)^\s*-\s+\S", next_action):
+        problems.append("Next Action section must use a bullet line starting with '- '")
     key_details = _section_between(assistant_visible_body, "Key Technical Details:", "Next Action:")
     exploration_match = re.search(r"EXPLORATION_OUTPUT_ID:\s*(\S+)", key_details)
     ready_match = re.search(r"READY_TASK_OUTPUT_ID:\s*(\S+)", key_details)
@@ -7560,6 +7562,16 @@ def output_compliance_self_test(json_only: bool) -> int:
             "kind": "formal-status",
             "tool_stdout": _sample_formal_status_body(),
             "assistant_body": "[idea-to-code][Closer/agent] Status: Completed\n\nChanges:\n- TASK-1 / REQ-1: done.\n",
+        },
+        {
+            "name": "formal_status_non_bullet_next_action_rejected",
+            "expect_ok": False,
+            "kind": "formal-status",
+            "tool_stdout": _sample_formal_status_body(),
+            "assistant_body": _sample_formal_status_body().replace(
+                "\nNext Action:\n- No unresolved task remains in this scope.\n",
+                "\nNext Action:\nNo unresolved task remains in this scope.\n",
+            ),
         },
         {
             "name": "ordinary_answer_valid",
@@ -8331,6 +8343,7 @@ def host_final_response_contract(json_only: bool) -> int:
             "assistant_visible_body contains the render-status fixed fields, not only a summary",
             "profile-prefixed callers preserve Exploration/READY and final formal status fields",
             "Next Action is present as the final formal field",
+            "Next Action content uses a bullet line starting with '- '",
             "TASK/REQ mappings are concrete and no TASK-* or REQ-* placeholders remain",
             "ordinary read-only answers do not include READY, render-status, or fixed status fields",
         ],
@@ -8338,6 +8351,7 @@ def host_final_response_contract(json_only: bool) -> int:
             "render-status or READY appears only in tool_stdout",
             "assistant_visible_body omits any formal status field",
             "Next Action is missing or not the final formal field",
+            "Next Action content is plain paragraph text instead of a bullet line",
             "tracked delivery actions occurred but final body is an ordinary summary",
             "profile-prefixed upper-layer output omits the underlying idea-to-code gates",
         ],
