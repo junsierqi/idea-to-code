@@ -78,7 +78,7 @@ Usable subagent evidence must include:
 
 Do not display `/subagent` for planned, timed-out, unavailable, or unusable delegation. Use `/agent` and record the fallback reason instead.
 
-When using `same-agent`, Reviewer evidence must explicitly say `same-agent review` and cover user-intent fit, REQ coverage, acceptance examples, counterexamples, non-goal boundaries, diff scope, validation strength, unverified items, and residual risks.
+When using `same-agent`, Reviewer evidence must explicitly say `same-agent review` and cover user-intent fit, REQ coverage, acceptance examples, counterexamples, non-goal boundaries, diff scope, validation strength, the current TASK `Implementation Quality Contract`, shortcut risk, evidence discipline, unverified items, and residual risks.
 
 When using `hybrid-team` or `independent-team`, evidence must name which role ran independently and include the subagent result or identifier when available.
 
@@ -89,7 +89,7 @@ For multi-agent implementation inside one session ledger, Planner evidence must 
 - Planner: produces `00-idea.md` content: goal, Controlled Exploration, requirements, task classification, acceptance matrix, design, and implementation plan.
 - Implementer: makes scoped changes inside the current TASK, classifies derived work as blocking/non-blocking/scope-changing, and records TASK/IMP evidence tied to files or modules. Implementer must checkpoint or `implementation close-task` the current TASK before switching TASKs.
 - Validator: records validation type, command/runtime/manual evidence, and covered REQ IDs.
-- Reviewer: reconciles requested scope, actual diff, acceptance matrix, verification strength, risks, branch closure, and whether derived work stayed within the current TASK policy.
+- Reviewer: reconciles requested scope, actual diff, acceptance matrix, verification strength, the current TASK `Implementation Quality Contract`, shortcut risk, evidence discipline, risks, branch closure, and whether derived work stayed within the current TASK policy.
 - Closer: runs after pre-close verify; records final decision, triggers finalize, verifies the finalized bundle, and keeps skipped, deferred, partial, blocked, failed, or carryover items visible as incomplete rather than completed.
 
 ## Multi-Role Output Compliance
@@ -138,7 +138,7 @@ The hard checks are:
 - Closer output runs `render-status` first for tracked final handoff; if unavailable or failed, it states the reason and uses the fixed Console Response Contract fields manually. Closer chooses this branch from the actions actually performed in the turn, not only from the initial user prompt.
 - Closer output for profile-prefixed upper-layer work must use `[idea-to-code/<profile-name>][Closer/agent] Status: ...` with the same `render-status` fixed fields. A profile-prefixed natural-language completion summary is noncompliant after tracked work.
 - Closer output is still required when tracked delivery actions occurred even if no `render-status` command appears in the transcript. Source edits, install, validation, checkpoint/finalize, lease/pre-edit, and output-compliance runs make a casual final summary noncompliant unless it is replaced with the fixed formal status fields.
-- Closer output should run `output-compliance check --kind formal-status` whenever the assistant-visible final body is available as text before handoff or review; if the host cannot expose that body before sending, disclose the `host-required` limit instead of treating `render-status` generation as body compliance.
+- Closer output should run `output-compliance check --kind auto --action <observed-action>...` whenever the assistant-visible final body is available as text before handoff or review; if the host cannot expose that body before sending, disclose the `host-required` limit instead of treating `render-status` generation as body compliance.
 - Formal tracked status MUST use render-status generated fields when `render-status` is available. The final response may replace placeholders with actual evidence, but it must not omit, rename, reorder, or hand-invent the fixed field set.
 - Formal tracked status must surface every incomplete TASK/MB item by category such as partial, blocked, skipped, deferred/carryover, failed, or not started, with reason and next step when known. It must also include `Next Action` so the user can tell whether to resume an unresolved item, make a decision, or stop because no unresolved task remains.
 - Formal tracked status must surface Scope Override records when present. Open overrides belong in `Incomplete Items` and `Unverified Items`; `Key Technical Details` must show the latest Scope Override and original carryover snapshot so the user can see that the prior mainline tasks were not deleted by the override.

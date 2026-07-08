@@ -84,7 +84,23 @@ RESPONSE_KINDS = (
 )
 INSTALL_PARITY_EXCLUDED_DIRS = {"__pycache__", ".git", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
 INSTALL_PARITY_EXCLUDED_SUFFIXES = {".pyc", ".pyo"}
-TASK_REQUIRED_SECTIONS = ("Files:", "Execution Details:", "Done Criteria:", "Planned Verification:")
+TASK_REQUIRED_SECTIONS = (
+    "Files:",
+    "Execution Details:",
+    "Implementation Quality Contract:",
+    "Done Criteria:",
+    "Planned Verification:",
+)
+QUALITY_CONTRACT_REQUIRED_LABELS = (
+    "Existing Pattern Evidence:",
+    "Assumption Handling:",
+    "Scope Boundary:",
+    "Real Path / Mock Policy:",
+    "Regression Surface:",
+    "Security/Safety Notes:",
+    "Shortcut Risk Check:",
+    "Reviewer Must Verify:",
+)
 TASK_SECTION_RESERVED_HEADINGS = {
     "## Requirements",
     "## Intake Gate",
@@ -556,7 +572,8 @@ FILES = {
         "## Implementation Plan\n\n"
         "Gate Status: DRAFT\n\n"
         "Rule: Do not edit code until Gate Status is READY and every TASK has "
-        "Execution Details, Files, Done Criteria, and Planned Verification.\n\n"
+        "Files, Execution Details, Implementation Quality Contract, Done Criteria, "
+        "and Planned Verification.\n\n"
         "During DRAFT, TASK blocks are the visible task list. Placeholder values "
         "such as `...` are allowed until repository discovery and intake confirmation "
         "make concrete implementation details available.\n\n"
@@ -566,6 +583,15 @@ FILES = {
         "- ...\n\n"
         "Execution Details:\n"
         "- ...\n\n"
+        "Implementation Quality Contract:\n"
+        "- Existing Pattern Evidence: ...\n"
+        "- Assumption Handling: ...\n"
+        "- Scope Boundary: ...\n"
+        "- Real Path / Mock Policy: ...\n"
+        "- Regression Surface: ...\n"
+        "- Security/Safety Notes: ...\n"
+        "- Shortcut Risk Check: ...\n"
+        "- Reviewer Must Verify: ...\n\n"
         "Done Criteria:\n"
         "- ...\n\n"
         "Planned Verification:\n"
@@ -2185,6 +2211,16 @@ Files:
 Execution Details:
 - {task}
 
+Implementation Quality Contract:
+- Existing Pattern Evidence: inspect the current local pattern around `{file_path}` before editing.
+- Assumption Handling: treat unclear implementation claims as unverified until source-only validation supports them.
+- Scope Boundary: change only `{file_path}` unless the user explicitly expands scope.
+- Real Path / Mock Policy: validate against the real repository file path, not a substitute mock path.
+- Regression Surface: run source-only validation for the requested file change and nearby content that could regress.
+- Security/Safety Notes: avoid secrets and destructive filesystem actions.
+- Shortcut Risk Check: no placeholder-only edit, unrelated refactor, or unsupported completion claim.
+- Reviewer Must Verify: scope fit, evidence strength, and absence of unrelated edits.
+
 Done Criteria:
 - `{file_path}` contains the requested scoped update and no unrelated edits.
 
@@ -2586,6 +2622,36 @@ def _task_section_pollution_problems(task_name: str, section: str, value: str) -
     return problems
 
 
+def _weak_quality_contract_value(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", text.strip().lower())
+    weak_values = {
+        "",
+        "-",
+        "check",
+        "check stuff",
+        "checked",
+        "checks",
+        "ok",
+        "okay",
+        "good",
+        "done",
+        "yes",
+        "no",
+        "n/a",
+        "na",
+        "none",
+        "tbd",
+        "todo",
+        "unknown",
+        "pending",
+    }
+    if normalized in weak_values or _weak_text_value(normalized, min_len=12):
+        return True
+    if not re.search(r"\b(source-only|real-product-path|mock-only|fixture-only|dom-only|manual-inspection|validation|test|tests|evidence|scope|pattern|risk|review|verify|command|file|diff|host|required|safety|secret|destructive|placeholder|claim|shortcut)\b", normalized):
+        return True
+    return False
+
+
 def _task_sections_quality_problems(task_name: str, sections: dict[str, str]) -> list[str]:
     task_problems: list[str] = []
     for required in TASK_REQUIRED_SECTIONS:
@@ -2606,6 +2672,14 @@ def _task_sections_quality_problems(task_name: str, sections: dict[str, str]) ->
                 f"{task_name} Planned Verification: missing approved validation type "
                 f"({', '.join(VALIDATION_TYPES)})"
             )
+        if required == "Implementation Quality Contract:":
+            for label in QUALITY_CONTRACT_REQUIRED_LABELS:
+                label_match = re.search(rf"^\s*-\s*{re.escape(label)}\s*(.+)$", value, re.MULTILINE)
+                if not label_match:
+                    task_problems.append(f"{task_name} Implementation Quality Contract: missing {label}")
+                    continue
+                if _weak_quality_contract_value(label_match.group(1).strip()):
+                    task_problems.append(f"{task_name} Implementation Quality Contract: weak {label}")
     return task_problems
 
 
@@ -3520,7 +3594,7 @@ def _ready_output_contract_problems(lines: list[str], blocks: list[tuple[str, st
         req_hint = _covered_req_hint(task_name)
         if req_hint and f"Covered REQ hint: {req_hint}" not in visible_block:
             problems.append(f"READY output missing covered REQ hint for {task_name}: {req_hint}")
-        for required in ("Files:", "Execution Details:", "Done Criteria:", "Planned Verification:"):
+        for required in TASK_REQUIRED_SECTIONS:
             if not re.search(rf"^{re.escape(required)}\s*$", visible_block, re.MULTILINE):
                 problems.append(f"READY output missing {required} for {task_name}")
     return problems
@@ -3816,6 +3890,7 @@ def implementation_next_action(
         "READY_TASK_OUTPUT_ID:",
         "Files:",
         "Execution Details:",
+        "Implementation Quality Contract:",
         "Done Criteria:",
         "Planned Verification:",
     ]
@@ -5250,9 +5325,15 @@ def _meaningful_evidence(text: str) -> bool:
 
 def _role_specific_evidence_problems(role: str, evidence: str) -> list[str]:
     lowered = evidence.lower()
+    role_conflict_text = re.sub(
+        r"\b(?:READY_TASK_OUTPUT_ID|EXPLORATION_OUTPUT_ID|PRE_EDIT_OK_ID|GUARDED_APPLY_ID|VISIBLE_OUTPUT_ID|LEASE_ID)\s+\S+",
+        " ",
+        evidence,
+        flags=re.I,
+    ).lower()
     problems: list[str] = []
     if role == "planner":
-        if re.search(r"\b(?:validator|validated|ran|pytest|unittest|reviewer|closer)\b", lowered):
+        if re.search(r"\b(?:validator|validated|ran|pytest|unittest|reviewer|closer)\b", role_conflict_text):
             problems.append("Planner evidence must describe planning work, not validation/review/closeout work")
         if not re.search(r"\bREQ-\d+\b", evidence):
             problems.append("Planner evidence must name planned REQ IDs")
@@ -5261,7 +5342,7 @@ def _role_specific_evidence_problems(role: str, evidence: str) -> list[str]:
         if not re.search(r"\b(acceptance matrix|00-idea\.md|requirements)\b", evidence, re.I):
             problems.append("Planner evidence must reference requirements or the acceptance matrix")
     elif role == "implementer":
-        if re.search(r"\b(?:planner|validator|reviewer|closer|validated|reviewed)\b", lowered):
+        if re.search(r"\b(?:planner|validator|reviewer|closer|validated|reviewed)\b", role_conflict_text):
             problems.append("Implementer evidence must describe implementation work, not another role")
         if not re.search(r"\b(TASK-\d+|IMP-\d+)\b", evidence):
             problems.append("Implementer evidence must name implemented TASK/IMP IDs")
@@ -5270,7 +5351,7 @@ def _role_specific_evidence_problems(role: str, evidence: str) -> list[str]:
         if not re.search(r"[\\/][\w.-]+|[\w.-]+\.(md|ts|tsx|js|jsx|py|go|rs|java|cs|json|yaml|yml)", evidence, re.I):
             problems.append("Implementer evidence must name changed files or modules")
     elif role == "validator":
-        if re.search(r"\b(?:planner|implementer|reviewer|closer)\b", lowered):
+        if re.search(r"\b(?:planner|implementer|reviewer|closer)\b", role_conflict_text):
             problems.append("Validator evidence must describe validation work, not another role")
         if not re.search(r"\b(real-product-path|mock-only|fixture-only|source-only|dom-only|manual-inspection|unverified)\b", evidence, re.I):
             problems.append("Validator evidence must name a validation type")
@@ -5279,12 +5360,16 @@ def _role_specific_evidence_problems(role: str, evidence: str) -> list[str]:
         if not re.search(r"\bREQ-\d+\b", evidence):
             problems.append("Validator evidence must name covered REQ IDs")
     elif role == "reviewer":
-        if re.search(r"\b(?:planner|implementer|validator|closer)\b", lowered):
+        if re.search(r"\b(?:planner|implementer|validator|closer)\b", role_conflict_text):
             problems.append("Reviewer evidence must describe review work, not another role")
         if not re.search(r"\b(review|checked|scope|diff|risk|coverage|acceptance matrix|boundary|architecture|residual)\b", lowered):
             problems.append("Reviewer evidence must describe scope, coverage, boundary, or risk review")
         if not re.search(r"\b(00-idea\.md|01-progress\.md|REQ-\d+|TASK-\d+|IMP-\d+)\b", evidence, re.I):
             problems.append("Reviewer evidence must reference reviewed requirements, implementation, verification, or IDs")
+        if not re.search(r"\b(implementation quality contract|quality contract)\b", lowered):
+            problems.append(
+                "Reviewer evidence must explicitly check Implementation Quality Contract or quality contract"
+            )
         if not re.search(r"\b(same-agent review|independent review|hybrid-team|independent-team)\b", lowered):
             problems.append(
                 "Reviewer evidence must disclose role independence with same-agent review, independent review, hybrid-team, or independent-team"
@@ -7205,6 +7290,7 @@ READY_VISIBLE_FIELDS = [
     "What READY Will Cover:",
     "Files:",
     "Execution Details:",
+    "Implementation Quality Contract:",
     "Done Criteria:",
     "Planned Verification:",
 ]
@@ -7317,16 +7403,44 @@ def validate_ordinary_visible_output(assistant_visible_body: str) -> list[str]:
     return problems
 
 
-def output_compliance_check(kind: str, tool_stdout: str, assistant_visible_body: str, json_only: bool) -> int:
-    if kind == "ready":
+def output_compliance_check(
+    kind: str,
+    tool_stdout: str,
+    assistant_visible_body: str,
+    json_only: bool,
+    prompt: str = "",
+    transcript: str = "",
+    actions: list[str] | None = None,
+) -> int:
+    response_classification: dict[str, Any] | None = None
+    effective_kind = kind
+    if kind == "auto":
+        response_classification = classify_response_mode(prompt=prompt, transcript=transcript, actions=actions)
+        response_kind = response_classification["response_kind"]
+        if response_kind in {"formal-tracked-handoff", "blocked-handoff"}:
+            effective_kind = "formal-status"
+        elif response_kind == "ordinary-answer":
+            effective_kind = "ordinary"
+        elif response_kind in {"read-only-status", "mixed-review"}:
+            effective_kind = "formal-status" if re.search(FORMAL_STATUS_PREFIX_PATTERN, assistant_visible_body) else "ordinary"
+        else:
+            raise SystemExit(f"output-compliance check refused - unsupported auto response kind: {response_kind}")
+    if effective_kind == "ready":
         problems = validate_visible_ready_output(tool_stdout, assistant_visible_body)
-    elif kind == "formal-status":
+    elif effective_kind == "formal-status":
         problems = validate_formal_status_visible_output(tool_stdout, assistant_visible_body)
-    elif kind == "ordinary":
+    elif effective_kind == "ordinary":
         problems = validate_ordinary_visible_output(assistant_visible_body)
     else:
-        raise SystemExit("output-compliance check refused - --kind must be ready, formal-status, or ordinary")
-    payload = {"kind": kind, "ok": not problems, "problems": problems}
+        raise SystemExit("output-compliance check refused - --kind must be auto, ready, formal-status, or ordinary")
+    payload = {
+        "kind": kind,
+        "effective_kind": effective_kind,
+        "ok": not problems,
+        "problems": problems,
+    }
+    if response_classification is not None:
+        payload["response_classification"] = response_classification
     if json_only:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
     elif problems:
@@ -7563,7 +7677,7 @@ def classify_response_mode(
         ],
         "formal-tracked-handoff": [
             "run render-status first when available",
-            "run output-compliance check --kind formal-status when assistant-visible body is available",
+            "run output-compliance check --kind auto --action <observed-action>... when assistant-visible body is available",
             "preserve final Next Action bullet",
         ],
         "blocked-handoff": [
@@ -7750,6 +7864,7 @@ def _sample_visible_ready_body(display_layer: str = "READY Focus") -> str:
         "TASK-1: Sample\n"
         "Files:\n- sample.py\n"
         "Execution Details:\n- edit\n"
+        "Implementation Quality Contract:\n- evidence discipline and no shortcut risk\n"
         "Done Criteria:\n- done\n"
         "Planned Verification:\n- source-only tests\n"
     )
@@ -7824,6 +7939,14 @@ def output_compliance_self_test(json_only: bool) -> int:
             ),
         },
         {
+            "name": "auto_tracked_action_rejects_casual_summary",
+            "expect_ok": False,
+            "kind": "auto",
+            "actions": ["validation", "finalize"],
+            "tool_stdout": "",
+            "assistant_body": "[idea-to-code][Closer/agent] 已完成迁移，测试通过。",
+        },
+        {
             "name": "ordinary_answer_valid",
             "expect_ok": True,
             "kind": "ordinary",
@@ -7841,7 +7964,15 @@ def output_compliance_self_test(json_only: bool) -> int:
     results = []
     for scenario in scenarios:
         kind = str(scenario["kind"])
-        if kind == "ready":
+        if kind == "auto":
+            response_classification = classify_response_mode(actions=[str(action) for action in scenario.get("actions", [])])
+            effective_kind = "formal-status" if response_classification["response_kind"] in {"formal-tracked-handoff", "blocked-handoff"} else "ordinary"
+            problems = (
+                validate_formal_status_visible_output(str(scenario["tool_stdout"]), str(scenario["assistant_body"]))
+                if effective_kind == "formal-status"
+                else validate_ordinary_visible_output(str(scenario["assistant_body"]))
+            )
+        elif kind == "ready":
             problems = validate_visible_ready_output(str(scenario["tool_stdout"]), str(scenario["assistant_body"]))
         elif kind == "formal-status":
             problems = validate_formal_status_visible_output(str(scenario["tool_stdout"]), str(scenario["assistant_body"]))
@@ -8493,7 +8624,7 @@ COMMAND_GUIDE_FLOWS: dict[str, list[dict[str, str]]] = {
         },
         {
             "step": "Validate final assistant body when available",
-            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" output-compliance check --kind formal-status --tool-stdout-file <render-status.txt> --assistant-body-file <final-body.txt>',
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" output-compliance check --kind auto --action validation --action finalize --tool-stdout-file <render-status.txt> --assistant-body-file <final-body.txt>',
             "notes": "Host hooks should enforce this before sending; otherwise disclose the host-required boundary.",
         },
     ],
@@ -8587,9 +8718,17 @@ def host_final_response_contract(json_only: bool) -> int:
         "schema": "idea-to-code.host-hook.final-response-contract.v1",
         "enforcement_boundary": "host-required",
         "purpose": "Physically block malformed formal tracked handoffs before the assistant-visible final response is sent.",
-        "required_inputs": ["response_kind", "tool_stdout", "assistant_visible_body", "profile"],
+        "required_inputs": [
+            "response_kind",
+            "observed_actions",
+            "tool_stdout",
+            "assistant_visible_body",
+            "profile",
+            "prompt",
+            "transcript",
+        ],
         "required_checks": [
-            "when response_kind is formal tracked status, run output-compliance check --kind formal-status",
+            "when response_kind is formal tracked status or tracked delivery actions occurred, run output-compliance check --kind auto --action <observed-action>...",
             "assistant_visible_body contains the render-status fixed fields, not only a summary",
             "profile-prefixed callers preserve Exploration/READY and final formal status fields",
             "Next Action is present as the final formal field",
@@ -8606,7 +8745,7 @@ def host_final_response_contract(json_only: bool) -> int:
             "profile-prefixed upper-layer output omits the underlying idea-to-code gates",
         ],
         "allow_evidence": [
-            "output-compliance check --kind formal-status PASS",
+            "output-compliance check --kind auto PASS with action-derived formal-status effective kind",
             "output-compliance check --kind ready PASS when READY/Exploration was generated",
             "output-compliance check --kind ordinary PASS for read-only ordinary replies",
             "output-compliance transcript-audit PASS when an exported transcript is available",
@@ -8918,12 +9057,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("output-compliance", help="Check user-visible output against tool stdout for display-layer compliance.")
     oc_sub = p.add_subparsers(dest="output_compliance_command", required=True)
-    occ = oc_sub.add_parser("check", help="Validate READY, formal status, or ordinary answer output shape.")
-    occ.add_argument("--kind", required=True, choices=("ready", "formal-status", "ordinary"))
+    occ = oc_sub.add_parser("check", help="Validate READY, formal status, ordinary answer, or action-derived auto output shape.")
+    occ.add_argument("--kind", required=True, choices=("auto", "ready", "formal-status", "ordinary"))
     occ.add_argument("--tool-stdout")
     occ.add_argument("--tool-stdout-file")
     occ.add_argument("--assistant-body")
     occ.add_argument("--assistant-body-file")
+    occ.add_argument("--prompt", default="", help="Prompt or summary used when --kind auto classifies response mode.")
+    occ.add_argument("--prompt-file", help="File containing prompt text for --kind auto.")
+    occ.add_argument("--transcript", default="", help="Transcript text used when --kind auto classifies response mode.")
+    occ.add_argument("--transcript-file", help="File containing transcript text for --kind auto.")
+    occ.add_argument("--action", action="append", default=[],
+                     choices=("edit", "install", "validation", "verify", "commit", "finalize", "checkpoint", "render-status", "output-compliance", "tracked-delivery", "status", "review", "blocked"),
+                     help="Observed action signal for --kind auto. Repeat to pass multiple signals.")
     occ.add_argument("--json", action="store_true")
     ocs = oc_sub.add_parser("self-test", help="Run built-in hard-output compliance acceptance scenarios.")
     ocs.add_argument("--json", action="store_true")
@@ -9345,12 +9491,22 @@ def main(argv: Iterable[str] | None = None) -> int:
 
     if args.command == "output-compliance":
         if args.output_compliance_command == "check":
-            if args.kind == "ordinary" and not args.tool_stdout and not args.tool_stdout_file:
+            if args.kind in {"auto", "ordinary"} and not args.tool_stdout and not args.tool_stdout_file:
                 tool_stdout = ""
             else:
                 tool_stdout = read_content_arg(args.tool_stdout, args.tool_stdout_file)
             assistant_body = read_content_arg(args.assistant_body, args.assistant_body_file)
-            return output_compliance_check(args.kind, tool_stdout, assistant_body, args.json)
+            prompt = read_content_arg(args.prompt, args.prompt_file) if args.kind == "auto" else ""
+            transcript = read_content_arg(args.transcript, args.transcript_file) if args.kind == "auto" else ""
+            return output_compliance_check(
+                args.kind,
+                tool_stdout,
+                assistant_body,
+                args.json,
+                prompt=prompt,
+                transcript=transcript,
+                actions=args.action,
+            )
         if args.output_compliance_command == "self-test":
             return output_compliance_self_test(args.json)
         if args.output_compliance_command == "transcript-audit":

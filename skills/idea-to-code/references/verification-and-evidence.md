@@ -185,12 +185,12 @@ Profile-prefixed formal status is still idea-to-code formal status. Validate `[i
 Use the output compliance helper when checking this failure mode:
 
 ```bash
-python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" output-compliance check --kind formal-status --tool-stdout-file <render-status-output.txt> --assistant-body-file <final-message.txt>
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" output-compliance check --kind auto --action validation --action finalize --tool-stdout-file <render-status-output.txt> --assistant-body-file <final-message.txt>
 ```
 
-The helper must fail when the final body does not start with `[idea-to-code][Closer/agent] Status: Completed|Progress|Blocked` or `[idea-to-code/<profile-name>][Closer/agent] Status: Completed|Progress|Blocked`, omits any fixed field including `Next Action`, writes `Next Action` content without a `- ` bullet line, drops TASK/REQ mapping, moves `No commit made` under `Incomplete Items`, or loses `EXPLORATION_OUTPUT_ID` / `READY_TASK_OUTPUT_ID` that were present in `render-status`.
+In `--kind auto`, pass every observed tracked delivery action available to the host or transcript reviewer, such as `edit`, `install`, `validation`, `verify`, `checkpoint`, `finalize`, `commit`, `render-status`, `output-compliance`, or `tracked-delivery`. Auto mode calls response classification first; tracked actions force `formal-status` validation even when the prompt or final prose looks ordinary. The helper must fail when the final body does not start with `[idea-to-code][Closer/agent] Status: Completed|Progress|Blocked` or `[idea-to-code/<profile-name>][Closer/agent] Status: Completed|Progress|Blocked`, omits any fixed field including `Next Action`, writes `Next Action` content without a `- ` bullet line, drops TASK/REQ mapping, moves `No commit made` under `Incomplete Items`, or loses `EXPLORATION_OUTPUT_ID` / `READY_TASK_OUTPUT_ID` that were present in `render-status`.
 
-For final closeout of tracked work, run this check whenever the assistant-visible final body is available as text before handoff or review. If the host cannot expose the final body before sending, record that as `host-required` rather than silently skipping the check. Running `render-status` alone is generation evidence; passing `output-compliance check --kind formal-status` is body-compliance evidence.
+For final closeout of tracked work, run this check whenever the assistant-visible final body is available as text before handoff or review. If the host cannot expose the final body before sending, record that as `host-required` rather than silently skipping the check. Running `render-status` alone is generation evidence; passing `output-compliance check --kind auto` with observed actions is body-compliance evidence.
 
 For upper-layer profile work, pass the same profile through `render-status --profile <profile-name>` or preserve the exact profile-prefixed fixed fields. A final message such as `[idea-to-code/design-to-code][Closer/agent] 完成了，测试通过` is still noncompliant because it lacks the fixed `Changes`, `Completed Items`, `Incomplete Items`, `Validation Results`, `Unverified Items`, `Residual Risks`, `Key Technical Details`, and `Next Action` fields.
 
@@ -422,7 +422,7 @@ python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" install
 
 Profile wrappers and upper-layer skills do not get a separate exemption. If they depend on the base idea-to-code skill, they must either run the same installed parity gate for the base skill they are invoking, or disclose the missing parity check in `Unverified Items`. A profile prefix is not evidence that the wrapper loaded the latest base skill.
 
-When a host can inspect the final assistant-visible response before sending it, use `host-hook final-response-contract --json` as the native enforcement contract and run `output-compliance check --kind formal-status` against the rendered status and final body. If the host cannot expose the final body before send, record that limit as `host-required`; do not claim final-body enforcement merely because `render-status` was generated.
+When a host can inspect the final assistant-visible response before sending it, use `host-hook final-response-contract --json` as the native enforcement contract and run `output-compliance check --kind auto --action <observed-action>...` against the rendered status and final body. If the host cannot expose the final body before send, record that limit as `host-required`; do not claim final-body enforcement merely because `render-status` was generated.
 
 Do not use the fixed field contract for ordinary questions, short explanations, naming discussions, quick clarifications, or lightweight commentary updates, even when a bundle is active. These replies should stay concise and natural while still using the role/source prefix; the template is for formal tracked delivery status, not every message. The boundary is semantic: if no tracked delivery status, install, validation, commit, blocked handoff, review handoff, keep/revise/rollback decision, or final status is being reported, answer naturally and do not add READY, `render-status`, or fixed fields just because a bundle exists.
 
@@ -447,7 +447,7 @@ Use `--action` for observed delivery actions such as `edit`, `install`, `validat
 
 | Response situation | Output shape |
 |---|---|
-| `formal-tracked-handoff` | Fixed fields through `render-status`; validate final body with `output-compliance check --kind formal-status` when available. |
+| `formal-tracked-handoff` | Fixed fields through `render-status`; validate final body with `output-compliance check --kind auto --action <observed-action>...` when available. |
 | `blocked-handoff` | Fixed fields with `Status: Blocked`, concrete blocker, and final `Next Action` bullet. |
 | `mixed-review` / Mixed tracked status plus ordinary review/evaluation | Concise tracked status sentence, then natural review sections. |
 | `read-only-status` | Render or summarize tracked status without starting edit gates. |

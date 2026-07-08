@@ -149,6 +149,7 @@ class BundleTest(unittest.TestCase):
             "TASK-1: Sample\n"
             "Files:\n- sample.py\n"
             "Execution Details:\n- edit\n"
+            "Implementation Quality Contract:\n- evidence discipline and no shortcut risk\n"
             "Done Criteria:\n- done\n"
             "Planned Verification:\n- source-only tests\n"
         )
@@ -345,7 +346,7 @@ class BundleTest(unittest.TestCase):
             "Controlled Repair: scoped edit",
             "Implementer evidence",
             "Validator evidence: validation type + command",
-            "Reviewer evidence: scope fit + branch closure",
+            "Reviewer evidence: quality contract + scope fit + branch closure",
             "checkpoint --covers or implementation close-task",
             "pre-close verify",
             "Closer evidence",
@@ -1680,6 +1681,7 @@ class BundleTest(unittest.TestCase):
             "What READY Will Cover: TASK-1\n"
             "Files:\n- sample.py\n"
             "Execution Details:\n- edit\n"
+            "Implementation Quality Contract:\n- evidence discipline and no shortcut risk\n"
             "Done Criteria:\n- done\n"
             "Planned Verification:\n- source-only tests\n"
         )
@@ -1786,6 +1788,7 @@ class BundleTest(unittest.TestCase):
             "TASK-1: Sample\n"
             "Files:\n- sample.py\n"
             "Execution Details:\n- edit\n"
+            "Implementation Quality Contract:\n- evidence discipline and no shortcut risk\n"
             "Done Criteria:\n- done\n"
             "Planned Verification:\n- source-only tests\n"
         )
@@ -2130,7 +2133,7 @@ class BundleTest(unittest.TestCase):
         formal_payload = json.loads(formal.stdout)
         self.assertEqual("formal-tracked-handoff", formal_payload["response_kind"])
         self.assertTrue(formal_payload["action_derived"])
-        self.assertIn("output-compliance check --kind formal-status", "\n".join(formal_payload["required_checks"]))
+        self.assertIn("output-compliance check --kind auto", "\n".join(formal_payload["required_checks"]))
 
     def test_response_classify_blocked_is_stricter_than_review_or_status(self) -> None:
         result = self.run_bundle(
@@ -2437,6 +2440,50 @@ class BundleTest(unittest.TestCase):
         payload = json.loads(result.stdout)
         self.assertTrue(payload["ok"])
 
+    def test_output_compliance_auto_rejects_tracked_action_casual_summary(self) -> None:
+        result = run_test_subprocess([
+            sys.executable,
+            str(SCRIPT),
+            "output-compliance",
+            "check",
+            "--kind",
+            "auto",
+            "--action",
+            "validation",
+            "--action",
+            "finalize",
+            "--assistant-body",
+            "[idea-to-code][Closer/agent] 已完成迁移，测试通过。",
+            "--json",
+        ])
+
+        self.assertNotEqual(0, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertEqual("auto", payload["kind"])
+        self.assertEqual("formal-status", payload["effective_kind"])
+        self.assertEqual("formal-tracked-handoff", payload["response_classification"]["response_kind"])
+        self.assertTrue(payload["response_classification"]["action_derived"])
+        self.assertIn("assistant-visible formal status must start", "\n".join(payload["problems"]))
+
+    def test_output_compliance_auto_accepts_ordinary_without_tracked_actions(self) -> None:
+        result = run_test_subprocess([
+            sys.executable,
+            str(SCRIPT),
+            "output-compliance",
+            "check",
+            "--kind",
+            "auto",
+            "--assistant-body",
+            "[idea-to-code][Planner/agent] 这是普通解释，不是交付状态。",
+            "--json",
+        ])
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual("ordinary", payload["effective_kind"])
+        self.assertEqual("ordinary-answer", payload["response_classification"]["response_kind"])
+        self.assertTrue(payload["ok"])
+
     def test_render_status_prefers_concrete_task_from_checkpoint_focus(self) -> None:
         slug = self.init_bundle()
         self.write_ready_bundle(slug)
@@ -2510,7 +2557,7 @@ class BundleTest(unittest.TestCase):
             "timestamp_utc": "2026-06-30T00:00:00+00:00",
             "event_sequence": 100,
             "role": "reviewer",
-            "evidence": "TASK-1 / REQ-1 same-agent review checked scope and residual risk.",
+            "evidence": "TASK-1 / REQ-1 same-agent review checked quality contract, evidence discipline, shortcut risk, scope, and residual risk.",
             "covers": ["REQ-1"],
             "plan_revision": status["plan_revision"],
         })
@@ -2918,6 +2965,16 @@ Files:
 Execution Details:
 - Record one requirement and all role evidence.
 
+Implementation Quality Contract:
+- Existing Pattern Evidence: check current fixture/source pattern before editing.
+- Assumption Handling: keep claims tied to test evidence.
+- Scope Boundary: keep edits inside the stated test fixture scope.
+- Real Path / Mock Policy: use the validation type stated in Planned Verification.
+- Regression Surface: verify READY, plan-check, and role evidence behavior.
+- Security/Safety Notes: no secrets or destructive commands.
+- Shortcut Risk Check: no placeholder-only completion or unsupported claim.
+- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+
 Done Criteria:
 - finalize and verify succeed.
 
@@ -3017,6 +3074,16 @@ Files:
 Execution Details:
 - Sync master backlog and cover MB-1.
 
+Implementation Quality Contract:
+- Existing Pattern Evidence: check current fixture/source pattern before editing.
+- Assumption Handling: keep claims tied to test evidence.
+- Scope Boundary: keep edits inside the stated test fixture scope.
+- Real Path / Mock Policy: use the validation type stated in Planned Verification.
+- Regression Surface: verify READY, plan-check, and role evidence behavior.
+- Security/Safety Notes: no secrets or destructive commands.
+- Shortcut Risk Check: no placeholder-only completion or unsupported claim.
+- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+
 Done Criteria:
 - MB-1 is covered and MB-2 remains pending.
 
@@ -3074,6 +3141,15 @@ Status: pending
 
 Files: state.json
 Execution Details: Record one requirement and all role evidence.
+Implementation Quality Contract:
+- Existing Pattern Evidence: use the existing sample bundle fixture pattern.
+- Assumption Handling: keep claims tied to fixture evidence.
+- Scope Boundary: stay inside the temporary test bundle.
+- Real Path / Mock Policy: use source-only validation.
+- Regression Surface: verify inline TASK section parsing and READY output.
+- Security/Safety Notes: no secrets or destructive commands.
+- Shortcut Risk Check: do not pass placeholder-only task content.
+- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
 Done Criteria: finalize and verify succeed.
 Planned Verification: source-only python idea_to_code_bundle.py verify exits zero.
 """
@@ -3144,6 +3220,16 @@ Files:
 Execution Details:
 - Record no requirement coverage.
 
+Implementation Quality Contract:
+- Existing Pattern Evidence: check current fixture/source pattern before editing.
+- Assumption Handling: keep claims tied to test evidence.
+- Scope Boundary: keep edits inside the stated test fixture scope.
+- Real Path / Mock Policy: use the validation type stated in Planned Verification.
+- Regression Surface: verify READY, plan-check, and role evidence behavior.
+- Security/Safety Notes: no secrets or destructive commands.
+- Shortcut Risk Check: no placeholder-only completion or unsupported claim.
+- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+
 Done Criteria:
 - verify refuses missing requirements.
 
@@ -3183,7 +3269,7 @@ Planned Verification:
         self.run_bundle(
             "role", "record", "--root", str(self.root), "--slug", slug,
             "--role", "reviewer",
-            "--evidence", "same-agent review checked REQ-1 scope, 00-idea.md, 00-idea.md, and 01-progress.md coverage",
+            "--evidence", "same-agent review checked REQ-1 scope, quality contract, evidence discipline, shortcut risk, 00-idea.md, and 01-progress.md coverage",
             "--covers", "REQ-1",
         )
 
@@ -3515,7 +3601,7 @@ Planned Verification:
         self.record_roles_through_reviewer(slug)
         self.checkpoint(slug)
         self.run_bundle("verify", "--root", str(self.root), "--slug", slug)
-        self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "reviewer", "--evidence", "same-agent review checked REQ-1 residual risk and coverage in 01-progress.md after prior verify", "--covers", "REQ-1")
+        self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "reviewer", "--evidence", "same-agent review checked REQ-1 quality contract, evidence discipline, shortcut risk, residual risk, and coverage in 01-progress.md after prior verify", "--covers", "REQ-1")
         status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
         latest_reviewer = status["role_evidence"]["reviewer"][-1]
         self.assertGreater(latest_reviewer["event_sequence"], status["last_verified_event_sequence"])
@@ -3663,9 +3749,33 @@ Planned Verification:
         output_id = self.run_ready_output(slug)
         self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "implementer", "--evidence", f"TASK-1 implemented by updating state.json behavior in 00-idea.md after READY_TASK_OUTPUT_ID {output_id}", "--covers", "REQ-1")
         self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "validator", "--evidence", "REQ-1 source-only validation ran python idea_to_code_bundle.py verify command", "--covers", "REQ-1")
-        result = self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "reviewer", "--evidence", "REQ-1 review checked scope, coverage, boundary, and residual risk in 01-progress.md", "--covers", "REQ-1", check=False)
+        result = self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "reviewer", "--evidence", "REQ-1 review checked quality contract, evidence discipline, shortcut risk, scope, coverage, boundary, and residual risk in 01-progress.md", "--covers", "REQ-1", check=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Reviewer evidence must disclose role independence", result.stderr)
+
+    def test_reviewer_requires_explicit_quality_contract_check(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "planner", "--evidence", "REQ-1 planned in 00-idea.md with acceptance matrix and TASK-1 in 00-idea.md", "--covers", "REQ-1")
+        output_id = self.run_ready_output(slug)
+        self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "implementer", "--evidence", f"TASK-1 implemented by updating state.json behavior in 00-idea.md after READY_TASK_OUTPUT_ID {output_id}", "--covers", "REQ-1")
+        self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "validator", "--evidence", "REQ-1 source-only validation ran python idea_to_code_bundle.py verify command", "--covers", "REQ-1")
+        result = self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "reviewer", "--evidence", "REQ-1 same-agent review checked TASK-1 shortcut risk, evidence discipline, scope, coverage, boundary, and residual risk in 01-progress.md", "--covers", "REQ-1", check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Reviewer evidence must explicitly check Implementation Quality Contract", result.stderr)
+
+    def test_role_conflict_check_ignores_protocol_ids(self) -> None:
+        module = load_bundle_module()
+        evidence = (
+            "TASK-1 implemented quality-contract role-evidence enforcement by updating "
+            "skills/idea-to-code/scripts/idea_to_code_bundle.py after READY_TASK_OUTPUT_ID "
+            "20260707-reviewer-quality-contract-enforcement-r3-20260708022804 and "
+            "PRE_EDIT_OK_ID 20260707-reviewer-quality-contract-enforcement-preedit-r3-20260708023044."
+        )
+        self.assertNotIn(
+            "Implementer evidence must describe implementation work, not another role",
+            module._role_specific_evidence_problems("implementer", evidence),
+        )
 
     def test_progress_role_gates_summary_updates_with_latest_evidence(self) -> None:
         slug = self.init_bundle()
@@ -3696,6 +3806,7 @@ Planned Verification:
         ready_output = self.run_bundle("implementation", "show-ready", "--root", str(self.root), "--slug", slug)
         self.assertIn("Files:\nstate.json", ready_output.stdout)
         self.assertIn("Execution Details:\nRecord one requirement and all role evidence.", ready_output.stdout)
+        self.assertIn("Implementation Quality Contract:", ready_output.stdout)
         self.assertIn("Done Criteria:\nfinalize and verify succeed.", ready_output.stdout)
         self.assertIn("Planned Verification:\nsource-only python idea_to_code_bundle.py verify exits zero.", ready_output.stdout)
 
@@ -3713,6 +3824,7 @@ Planned Verification:
         self.assertIn("What READY Will Cover: TASK-1 / REQ-1 only.", ready_output.stdout)
         self.assertIn("Files:\n- state.json", ready_output.stdout)
         self.assertIn("Execution Details:\n- Record one requirement and all role evidence.", ready_output.stdout)
+        self.assertIn("Implementation Quality Contract:", ready_output.stdout)
         self.assertIn("Done Criteria:\n- finalize and verify succeed.", ready_output.stdout)
         self.assertIn("Planned Verification:\n- source-only python idea_to_code_bundle.py verify exits zero.", ready_output.stdout)
 
@@ -3728,6 +3840,7 @@ Planned Verification:
         self.assertIn("TASK-1: Verify sample bundle flow", entered.stdout)
         self.assertIn("Files:\n- state.json", entered.stdout)
         self.assertIn("Execution Details:\n- Record one requirement and all role evidence.", entered.stdout)
+        self.assertIn("Implementation Quality Contract:", entered.stdout)
         self.assertIn("Done Criteria:\n- finalize and verify succeed.", entered.stdout)
         self.assertIn("Planned Verification:\n- source-only python idea_to_code_bundle.py verify exits zero.", entered.stdout)
 
@@ -3859,6 +3972,16 @@ Files:
 
 Execution Details:
 - Record grouped lease and pre-edit evidence.
+
+Implementation Quality Contract:
+- Existing Pattern Evidence: check current fixture/source pattern before editing.
+- Assumption Handling: keep claims tied to test evidence.
+- Scope Boundary: keep edits inside the stated test fixture scope.
+- Real Path / Mock Policy: use the validation type stated in Planned Verification.
+- Regression Surface: verify READY, plan-check, and role evidence behavior.
+- Security/Safety Notes: no secrets or destructive commands.
+- Shortcut Risk Check: no placeholder-only completion or unsupported claim.
+- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
 
 Done Criteria:
 - both files are covered by one lease and one pre-edit guard.
@@ -4239,6 +4362,16 @@ Files:
 Execution Details:
 - Record one requirement and all role evidence.
 
+Implementation Quality Contract:
+- Existing Pattern Evidence: check current fixture/source pattern before editing.
+- Assumption Handling: keep claims tied to test evidence.
+- Scope Boundary: keep edits inside the stated test fixture scope.
+- Real Path / Mock Policy: use the validation type stated in Planned Verification.
+- Regression Surface: verify READY, plan-check, and role evidence behavior.
+- Security/Safety Notes: no secrets or destructive commands.
+- Shortcut Risk Check: no placeholder-only completion or unsupported claim.
+- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+
 Done Criteria:
 - finalize and verify succeed.
 
@@ -4254,6 +4387,16 @@ Files:
 
 Execution Details:
 - Confirm focused READY can show a later task.
+
+Implementation Quality Contract:
+- Existing Pattern Evidence: check current fixture/source pattern before editing.
+- Assumption Handling: keep claims tied to test evidence.
+- Scope Boundary: keep edits inside the stated test fixture scope.
+- Real Path / Mock Policy: use the validation type stated in Planned Verification.
+- Regression Surface: verify READY, plan-check, and role evidence behavior.
+- Security/Safety Notes: no secrets or destructive commands.
+- Shortcut Risk Check: no placeholder-only completion or unsupported claim.
+- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
 
 Done Criteria:
 - TASK-2 focused READY output is available.
@@ -4317,6 +4460,16 @@ Files:
 Execution Details:
 - Record one requirement and all role evidence.
 
+Implementation Quality Contract:
+- Existing Pattern Evidence: check current fixture/source pattern before editing.
+- Assumption Handling: keep claims tied to test evidence.
+- Scope Boundary: keep edits inside the stated test fixture scope.
+- Real Path / Mock Policy: use the validation type stated in Planned Verification.
+- Regression Surface: verify READY, plan-check, and role evidence behavior.
+- Security/Safety Notes: no secrets or destructive commands.
+- Shortcut Risk Check: no placeholder-only completion or unsupported claim.
+- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+
 Done Criteria:
 - REQ-1 has milestone coverage.
 
@@ -4332,6 +4485,16 @@ Files:
 
 Execution Details:
 - Enter the second task only after TASK-1 is closed.
+
+Implementation Quality Contract:
+- Existing Pattern Evidence: check current fixture/source pattern before editing.
+- Assumption Handling: keep claims tied to test evidence.
+- Scope Boundary: keep edits inside the stated test fixture scope.
+- Real Path / Mock Policy: use the validation type stated in Planned Verification.
+- Regression Surface: verify READY, plan-check, and role evidence behavior.
+- Security/Safety Notes: no secrets or destructive commands.
+- Shortcut Risk Check: no placeholder-only completion or unsupported claim.
+- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
 
 Done Criteria:
 - TASK-2 READY Focus is visible after TASK-1 closure.
@@ -4622,7 +4785,7 @@ Planned Verification:
             "--slug", slug,
             "--role", "reviewer",
             "--covers", "REQ-1",
-            "--evidence", "REQ-1 independent review checked TASK-1 scope, diff, and residual risk",
+            "--evidence", "REQ-1 independent review checked TASK-1 quality contract, evidence discipline, shortcut risk, scope, diff, and residual risk",
             check=False,
         )
         self.assertNotEqual(refused.returncode, 0)
@@ -4644,7 +4807,7 @@ Planned Verification:
             "--slug", slug,
             "--role", "reviewer",
             "--covers", "REQ-1",
-            "--evidence", "REQ-1 independent review checked TASK-1 scope, diff, and residual risk",
+            "--evidence", "REQ-1 independent review checked TASK-1 quality contract, evidence discipline, shortcut risk, scope, diff, and residual risk",
         )
         self.assertEqual(accepted.returncode, 0)
 
@@ -4956,6 +5119,16 @@ Files:
 Execution Details:
 - Sync master backlog and keep the range visible.
 
+Implementation Quality Contract:
+- Existing Pattern Evidence: check current fixture/source pattern before editing.
+- Assumption Handling: keep claims tied to test evidence.
+- Scope Boundary: keep edits inside the stated test fixture scope.
+- Real Path / Mock Policy: use the validation type stated in Planned Verification.
+- Regression Surface: verify READY, plan-check, and role evidence behavior.
+- Security/Safety Notes: no secrets or destructive commands.
+- Shortcut Risk Check: no placeholder-only completion or unsupported claim.
+- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+
 Done Criteria:
 - MB-6 through MB-9 are tracked.
 
@@ -5066,6 +5239,16 @@ Files:
 Execution:
 - Wrong heading name means the parser cannot use this section.
 
+Implementation Quality Contract:
+- Existing Pattern Evidence: check current fixture/source pattern before editing.
+- Assumption Handling: keep claims tied to test evidence.
+- Scope Boundary: keep edits inside the stated test fixture scope.
+- Real Path / Mock Policy: use the validation type stated in Planned Verification.
+- Regression Surface: verify READY, plan-check, and role evidence behavior.
+- Security/Safety Notes: no secrets or destructive commands.
+- Shortcut Risk Check: no placeholder-only completion or unsupported claim.
+- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+
 Done Criteria:
 - done
 """
@@ -5080,6 +5263,120 @@ Done Criteria:
         self.assertFalse(payload["ok"])
         self.assertIn("00-idea.md: TASK-1: Corrupted manual edit missing Execution Details:", payload["problems"])
         self.assertIn("00-idea.md: TASK-1: Corrupted manual edit missing Planned Verification:", payload["problems"])
+
+    def test_implementation_plan_check_rejects_missing_quality_contract(self) -> None:
+        slug = self.init_bundle()
+        bad_plan = """# Implementation
+
+Gate Status: READY
+
+### TASK-1: Missing quality contract
+
+Status: pending
+
+Files:
+- state.json
+
+Execution Details:
+- Record one requirement and evidence.
+
+Done Criteria:
+- verify succeeds.
+
+Planned Verification:
+- source-only python idea_to_code_bundle.py verify exits zero.
+"""
+        plan_path = self.root / "missing-quality-contract.md"
+        plan_path.write_text(bad_plan, encoding="utf-8")
+        self.run_bundle("update", "--root", str(self.root), "--slug", slug, "--file", "implementation", "--content-file", str(plan_path))
+
+        result = self.run_bundle("implementation", "plan-check", "--root", str(self.root), "--slug", slug, "--json", check=False)
+
+        self.assertNotEqual(0, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertIn("00-idea.md: TASK-1: Missing quality contract missing Implementation Quality Contract:", payload["problems"])
+
+    def test_implementation_plan_check_rejects_weak_quality_contract(self) -> None:
+        slug = self.init_bundle()
+        bad_plan = """# Implementation
+
+Gate Status: READY
+
+### TASK-1: Weak quality contract
+
+Status: pending
+
+Files:
+- state.json
+
+Execution Details:
+- Record one requirement and evidence.
+
+Implementation Quality Contract:
+- check stuff
+
+Done Criteria:
+- verify succeeds.
+
+Planned Verification:
+- source-only python idea_to_code_bundle.py verify exits zero.
+"""
+        plan_path = self.root / "weak-quality-contract.md"
+        plan_path.write_text(bad_plan, encoding="utf-8")
+        self.run_bundle("update", "--root", str(self.root), "--slug", slug, "--file", "implementation", "--content-file", str(plan_path))
+
+        result = self.run_bundle("implementation", "plan-check", "--root", str(self.root), "--slug", slug, "--json", check=False)
+
+        self.assertNotEqual(0, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertIn("00-idea.md: TASK-1: Weak quality contract Implementation Quality Contract: missing Existing Pattern Evidence:", payload["problems"])
+        self.assertIn("00-idea.md: TASK-1: Weak quality contract Implementation Quality Contract: missing Reviewer Must Verify:", payload["problems"])
+
+    def test_implementation_plan_check_rejects_labeled_weak_quality_contract_values(self) -> None:
+        slug = self.init_bundle()
+        bad_plan = """# Implementation
+
+Gate Status: READY
+
+### TASK-1: Labeled weak quality contract
+
+Status: pending
+
+Files:
+- state.json
+
+Execution Details:
+- Record one requirement and evidence.
+
+Implementation Quality Contract:
+- Existing Pattern Evidence: check stuff
+- Assumption Handling: check stuff
+- Scope Boundary: check stuff
+- Real Path / Mock Policy: check stuff
+- Regression Surface: check stuff
+- Security/Safety Notes: check stuff
+- Shortcut Risk Check: check stuff
+- Reviewer Must Verify: check stuff
+
+Done Criteria:
+- verify succeeds.
+
+Planned Verification:
+- source-only python idea_to_code_bundle.py verify exits zero.
+"""
+        plan_path = self.root / "labeled-weak-quality-contract.md"
+        plan_path.write_text(bad_plan, encoding="utf-8")
+        self.run_bundle("update", "--root", str(self.root), "--slug", slug, "--file", "implementation", "--content-file", str(plan_path))
+
+        result = self.run_bundle("implementation", "plan-check", "--root", str(self.root), "--slug", slug, "--json", check=False)
+
+        self.assertNotEqual(0, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertIn("00-idea.md: TASK-1: Labeled weak quality contract Implementation Quality Contract: weak Existing Pattern Evidence:", payload["problems"])
+        self.assertIn("00-idea.md: TASK-1: Labeled weak quality contract Implementation Quality Contract: weak Reviewer Must Verify:", payload["problems"])
 
     def test_implementation_plan_check_rejects_polluted_task_sections(self) -> None:
         slug = self.init_bundle()
@@ -5097,6 +5394,16 @@ Files:
 Execution Details:
 - Record one requirement and all role evidence.
 ## Acceptance Matrix
+
+Implementation Quality Contract:
+- Existing Pattern Evidence: check current fixture/source pattern before editing.
+- Assumption Handling: keep claims tied to test evidence.
+- Scope Boundary: keep edits inside the stated test fixture scope.
+- Real Path / Mock Policy: use the validation type stated in Planned Verification.
+- Regression Surface: verify READY, plan-check, and role evidence behavior.
+- Security/Safety Notes: no secrets or destructive commands.
+- Shortcut Risk Check: no placeholder-only completion or unsupported claim.
+- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
 
 Done Criteria:
 - finalize and verify succeed.
@@ -5135,6 +5442,16 @@ Files:
 
 Execution Details:
 - Record one requirement and evidence.
+
+Implementation Quality Contract:
+- Existing Pattern Evidence: check current fixture/source pattern before editing.
+- Assumption Handling: keep claims tied to test evidence.
+- Scope Boundary: keep edits inside the stated test fixture scope.
+- Real Path / Mock Policy: use the validation type stated in Planned Verification.
+- Regression Surface: verify READY, plan-check, and role evidence behavior.
+- Security/Safety Notes: no secrets or destructive commands.
+- Shortcut Risk Check: no placeholder-only completion or unsupported claim.
+- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
 
 Done Criteria:
 - verify succeeds.
@@ -5299,7 +5616,7 @@ Planned Verification:
             "--slug", slug,
             "--role", "reviewer",
             "--covers", "REQ-1",
-            "--evidence", "REQ-1 same-agent review checked TASK-1 scope and residual risk; independent review not run",
+            "--evidence", "REQ-1 same-agent review checked TASK-1 quality contract, evidence discipline, shortcut risk, scope, and residual risk; independent review not run",
         )
 
         self.assertEqual(accepted.returncode, 0)
@@ -5500,6 +5817,7 @@ Planned Verification:
         self.assertIn("Display Step: 1/2", payload["required_visible_fields"])
         self.assertIn("Display Boundary: This block authorizes no file edits", payload["required_visible_fields"])
         self.assertIn("Display Step: 2/2", payload["required_visible_fields"])
+        self.assertIn("Implementation Quality Contract:", payload["required_visible_fields"])
         self.assertIn(
             "Display Boundary: Edit authorization starts only after this READY block is visible",
             payload["required_visible_fields"],
@@ -5676,6 +5994,16 @@ Files:
 Execution Details:
 - Record one requirement and all role evidence after a plan revision.
 
+Implementation Quality Contract:
+- Existing Pattern Evidence: check current fixture/source pattern before editing.
+- Assumption Handling: keep claims tied to test evidence.
+- Scope Boundary: keep edits inside the stated test fixture scope.
+- Real Path / Mock Policy: use the validation type stated in Planned Verification.
+- Regression Surface: verify READY, plan-check, and role evidence behavior.
+- Security/Safety Notes: no secrets or destructive commands.
+- Shortcut Risk Check: no placeholder-only completion or unsupported claim.
+- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+
 Done Criteria:
 - finalize and verify succeed.
 
@@ -5733,6 +6061,16 @@ Files:
 
 Execution Details:
 - Record one requirement and all role evidence.
+
+Implementation Quality Contract:
+- Existing Pattern Evidence: check current fixture/source pattern before editing.
+- Assumption Handling: keep claims tied to test evidence.
+- Scope Boundary: keep edits inside the stated test fixture scope.
+- Real Path / Mock Policy: use the validation type stated in Planned Verification.
+- Regression Surface: verify READY, plan-check, and role evidence behavior.
+- Security/Safety Notes: no secrets or destructive commands.
+- Shortcut Risk Check: no placeholder-only completion or unsupported claim.
+- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
 
 Done Criteria:
 - finalize and verify succeed.
@@ -6063,7 +6401,11 @@ Planned Verification:
 
         self.assertEqual("idea-to-code.host-hook.final-response-contract.v1", payload["schema"])
         self.assertEqual("host-required", payload["enforcement_boundary"])
-        self.assertIn("output-compliance check --kind formal-status", "\n".join(payload["required_checks"]))
+        self.assertIn("observed_actions", payload["required_inputs"])
+        self.assertIn("prompt", payload["required_inputs"])
+        self.assertIn("transcript", payload["required_inputs"])
+        self.assertIn("output-compliance check --kind auto", "\n".join(payload["required_checks"]))
+        self.assertIn("action-derived formal-status effective kind", "\n".join(payload["allow_evidence"]))
         self.assertIn("Next Action is present as the final formal field", "\n".join(payload["required_checks"]))
         self.assertIn("Next Action content uses a bullet line starting with '- '", "\n".join(payload["required_checks"]))
         self.assertIn("Next Action content is plain paragraph text instead of a bullet line", "\n".join(payload["deny_when"]))
@@ -6695,7 +7037,7 @@ Planned Verification:
         module = load_bundle_module()
         blocks = [(
             "TASK-1: Verify sample bundle flow",
-            "Files:\n- README.md\n\nExecution Details:\n- Update the visible sample output\n\nDone Criteria:\n- Change is visible\n\nPlanned Verification:\n- source-only check",
+            "Files:\n- README.md\n\nExecution Details:\n- Update the visible sample output\n\nImplementation Quality Contract:\n- evidence discipline and no shortcut risk\n\nDone Criteria:\n- Change is visible\n\nPlanned Verification:\n- source-only check",
         )]
         lines = module._format_ready_output(
             "sample",
@@ -6716,7 +7058,7 @@ Planned Verification:
         module = load_bundle_module()
         blocks = [(
             "TASK-1: Verify sample bundle flow",
-            "Files:\n- README.md\n\nExecution Details:\n- Update the visible sample output\n\nDone Criteria:\n- Change is visible\n\nPlanned Verification:\n- source-only check",
+            "Files:\n- README.md\n\nExecution Details:\n- Update the visible sample output\n\nImplementation Quality Contract:\n- evidence discipline and no shortcut risk\n\nDone Criteria:\n- Change is visible\n\nPlanned Verification:\n- source-only check",
         )]
         lines = [
             "[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: sample",
@@ -6735,7 +7077,7 @@ Planned Verification:
         module = load_bundle_module()
         blocks = [(
             "TASK-1: Verify sample bundle flow",
-            "Files:\n- README.md\n\nExecution Details:\n- Update the visible sample output\n\nDone Criteria:\n- Change is visible\n\nPlanned Verification:\n- source-only check",
+            "Files:\n- README.md\n\nExecution Details:\n- Update the visible sample output\n\nImplementation Quality Contract:\n- evidence discipline and no shortcut risk\n\nDone Criteria:\n- Change is visible\n\nPlanned Verification:\n- source-only check",
         )]
         lines = [
             "[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: sample",
@@ -6754,7 +7096,7 @@ Planned Verification:
         module = load_bundle_module()
         blocks = [(
             "TASK-1: Verify sample bundle flow",
-            "Files:\n- README.md\n\nExecution Details:\n- Update the visible sample output\n\nDone Criteria:\n- Change is visible\n\nPlanned Verification:\n- source-only check",
+            "Files:\n- README.md\n\nExecution Details:\n- Update the visible sample output\n\nImplementation Quality Contract:\n- evidence discipline and no shortcut risk\n\nDone Criteria:\n- Change is visible\n\nPlanned Verification:\n- source-only check",
         )]
         lines = [
             "[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: sample",
@@ -6978,11 +7320,15 @@ Planned Verification:
         self.assertIn("- Planned Scope:", idea)
         self.assertIn("- Required Now: TASK-1 / REQ-1 scoped edit to `README.md`.", idea)
         self.assertIn("- What READY Will Cover: TASK-1 / REQ-1 only.", idea)
+        self.assertIn("Implementation Quality Contract:", idea)
+        self.assertIn("- Existing Pattern Evidence: inspect the current local pattern around `README.md` before editing.", idea)
+        self.assertIn("- Shortcut Risk Check: no placeholder-only edit, unrelated refactor, or unsupported completion claim.", idea)
         ready_output = self.run_bundle("implementation", "show-ready", "--root", str(self.root), "--slug", slug)
         self.assertIn("Display Layer: READY Focus", ready_output.stdout)
         self.assertIn("READY_TASK_OUTPUT_ID:", ready_output.stdout)
         self.assertIn("- Mode: no-fork", ready_output.stdout)
         self.assertIn("TASK-1: Add one concise README sentence.", ready_output.stdout)
+        self.assertIn("Implementation Quality Contract:", ready_output.stdout)
 
     def test_quickstart_json_mode_outputs_only_json(self) -> None:
         result = self.run_bundle(
@@ -7145,7 +7491,7 @@ Planned Verification:
         self.run_bundle(
             "role", "record", "--root", str(self.root), "--slug", slug,
             "--role", "reviewer",
-            "--evidence", "same-agent review checked REQ-1 scope, READY output, and 01-progress.md coverage",
+            "--evidence", "same-agent review checked REQ-1 quality contract, evidence discipline, shortcut risk, scope, READY output, and 01-progress.md coverage",
             "--covers", "REQ-1",
         )
         verify = self.run_bundle("verify", "--root", str(self.root), "--slug", slug, check=False)
@@ -7181,7 +7527,7 @@ Planned Verification:
         self.run_bundle(
             "role", "record", "--root", str(self.root), "--slug", slug,
             "--role", "reviewer",
-            "--evidence", "same-agent review checked REQ-1 scope, READY output, and 01-progress.md coverage",
+            "--evidence", "same-agent review checked REQ-1 quality contract, evidence discipline, shortcut risk, scope, READY output, and 01-progress.md coverage",
             "--covers", "REQ-1",
         )
         self.run_bundle(
@@ -7254,6 +7600,16 @@ Files:
 Execution Details:
 - Record one requirement and all role evidence.
 
+Implementation Quality Contract:
+- Existing Pattern Evidence: check current fixture/source pattern before editing.
+- Assumption Handling: keep claims tied to test evidence.
+- Scope Boundary: keep edits inside the stated test fixture scope.
+- Real Path / Mock Policy: use the validation type stated in Planned Verification.
+- Regression Surface: verify READY, plan-check, and role evidence behavior.
+- Security/Safety Notes: no secrets or destructive commands.
+- Shortcut Risk Check: no placeholder-only completion or unsupported claim.
+- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+
 Done Criteria:
 - finalize and verify succeed.
 
@@ -7280,6 +7636,15 @@ Status: pending
 
 Files: state.json
 Execution Details: Record one requirement and all role evidence.
+Implementation Quality Contract:
+- Existing Pattern Evidence: use the existing sample bundle fixture pattern.
+- Assumption Handling: keep claims tied to fixture evidence.
+- Scope Boundary: stay inside the temporary test bundle.
+- Real Path / Mock Policy: use source-only validation.
+- Regression Surface: verify IMP section parsing and READY output.
+- Security/Safety Notes: no secrets or destructive commands.
+- Shortcut Risk Check: do not pass placeholder-only task content.
+- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
 Done Criteria: finalize and verify succeed.
 Planned Verification: source-only python idea_to_code_bundle.py verify exits zero.
 """
@@ -7322,6 +7687,16 @@ Files:
 
 Execution Details:
 - Record revised plan evidence for REQ-1.
+
+Implementation Quality Contract:
+- Existing Pattern Evidence: check current fixture/source pattern before editing.
+- Assumption Handling: keep claims tied to test evidence.
+- Scope Boundary: keep edits inside the stated test fixture scope.
+- Real Path / Mock Policy: use the validation type stated in Planned Verification.
+- Regression Surface: verify READY, plan-check, and role evidence behavior.
+- Security/Safety Notes: no secrets or destructive commands.
+- Shortcut Risk Check: no placeholder-only completion or unsupported claim.
+- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
 
 Done Criteria:
 - revised gate and verify succeed.
@@ -8353,6 +8728,16 @@ Files:
 Execution Details:
 - Record one requirement and all role evidence after the new acceptance case.
 
+Implementation Quality Contract:
+- Existing Pattern Evidence: check current fixture/source pattern before editing.
+- Assumption Handling: keep claims tied to test evidence.
+- Scope Boundary: keep edits inside the stated test fixture scope.
+- Real Path / Mock Policy: use the validation type stated in Planned Verification.
+- Regression Surface: verify READY, plan-check, and role evidence behavior.
+- Security/Safety Notes: no secrets or destructive commands.
+- Shortcut Risk Check: no placeholder-only completion or unsupported claim.
+- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+
 Done Criteria:
 - finalize and verify succeed with the new acceptance case.
 
@@ -8690,6 +9075,16 @@ Files:
 Execution Details:
 - Record planning coverage.
 
+Implementation Quality Contract:
+- Existing Pattern Evidence: check current fixture/source pattern before editing.
+- Assumption Handling: keep claims tied to test evidence.
+- Scope Boundary: keep edits inside the stated test fixture scope.
+- Real Path / Mock Policy: use the validation type stated in Planned Verification.
+- Regression Surface: verify READY, plan-check, and role evidence behavior.
+- Security/Safety Notes: no secrets or destructive commands.
+- Shortcut Risk Check: no placeholder-only completion or unsupported claim.
+- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+
 Done Criteria:
 - REQ-1 is covered.
 
@@ -8705,6 +9100,16 @@ Files:
 
 Execution Details:
 - Record execution coverage.
+
+Implementation Quality Contract:
+- Existing Pattern Evidence: check current fixture/source pattern before editing.
+- Assumption Handling: keep claims tied to test evidence.
+- Scope Boundary: keep edits inside the stated test fixture scope.
+- Real Path / Mock Policy: use the validation type stated in Planned Verification.
+- Regression Surface: verify READY, plan-check, and role evidence behavior.
+- Security/Safety Notes: no secrets or destructive commands.
+- Shortcut Risk Check: no placeholder-only completion or unsupported claim.
+- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
 
 Done Criteria:
 - REQ-2 is covered.
@@ -8722,6 +9127,16 @@ Files:
 Execution Details:
 - Record acceptance coverage.
 
+Implementation Quality Contract:
+- Existing Pattern Evidence: check current fixture/source pattern before editing.
+- Assumption Handling: keep claims tied to test evidence.
+- Scope Boundary: keep edits inside the stated test fixture scope.
+- Real Path / Mock Policy: use the validation type stated in Planned Verification.
+- Regression Surface: verify READY, plan-check, and role evidence behavior.
+- Security/Safety Notes: no secrets or destructive commands.
+- Shortcut Risk Check: no placeholder-only completion or unsupported claim.
+- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+
 Done Criteria:
 - REQ-3 is covered.
 
@@ -8737,6 +9152,16 @@ Files:
 
 Execution Details:
 - Finalize all covered requirements.
+
+Implementation Quality Contract:
+- Existing Pattern Evidence: check current fixture/source pattern before editing.
+- Assumption Handling: keep claims tied to test evidence.
+- Scope Boundary: keep edits inside the stated test fixture scope.
+- Real Path / Mock Policy: use the validation type stated in Planned Verification.
+- Regression Surface: verify READY, plan-check, and role evidence behavior.
+- Security/Safety Notes: no secrets or destructive commands.
+- Shortcut Risk Check: no placeholder-only completion or unsupported claim.
+- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
 
 Done Criteria:
 - finalize and verify succeed.
@@ -8776,7 +9201,7 @@ Validation types: real-product-path, mock-only, fixture-only, source-only, dom-o
         output_id = self.run_ready_output(large)
         self.run_bundle("role", "record", "--root", str(self.root), "--slug", large, "--role", "implementer", "--evidence", f"TASK-1..TASK-4 implemented through state.json 01-progress.md 01-progress.md and 02-report.md records after READY_TASK_OUTPUT_ID {output_id}", "--covers", covers)
         self.run_bundle("role", "record", "--root", str(self.root), "--slug", large, "--role", "validator", "--evidence", "REQ-1/REQ-2/REQ-3 source-only validation ran idea_to_code_bundle.py verify command flow", "--covers", covers)
-        self.run_bundle("role", "record", "--root", str(self.root), "--slug", large, "--role", "reviewer", "--evidence", "same-agent review checked REQ-1/REQ-2/REQ-3 00-idea.md 00-idea.md and 01-progress.md coverage", "--covers", covers)
+        self.run_bundle("role", "record", "--root", str(self.root), "--slug", large, "--role", "reviewer", "--evidence", "same-agent review checked REQ-1/REQ-2/REQ-3 quality contract, evidence discipline, shortcut risk, 00-idea.md, and 01-progress.md coverage", "--covers", covers)
         for index in range(1, 5):
             self.run_bundle("checkpoint", "--root", str(self.root), "--slug", large, "--milestone", f"Large milestone {index}", "--delivered", "REQ-1/REQ-2/REQ-3 evidence recorded", "--verified", "source-only command flow evidence", "--next", "continue", "--focus", f"milestone {index}", "--gate", "acceptance", "--gate-status", "pass", "--covers", covers)
         listed = self.run_bundle("requirement", "list", "--root", str(self.root), "--slug", large)
