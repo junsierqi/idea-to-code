@@ -109,7 +109,7 @@ QUALITY_CONTRACT_FIELD_HINTS = {
     "Regression Surface:": "expected concrete test, command, or changed-surface evidence",
     "Security/Safety Notes:": "expected secret, destructive-command, host-required, or safety boundary",
     "Shortcut Risk Check:": "expected evidence against placeholders, unsupported claims, or skipped verification",
-    "Reviewer Must Verify:": "expected concrete reviewer checks, risks, and acceptance counterexamples",
+    "Reviewer Must Verify:": "expected concrete reviewer checks, risks, acceptance counterexamples, and obvious better alternative check",
 }
 TASK_SECTION_RESERVED_HEADINGS = {
     "## Requirements",
@@ -586,6 +586,10 @@ FILES = {
         "  - Decision reason:\n"
         "  - Rejected options:\n"
         "  - Unverified items:\n"
+        "  - Decision adequacy:\n"
+        "    - Alternatives checked:\n"
+        "    - Why selected path is better under current constraints:\n"
+        "    - Not-proven-optimal boundary:\n"
         "\n## Task Classification\n\n"
         "- File changes: yes/no\n"
         "- Semantic impact: yes/no/unclear\n"
@@ -781,12 +785,13 @@ ROLE_GUIDANCE = {
             "reviewed requirements, implementation, verification, or REQ/TASK/IMP IDs",
             "review work, not another role",
             "same-agent review when the reviewer is not a real independent subagent",
+            "obvious better alternative check, either noting a smaller/simpler/direct/lower-risk path found or stating none was found under current constraints",
         ],
         "must_not_include": [
             "independent-review claims unless a real subagent/person actually ran and returned evidence",
             "acceptance claims that ignore counterexamples, non-goals, unverified items, or residual risks",
         ],
-        "example": "same-agent review checked REQ-1 scope, diff, acceptance matrix, validation strength, and residual risk",
+        "example": "same-agent review checked REQ-1 scope, diff, acceptance matrix, validation strength, quality contract, obvious better alternative check, and residual risk; no obvious simpler alternative found",
     },
     "closer": {
         "purpose": "Close the task after pre-close verify passes and final decision/gate alignment is known.",
@@ -2323,7 +2328,7 @@ Implementation Quality Contract:
 - Regression Surface: run {validation_type} validation for the requested file change and nearby content that could regress.
 - Security/Safety Notes: avoid secrets and destructive filesystem actions.
 - Shortcut Risk Check: no placeholder-only edit, unrelated refactor, or unsupported completion claim.
-- Reviewer Must Verify: scope fit, evidence strength, and absence of unrelated edits.
+- Reviewer Must Verify: scope fit, evidence strength, obvious better alternative check, and absence of unrelated edits.
 
 Done Criteria:
 - `{file_path}` contains the requested scoped update and no unrelated edits.
@@ -3018,7 +3023,7 @@ def _controlled_exploration_problems(target: Path) -> list[str]:
         for label in ("Chosen option", "Decision reason"):
             item = re.search(
                 rf"^\s*-\s*{re.escape(label)}:[ \t]*(?P<inline>[^\n]*)"
-                rf"(?P<body>.*?)(?=^\s*-\s*(?:Chosen option|Decision reason|Rejected options|Unverified items):|\Z)",
+                rf"(?P<body>.*?)(?=^\s*-\s*(?:Chosen option|Decision reason|Rejected options|Unverified items|Decision adequacy):|\Z)",
                 decision_block,
                 re.MULTILINE | re.DOTALL,
             )
@@ -3030,6 +3035,14 @@ def _controlled_exploration_problems(target: Path) -> list[str]:
             value = " ".join(line for line in value_lines if line)
             if _weak_text_value(value, min_len=8):
                 problems.append(f"{IDEA_FILE}: Controlled Exploration Decision missing concrete {label}")
+        for label in (
+            "Alternatives checked",
+            "Why selected path is better under current constraints",
+            "Not-proven-optimal boundary",
+        ):
+            value = _field_value(decision_block, label)
+            if _weak_text_value(value, min_len=8):
+                problems.append(f"{IDEA_FILE}: Controlled Exploration Decision adequacy missing concrete {label}")
     return problems
 
 
@@ -3109,6 +3122,9 @@ def _controlled_exploration_values(target: Path) -> dict[str, str]:
         "decision_reason": _field_value(decision_block, "Decision reason"),
         "rejected_options": _field_value(decision_block, "Rejected options"),
         "unverified_items": _field_value(decision_block, "Unverified items"),
+        "alternatives_checked": _field_value(decision_block, "Alternatives checked"),
+        "selected_path_better_reason": _field_value(decision_block, "Why selected path is better under current constraints"),
+        "not_proven_optimal_boundary": _field_value(decision_block, "Not-proven-optimal boundary"),
     }
 
 
@@ -5544,6 +5560,14 @@ def _role_specific_evidence_problems(role: str, evidence: str) -> list[str]:
             problems.append(
                 "Reviewer evidence must explicitly check Implementation Quality Contract or quality contract"
             )
+        if not re.search(
+            r"\b(obvious\s+)?(better|simpler|smaller|more direct|lower-risk|lower risk|more maintainable)\s+"
+            r"(alternative|approach|path|solution)\b|\bno\s+(obvious\s+)?(better|simpler|smaller|more direct|lower-risk|lower risk|more maintainable)\b",
+            lowered,
+        ):
+            problems.append(
+                "Reviewer evidence must check for obvious better alternatives such as smaller, simpler, more direct, lower-risk, or more maintainable paths"
+            )
         if not re.search(r"\b(same-agent review|independent review|hybrid-team|independent-team)\b", lowered):
             problems.append(
                 "Reviewer evidence must disclose role independence with same-agent review, independent review, hybrid-team, or independent-team"
@@ -5759,7 +5783,7 @@ def _role_draft_payload(target: Path, slug: str, role: str, covers: list[str], t
     elif role_key == "reviewer":
         evidence = (
             f"{task} / {covers_text} same-agent review checked scope, diff, acceptance matrix, validation strength, "
-            "boundary conditions, and residual risks."
+            "boundary conditions, obvious better alternative check, and residual risks; no obvious simpler or lower-risk path found."
         )
     else:
         evidence = (
@@ -9635,8 +9659,8 @@ COMMAND_GUIDE_FLOWS: dict[str, list[dict[str, str]]] = {
         },
         {
             "step": "Record Reviewer evidence",
-            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" role record --root "$(pwd)" --slug <slug> --role reviewer --covers REQ-1 --evidence "<TASK/REQ same-agent review or independent review with usable delegation record>"',
-            "notes": "Do not claim independent review without a usable delegation record.",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" role record --root "$(pwd)" --slug <slug> --role reviewer --covers REQ-1 --evidence "<TASK/REQ same-agent review or independent review with usable delegation record; checked quality contract and obvious better alternatives>"',
+            "notes": "Do not claim independent review without a usable delegation record. Reviewer evidence must check whether a smaller, simpler, lower-risk, or more maintainable alternative was ignored.",
         },
         {
             "step": "Summarize current closeout evidence without mutating state",

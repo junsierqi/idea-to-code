@@ -102,6 +102,8 @@ Use three display layers:
 
 Default to `Exploration Needed: no` and `Exploration Mode: no-fork`. Use `Exploration Needed: yes` only when the request has a real user-visible, architecture, API, cross-module, security, data, cost, migration, destructive-action, ambiguity, failure-cause, verification, broad-idea stability, or meaningful risk fork. Use `option-comparison` for route choices: consider 2-4 options, record each as a hypothesis with fit, cost, risk, verification path, and rejection condition, then choose exactly one decision before `implementation ready`.
 
+When exploration is needed, record Decision adequacy before READY: alternatives checked, why the selected path is better under current constraints, and the not-proven-optimal boundary. This prevents validation from being misread as proof of global optimality. For clear `no-fork` work, do not invent alternatives only to satisfy this check; record the skip trigger and proceed.
+
 Use `role-sweep` when the problem is broad enough that the key risk is missing important problem categories rather than choosing among already-known routes. Role-sweep findings are only a candidate problem pool until `Synthesis` classifies them as accepted, rejected, deferred, conflicting, or unverified. A valid role-sweep has at least three concrete perspective findings before synthesis; fewer than three means the broad idea was not explored enough to support stable scope. Do not create REQ/TASK rows directly from a raw Product, Engineering, UX, Business, Skeptic, subagent, or fresh-agent finding.
 
 Use `Exploration Needed: no` when the task has one clear, low-risk implementation path. Record a concrete Trigger explaining why exploration is safely skipped.

@@ -99,9 +99,15 @@ Use this shape in `00-idea.md`:
   - Decision reason:
   - Rejected options:
   - Unverified items:
+  - Decision adequacy:
+    - Alternatives checked:
+    - Why selected path is better under current constraints:
+    - Not-proven-optimal boundary:
 ```
 
 Default to `Exploration Needed: no` and `Exploration Mode: no-fork`. Use `Exploration Needed: yes` only for real user-visible, architecture, API, cross-module, security, data, cost, migration, destructive-action, ambiguity, failure-cause, verification, or meaningful risk forks. For `option-comparison`, keep it to 2-4 options, then pick exactly one option before `implementation ready`.
+
+For `Exploration Needed: yes`, include Decision adequacy. It records the alternatives checked, why the selected path is better under current constraints, and the boundary that prevents claiming global optimality. Do not invent fake A/B/C options for clear `no-fork` tasks; if a non-small task is effectively single-path, record why it is single-path.
 
 Use `role-sweep` only when the input is broad enough that a single option comparison would likely miss material problem classes. Suggested perspectives are Product, Engineering, UX, Business, and Skeptic, but use only the useful perspectives for the idea. Role-sweep findings are candidate findings, not implementation scope. They must pass through `Synthesis` and become `Accepted problems`, `Deferred / unverified`, or `Rejected findings` before they can influence `Planned Scope`, REQ rows, or TASK rows.
 

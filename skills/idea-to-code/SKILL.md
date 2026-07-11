@@ -359,6 +359,10 @@ Use this shape:
   - Decision reason:
   - Rejected options:
   - Unverified items:
+  - Decision adequacy:
+    - Alternatives checked:
+    - Why selected path is better under current constraints:
+    - Not-proven-optimal boundary:
 ```
 
 Decision table:
@@ -369,6 +373,8 @@ Decision table:
 | Real user-visible, architecture, API, cross-module, security, data, cost, migration, destructive-action, ambiguity, failure-cause, verification, or meaningful risk fork | yes | Compare 2-4 options and choose one decision before `implementation ready`. |
 | User's requested implementation is clearly flawed | yes | Treat it as a candidate, explain the issue, and recommend a better default path. |
 | Broad, vague, unstable, or multi-domain idea where missing problem categories is the main risk | yes | Use `role-sweep`, gather candidate findings from useful perspectives, then use `Synthesis` to accept, reject, defer, or mark findings unverified before REQ/TASK creation. |
+
+When `Exploration Needed: yes`, the decision must include a Decision Adequacy check. It is not an academic A/B/C exercise and it must not add friction to clear small tasks. It records the meaningful alternatives checked, why the selected path is better under the current user/repo/time/risk constraints, and the boundary that prevents claiming global optimality. If fewer than two plausible approaches exist, say why the task is effectively single-path instead of inventing fake options.
 
 Role-sweep candidate findings must not directly become TASKs. A valid role-sweep records at least three concrete perspective findings before synthesis. Only synthesized accepted problems that are also in `Planned Scope` / `Required Now` may become REQ/TASK rows. If real subagents or fresh agents are unavailable, run the perspectives as same-agent analysis and disclose the evidence boundary; do not claim independent role-sweep evidence without a usable `delegation record`.
 
@@ -464,6 +470,8 @@ Small-task friction remains a hard guardrail: clear README, typo, single-file co
 For `Exploration Needed: yes`, the chosen option is not accepted just because it was selected. Later validation and review must check whether the selected option's `Decision reason` and `Verification path` held up. If an exploration hypothesis remains unverified, keep it in `Unverified Items`, `Residual Risks`, or a follow-up verification path instead of presenting it as fact.
 
 Judge recommendation quality by whether the selected path improves user-goal fit, reduces risk or cost, preserves user constraints and non-goal boundaries, and is verifiable.
+
+Reviewer evidence must also check for an obvious better alternative after implementation: whether a smaller, simpler, more direct, lower-risk, or more maintainable approach was available and ignored. If such an alternative exists, record it as a review-discovered TODO, replan trigger, or residual risk; if none is found, say that the reviewer checked for obvious better alternatives under current constraints.
 
 Opening a bundle is allowed as task capture. Product-code edits are not allowed until `Need Confirmation: no`, the Exploration Visibility Gate output is current for the plan revision, any Exploration Revision fields are reflected in the plan, and the implementation gate is READY.
 

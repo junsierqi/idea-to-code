@@ -78,7 +78,7 @@ Usable subagent evidence must include:
 
 Do not display `/subagent` for planned, timed-out, unavailable, or unusable delegation. Use `/agent` and record the fallback reason instead.
 
-When using `same-agent`, Reviewer evidence must explicitly say `same-agent review` and cover user-intent fit, REQ coverage, acceptance examples, counterexamples, non-goal boundaries, diff scope, validation strength, the current TASK `Implementation Quality Contract`, shortcut risk, evidence discipline, unverified items, and residual risks.
+When using `same-agent`, Reviewer evidence must explicitly say `same-agent review` and cover user-intent fit, REQ coverage, acceptance examples, counterexamples, non-goal boundaries, diff scope, validation strength, the current TASK `Implementation Quality Contract`, shortcut risk, obvious better alternative check, evidence discipline, unverified items, and residual risks.
 
 When using `hybrid-team` or `independent-team`, evidence must name which role ran independently and include the subagent result or identifier when available.
 
@@ -89,7 +89,7 @@ For multi-agent implementation inside one session ledger, Planner evidence must 
 - Planner: produces `00-idea.md` content: goal, Controlled Exploration, requirements, task classification, acceptance matrix, design, and implementation plan.
 - Implementer: makes scoped changes inside the current TASK, classifies derived work as blocking/non-blocking/scope-changing, and records TASK/IMP evidence tied to files or modules. Implementer must checkpoint or `implementation close-task` the current TASK before switching TASKs.
 - Validator: records validation type, command/runtime/manual evidence, and covered REQ IDs.
-- Reviewer: reconciles requested scope, actual diff, acceptance matrix, verification strength, the current TASK `Implementation Quality Contract`, shortcut risk, evidence discipline, risks, branch closure, and whether derived work stayed within the current TASK policy.
+- Reviewer: reconciles requested scope, actual diff, acceptance matrix, verification strength, the current TASK `Implementation Quality Contract`, shortcut risk, obvious better alternative check, evidence discipline, risks, branch closure, and whether derived work stayed within the current TASK policy.
 - Closer: runs after pre-close verify; records final decision, triggers finalize, verifies the finalized bundle, and keeps skipped, deferred, partial, blocked, failed, or carryover items visible as incomplete rather than completed.
 
 ## Multi-Role Output Compliance
@@ -127,6 +127,7 @@ The hard checks are:
 - Reviewer output flags same-session drift, failure to audit related prior scope, or treating a related correction as an unrelated ordinary answer as continuity noncompliance.
 - Reviewer output flags missing, stale, or unmapped `IDEA-*` records when a formal status claims progress across multiple same-session ideas or a user asks about prior idea completion.
 - Reviewer output flags missing, stale, or incomplete master backlog coverage when a multi-issue request is reported as complete.
+- Reviewer output flags implementation review that does not check for an obvious better alternative: a smaller, simpler, more direct, lower-risk, or more maintainable path that would satisfy the same TASK/REQ. If a better alternative exists, it must become a review-discovered TODO, replan trigger, or residual risk; if none is found, reviewer evidence must say the check ran under current constraints.
 - Reviewer output flags current TASK switching without checkpoint or `implementation close-task`, unclassified derived work, non-blocking derived work repaired immediately, or skipped/partial/blocked/deferred/failed work reported as completed.
 - Reviewer output flags non-`Next Action` override work executed without a `scope override` record, open Scope Override records hidden from final status, new-ledger override work without a prior carryover reference, or subagent/fresh-agent override evidence that mutates the ledger directly instead of returning evidence to the main agent.
 - Reviewer output flags missing, stale, wrong-task, or incomplete pre-edit guard coverage, and flags open `implementation noncompliance` events instead of letting a late guard appear compliant.
@@ -225,6 +226,7 @@ Must include:
 - reviewed requirements, implementation, verification, or REQ/TASK/IMP IDs
 - review work, not another role
 - same-agent review when the reviewer is not a real independent subagent
+- obvious better alternative check, either noting a smaller/simpler/direct/lower-risk path found or stating none was found under current constraints
 
 Must not include:
 

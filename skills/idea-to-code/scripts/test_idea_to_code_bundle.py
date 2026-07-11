@@ -1132,7 +1132,7 @@ class BundleTest(unittest.TestCase):
         self.write_ready_bundle(slug, mark_ready=False)
         idea_path = self.root / ".idea-to-code" / slug / "00-idea.md"
         text = idea_path.read_text(encoding="utf-8")
-        replacement = """\n## Controlled Exploration\n\n- Exploration Needed: yes\n- Exploration Mode: role-sweep\n- Trigger: Broad generic product idea needs multiple perspectives before task planning.\n- Constraints:\n  - Keep output compact.\n- Planned Scope:\n  - Required Now: TASK-1 synthesized broad-idea scope.\n  - Deferred: Native fresh-agent orchestration.\n  - What READY Will Cover: TASK-1 after synthesis only.\n- Options Considered:\n  - Option A: Role-sweep inside Controlled Exploration.\n    - Hypothesis: Multiple perspectives improve coverage.\n    - Fit to user goal: Strong.\n    - Cost: Moderate.\n    - Risk: Noise without synthesis.\n    - Verification path: implementation ready.\n    - Rejection condition: Perspective findings are missing.\n- Role Sweep Findings:\n  - Product: Candidate value-risk finding.\n  - Engineering:\n  - UX:\n  - Business:\n  - Skeptic:\n- Synthesis:\n  - Common findings: Product risk and implementation-risk categories overlap.\n  - Conflicting findings: UX timing conflicts with engineering simplicity.\n  - Accepted problems: TASK-1 synthesized broad-idea scope.\n  - Rejected findings: Skeptic false-positive finding rejected because it is outside user scope.\n  - Deferred / unverified: Native fresh-agent orchestration remains deferred.\n- Decision:\n  - Chosen option: Option A.\n  - Decision reason: Role-sweep fits broad discovery before route selection.\n  - Rejected options: Direct TASK creation from raw findings.\n  - Unverified items: Independent fresh-agent evidence is not available in this fixture.\n"""
+        replacement = """\n## Controlled Exploration\n\n- Exploration Needed: yes\n- Exploration Mode: role-sweep\n- Trigger: Broad generic product idea needs multiple perspectives before task planning.\n- Constraints:\n  - Keep output compact.\n- Planned Scope:\n  - Required Now: TASK-1 synthesized broad-idea scope.\n  - Deferred: Native fresh-agent orchestration.\n  - What READY Will Cover: TASK-1 after synthesis only.\n- Options Considered:\n  - Option A: Role-sweep inside Controlled Exploration.\n    - Hypothesis: Multiple perspectives improve coverage.\n    - Fit to user goal: Strong.\n    - Cost: Moderate.\n    - Risk: Noise without synthesis.\n    - Verification path: implementation ready.\n    - Rejection condition: Perspective findings are missing.\n- Role Sweep Findings:\n  - Product: Candidate value-risk finding.\n  - Engineering:\n  - UX:\n  - Business:\n  - Skeptic:\n- Synthesis:\n  - Common findings: Product risk and implementation-risk categories overlap.\n  - Conflicting findings: UX timing conflicts with engineering simplicity.\n  - Accepted problems: TASK-1 synthesized broad-idea scope.\n  - Rejected findings: Skeptic false-positive finding rejected because it is outside user scope.\n  - Deferred / unverified: Native fresh-agent orchestration remains deferred.\n- Decision:\n  - Chosen option: Option A.\n  - Decision reason: Role-sweep fits broad discovery before route selection.\n  - Rejected options: Direct TASK creation from raw findings.\n  - Unverified items: Independent fresh-agent evidence is not available in this fixture.\n  - Decision adequacy:\n    - Alternatives checked: role-sweep synthesis versus direct TASK creation from raw findings.\n    - Why selected path is better under current constraints: role-sweep synthesis preserves broad-idea coverage while preventing raw findings from becoming implementation scope.\n    - Not-proven-optimal boundary: fixture proves a constrained reasonable path, not global optimality.\n"""
         text = re.sub(r"\n## Controlled Exploration\n[\s\S]*?(?=\n## Task Classification\n)", replacement, text)
         idea_path.write_text(text, encoding="utf-8")
 
@@ -1146,7 +1146,7 @@ class BundleTest(unittest.TestCase):
         self.write_ready_bundle(slug, mark_ready=False)
         idea_path = self.root / ".idea-to-code" / slug / "00-idea.md"
         text = idea_path.read_text(encoding="utf-8")
-        replacement = """\n## Controlled Exploration\n\n- Exploration Needed: yes\n- Exploration Mode: role-sweep\n- Trigger: Broad generic product idea needs multiple perspectives before task planning.\n- Constraints:\n  - Keep output compact.\n- Planned Scope:\n  - Required Now: TASK-1 synthesized stability display contract.\n  - Deferred: Native fresh-agent orchestration and unrelated workflow redesign.\n  - What READY Will Cover: TASK-1 synthesized stability display contract.\n- Options Considered:\n  - Option A: Role-sweep inside Controlled Exploration.\n    - Hypothesis: Multiple perspectives improve coverage.\n    - Fit to user goal: Strong.\n    - Cost: Moderate.\n    - Risk: Noise without synthesis.\n    - Verification path: implementation ready plus output-compliance.\n    - Rejection condition: Synthesis is missing or weak.\n- Role Sweep Findings:\n  - Product: Candidate risk that broad idea output may feel random without stable accepted scope.\n  - Engineering: Candidate risk that display gates can be bypassed unless machine-readable fields exist.\n  - UX: Candidate risk that Exploration and READY look merged without visible step boundaries.\n  - Business: Candidate risk that unnecessary exploration slows clear small tasks.\n  - Skeptic: Candidate risk that raw findings become TASKs without verification.\n- Synthesis:\n  - Common findings: Stable scope needs both display boundaries and synthesis before task creation.\n  - Conflicting findings: Business wants low friction while UX wants visible separation.\n  - Accepted problems: TASK-1 synthesized stability display contract.\n  - Rejected findings: Raw Skeptic finding is not a TASK until accepted by synthesis.\n  - Deferred / unverified: Native fresh-agent orchestration remains deferred.\n- Decision:\n  - Chosen option: Option A.\n  - Decision reason: Role-sweep fits broad discovery before route selection and keeps raw findings out of TASK scope.\n  - Rejected options: Direct TASK creation from raw findings.\n  - Unverified items: Independent fresh-agent evidence is not available in this fixture.\n"""
+        replacement = """\n## Controlled Exploration\n\n- Exploration Needed: yes\n- Exploration Mode: role-sweep\n- Trigger: Broad generic product idea needs multiple perspectives before task planning.\n- Constraints:\n  - Keep output compact.\n- Planned Scope:\n  - Required Now: TASK-1 synthesized stability display contract.\n  - Deferred: Native fresh-agent orchestration and unrelated workflow redesign.\n  - What READY Will Cover: TASK-1 synthesized stability display contract.\n- Options Considered:\n  - Option A: Role-sweep inside Controlled Exploration.\n    - Hypothesis: Multiple perspectives improve coverage.\n    - Fit to user goal: Strong.\n    - Cost: Moderate.\n    - Risk: Noise without synthesis.\n    - Verification path: implementation ready plus output-compliance.\n    - Rejection condition: Synthesis is missing or weak.\n- Role Sweep Findings:\n  - Product: Candidate risk that broad idea output may feel random without stable accepted scope.\n  - Engineering: Candidate risk that display gates can be bypassed unless machine-readable fields exist.\n  - UX: Candidate risk that Exploration and READY look merged without visible step boundaries.\n  - Business: Candidate risk that unnecessary exploration slows clear small tasks.\n  - Skeptic: Candidate risk that raw findings become TASKs without verification.\n- Synthesis:\n  - Common findings: Stable scope needs both display boundaries and synthesis before task creation.\n  - Conflicting findings: Business wants low friction while UX wants visible separation.\n  - Accepted problems: TASK-1 synthesized stability display contract.\n  - Rejected findings: Raw Skeptic finding is not a TASK until accepted by synthesis.\n  - Deferred / unverified: Native fresh-agent orchestration remains deferred.\n- Decision:\n  - Chosen option: Option A.\n  - Decision reason: Role-sweep fits broad discovery before route selection and keeps raw findings out of TASK scope.\n  - Rejected options: Direct TASK creation from raw findings.\n  - Unverified items: Independent fresh-agent evidence is not available in this fixture.\n  - Decision adequacy:\n    - Alternatives checked: role-sweep synthesis versus direct TASK creation from raw findings.\n    - Why selected path is better under current constraints: role-sweep synthesis preserves broad-idea coverage while preventing raw findings from becoming implementation scope.\n    - Not-proven-optimal boundary: fixture proves a constrained reasonable path, not global optimality.\n"""
         text = re.sub(r"\n## Controlled Exploration\n[\s\S]*?(?=\n## Task Classification\n)", replacement, text)
         text = text.replace(
             "  - Required Now: TASK-1 / REQ-1 source-only bundle command flow.",
@@ -1166,7 +1166,7 @@ class BundleTest(unittest.TestCase):
         self.write_ready_bundle(slug, mark_ready=False)
         idea_path = self.root / ".idea-to-code" / slug / "00-idea.md"
         text = idea_path.read_text(encoding="utf-8")
-        replacement = """\n## Controlled Exploration\n\n- Exploration Needed: yes\n- Exploration Mode: role-sweep\n- Trigger: Broad generic product idea needs multiple perspectives before task planning.\n- Constraints:\n  - Keep output compact.\n- Planned Scope:\n  - Required Now: TASK-1 raw skeptic finding.\n  - Deferred: Accepted display contract and native fresh-agent orchestration.\n  - What READY Will Cover: TASK-1 raw skeptic finding.\n- Options Considered:\n  - Option A: Role-sweep inside Controlled Exploration.\n    - Hypothesis: Multiple perspectives improve coverage.\n    - Fit to user goal: Strong.\n    - Cost: Moderate.\n    - Risk: Noise without synthesis.\n    - Verification path: implementation ready plus output-compliance.\n    - Rejection condition: Rejected findings are promoted to TASK scope.\n- Role Sweep Findings:\n  - Product: Candidate risk that broad idea output may feel random without stable accepted scope.\n  - Engineering: Candidate risk that display gates can be bypassed unless machine-readable fields exist.\n  - UX: Candidate risk that Exploration and READY look merged without visible step boundaries.\n  - Business: Candidate risk that unnecessary exploration slows clear small tasks.\n  - Skeptic: Candidate raw skeptic finding that should be rejected before TASK scope.\n- Synthesis:\n  - Common findings: Stable scope needs both display boundaries and synthesis before task creation.\n  - Conflicting findings: Business wants low friction while UX wants visible separation.\n  - Accepted problems: TASK-1 accepted display contract.\n  - Rejected findings: TASK-1 raw skeptic finding.\n  - Deferred / unverified: Native fresh-agent orchestration remains deferred.\n- Decision:\n  - Chosen option: Option A.\n  - Decision reason: Role-sweep fits broad discovery before route selection and keeps raw findings out of TASK scope.\n  - Rejected options: Direct TASK creation from raw findings.\n  - Unverified items: Independent fresh-agent evidence is not available in this fixture.\n"""
+        replacement = """\n## Controlled Exploration\n\n- Exploration Needed: yes\n- Exploration Mode: role-sweep\n- Trigger: Broad generic product idea needs multiple perspectives before task planning.\n- Constraints:\n  - Keep output compact.\n- Planned Scope:\n  - Required Now: TASK-1 raw skeptic finding.\n  - Deferred: Accepted display contract and native fresh-agent orchestration.\n  - What READY Will Cover: TASK-1 raw skeptic finding.\n- Options Considered:\n  - Option A: Role-sweep inside Controlled Exploration.\n    - Hypothesis: Multiple perspectives improve coverage.\n    - Fit to user goal: Strong.\n    - Cost: Moderate.\n    - Risk: Noise without synthesis.\n    - Verification path: implementation ready plus output-compliance.\n    - Rejection condition: Rejected findings are promoted to TASK scope.\n- Role Sweep Findings:\n  - Product: Candidate risk that broad idea output may feel random without stable accepted scope.\n  - Engineering: Candidate risk that display gates can be bypassed unless machine-readable fields exist.\n  - UX: Candidate risk that Exploration and READY look merged without visible step boundaries.\n  - Business: Candidate risk that unnecessary exploration slows clear small tasks.\n  - Skeptic: Candidate raw skeptic finding that should be rejected before TASK scope.\n- Synthesis:\n  - Common findings: Stable scope needs both display boundaries and synthesis before task creation.\n  - Conflicting findings: Business wants low friction while UX wants visible separation.\n  - Accepted problems: TASK-1 accepted display contract.\n  - Rejected findings: TASK-1 raw skeptic finding.\n  - Deferred / unverified: Native fresh-agent orchestration remains deferred.\n- Decision:\n  - Chosen option: Option A.\n  - Decision reason: Role-sweep fits broad discovery before route selection and keeps raw findings out of TASK scope.\n  - Rejected options: Direct TASK creation from raw findings.\n  - Unverified items: Independent fresh-agent evidence is not available in this fixture.\n  - Decision adequacy:\n    - Alternatives checked: role-sweep synthesis versus direct TASK creation from raw findings.\n    - Why selected path is better under current constraints: role-sweep synthesis preserves broad-idea coverage while preventing raw findings from becoming implementation scope.\n    - Not-proven-optimal boundary: fixture proves a constrained reasonable path, not global optimality.\n"""
         text = re.sub(r"\n## Controlled Exploration\n[\s\S]*?(?=\n## Task Classification\n)", replacement, text)
         idea_path.write_text(text, encoding="utf-8")
 
@@ -1241,12 +1241,20 @@ class BundleTest(unittest.TestCase):
 
     def test_controlled_exploration_quality_closure_is_documented(self) -> None:
         skill_text = SKILL_MD.read_text(encoding="utf-8")
+        planning_text = (REFERENCES_DIR / "planning-patterns.md").read_text(encoding="utf-8")
+        workflow_text = (REFERENCES_DIR / "workflow.md").read_text(encoding="utf-8")
+        roles_text = (REFERENCES_DIR / "roles-and-state.md").read_text(encoding="utf-8")
         verification_text = (REFERENCES_DIR / "verification-and-evidence.md").read_text(encoding="utf-8")
         benchmark_text = (REFERENCES_DIR / "controlled-exploration-benchmark.md").read_text(encoding="utf-8")
-        combined = "\n".join([skill_text, verification_text, benchmark_text])
+        combined = "\n".join([skill_text, planning_text, workflow_text, roles_text, verification_text, benchmark_text])
 
         for required in [
             "Small-task friction remains a hard guardrail",
+            "Decision adequacy",
+            "Alternatives checked",
+            "Why selected path is better under current constraints",
+            "Not-proven-optimal boundary",
+            "Do not invent fake A/B/C options for clear `no-fork` tasks",
             "the selected option's `Decision reason` and `Verification path` held up",
             "decision reason and verification path held up",
             "Recommendation quality checks",
@@ -1256,6 +1264,8 @@ class BundleTest(unittest.TestCase):
             "Verifiability",
             "Decision closure",
             "recommendation quality was better than the rejected options",
+            "obvious better alternative check",
+            "smaller, simpler, more direct, lower-risk, or more maintainable",
             "confirmation request compression is deferred",
             "over-compressing the request can distort user intent",
         ]:
@@ -2808,7 +2818,7 @@ class BundleTest(unittest.TestCase):
             "timestamp_utc": "2026-06-30T00:00:00+00:00",
             "event_sequence": 100,
             "role": "reviewer",
-            "evidence": "TASK-1 / REQ-1 same-agent review checked quality contract, evidence discipline, shortcut risk, scope, and residual risk.",
+            "evidence": "TASK-1 / REQ-1 same-agent review checked quality contract, evidence discipline, shortcut risk, obvious better alternative check, scope, and residual risk.",
             "covers": ["REQ-1"],
             "plan_revision": status["plan_revision"],
         })
@@ -3189,6 +3199,10 @@ class BundleTest(unittest.TestCase):
   - Decision reason: No architecture or behavior fork requires option exploration.
   - Rejected options: none.
   - Unverified items: none.
+  - Decision adequacy:
+    - Alternatives checked: Option A and direct no-fork fallback under current fixture constraints.
+    - Why selected path is better under current constraints: selected path preserves user goal fit with lower risk and verifiable scope.
+    - Not-proven-optimal boundary: fixture proves reasonable constrained choice, not global optimality.
 
 ## Task Classification
 
@@ -3224,7 +3238,7 @@ Implementation Quality Contract:
 - Regression Surface: verify READY, plan-check, and role evidence behavior.
 - Security/Safety Notes: no secrets or destructive commands.
 - Shortcut Risk Check: no placeholder-only completion or unsupported claim.
-- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+- Reviewer Must Verify: quality contract, evidence discipline, shortcut risk, obvious better alternative check.
 
 Done Criteria:
 - finalize and verify succeed.
@@ -3297,6 +3311,10 @@ Validation types: real-product-path, mock-only, fixture-only, source-only, dom-o
   - Decision reason: No behavior fork is needed.
   - Rejected options: none.
   - Unverified items: MB-2 remains pending.
+  - Decision adequacy:
+    - Alternatives checked: Option A and direct no-fork fallback under current fixture constraints.
+    - Why selected path is better under current constraints: selected path preserves user goal fit with lower risk and verifiable scope.
+    - Not-proven-optimal boundary: fixture proves reasonable constrained choice, not global optimality.
 
 ## Task Classification
 
@@ -3333,7 +3351,7 @@ Implementation Quality Contract:
 - Regression Surface: verify READY, plan-check, and role evidence behavior.
 - Security/Safety Notes: no secrets or destructive commands.
 - Shortcut Risk Check: no placeholder-only completion or unsupported claim.
-- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+- Reviewer Must Verify: quality contract, evidence discipline, shortcut risk, obvious better alternative check.
 
 Done Criteria:
 - MB-1 is covered and MB-2 remains pending.
@@ -3400,7 +3418,7 @@ Implementation Quality Contract:
 - Regression Surface: verify inline TASK section parsing and READY output.
 - Security/Safety Notes: no secrets or destructive commands.
 - Shortcut Risk Check: do not pass placeholder-only task content.
-- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+- Reviewer Must Verify: quality contract, evidence discipline, shortcut risk, obvious better alternative check.
 Done Criteria: finalize and verify succeed.
 Planned Verification: source-only python idea_to_code_bundle.py verify exits zero.
 """
@@ -3445,6 +3463,10 @@ Planned Verification: source-only python idea_to_code_bundle.py verify exits zer
   - Decision reason: No implementation alternative is needed for this negative test.
   - Rejected options: none.
   - Unverified items: none.
+  - Decision adequacy:
+    - Alternatives checked: Option A and direct no-fork fallback under current fixture constraints.
+    - Why selected path is better under current constraints: selected path preserves user goal fit with lower risk and verifiable scope.
+    - Not-proven-optimal boundary: fixture proves reasonable constrained choice, not global optimality.
 
 ## Task Classification
 
@@ -3479,7 +3501,7 @@ Implementation Quality Contract:
 - Regression Surface: verify READY, plan-check, and role evidence behavior.
 - Security/Safety Notes: no secrets or destructive commands.
 - Shortcut Risk Check: no placeholder-only completion or unsupported claim.
-- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+- Reviewer Must Verify: quality contract, evidence discipline, shortcut risk, obvious better alternative check.
 
 Done Criteria:
 - verify refuses missing requirements.
@@ -3520,7 +3542,7 @@ Planned Verification:
         self.run_bundle(
             "role", "record", "--root", str(self.root), "--slug", slug,
             "--role", "reviewer",
-            "--evidence", "same-agent review checked REQ-1 scope, quality contract, evidence discipline, shortcut risk, 00-idea.md, and 01-progress.md coverage",
+            "--evidence", "same-agent review checked REQ-1 scope, quality contract, evidence discipline, shortcut risk, obvious better alternative check, 00-idea.md, and 01-progress.md coverage",
             "--covers", "REQ-1",
         )
 
@@ -3940,7 +3962,7 @@ Planned Verification:
         self.record_roles_through_reviewer(slug)
         self.checkpoint(slug)
         self.run_bundle("verify", "--root", str(self.root), "--slug", slug)
-        self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "reviewer", "--evidence", "same-agent review checked REQ-1 quality contract, evidence discipline, shortcut risk, residual risk, and coverage in 01-progress.md after prior verify", "--covers", "REQ-1")
+        self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "reviewer", "--evidence", "same-agent review checked REQ-1 quality contract, evidence discipline, shortcut risk, obvious better alternative check, residual risk, and coverage in 01-progress.md after prior verify", "--covers", "REQ-1")
         status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
         latest_reviewer = status["role_evidence"]["reviewer"][-1]
         self.assertGreater(latest_reviewer["event_sequence"], status["last_verified_event_sequence"])
@@ -4088,7 +4110,7 @@ Planned Verification:
         output_id = self.run_ready_output(slug)
         self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "implementer", "--evidence", f"TASK-1 implemented by updating state.json behavior in 00-idea.md after READY_TASK_OUTPUT_ID {output_id}", "--covers", "REQ-1")
         self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "validator", "--evidence", "REQ-1 source-only validation ran python idea_to_code_bundle.py verify command", "--covers", "REQ-1")
-        result = self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "reviewer", "--evidence", "REQ-1 review checked quality contract, evidence discipline, shortcut risk, scope, coverage, boundary, and residual risk in 01-progress.md", "--covers", "REQ-1", check=False)
+        result = self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "reviewer", "--evidence", "REQ-1 review checked quality contract, evidence discipline, shortcut risk, obvious better alternative check, scope, coverage, boundary, and residual risk in 01-progress.md", "--covers", "REQ-1", check=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Reviewer evidence must disclose role independence", result.stderr)
 
@@ -4102,6 +4124,27 @@ Planned Verification:
         result = self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "reviewer", "--evidence", "REQ-1 same-agent review checked TASK-1 shortcut risk, evidence discipline, scope, coverage, boundary, and residual risk in 01-progress.md", "--covers", "REQ-1", check=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Reviewer evidence must explicitly check Implementation Quality Contract", result.stderr)
+
+    def test_reviewer_requires_obvious_better_alternative_check(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "planner", "--evidence", "REQ-1 planned in 00-idea.md with acceptance matrix and TASK-1 in 00-idea.md", "--covers", "REQ-1")
+        output_id = self.run_ready_output(slug)
+        self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "implementer", "--evidence", f"TASK-1 implemented by updating state.json behavior in 00-idea.md after READY_TASK_OUTPUT_ID {output_id}", "--covers", "REQ-1")
+        self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "validator", "--evidence", "REQ-1 source-only validation ran python idea_to_code_bundle.py verify command", "--covers", "REQ-1")
+        result = self.run_bundle("role", "record", "--root", str(self.root), "--slug", slug, "--role", "reviewer", "--evidence", "REQ-1 same-agent review checked TASK-1 quality contract, shortcut risk, evidence discipline, scope, coverage, boundary, and residual risk in 01-progress.md", "--covers", "REQ-1", check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Reviewer evidence must check for obvious better alternatives", result.stderr)
+
+        accepted = self.run_bundle(
+            "role", "record",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--role", "reviewer",
+            "--evidence", "REQ-1 same-agent review checked TASK-1 quality contract, shortcut risk, evidence discipline, scope, coverage, boundary, residual risk, and obvious better alternative check in 01-progress.md; no obvious simpler alternative found under current constraints.",
+            "--covers", "REQ-1",
+        )
+        self.assertEqual(0, accepted.returncode)
 
     def test_role_conflict_check_ignores_protocol_ids(self) -> None:
         module = load_bundle_module()
@@ -4271,6 +4314,10 @@ Planned Verification:
   - Decision reason: No fork.
   - Rejected options: none.
   - Unverified items: none.
+  - Decision adequacy:
+    - Alternatives checked: Option A and direct no-fork fallback under current fixture constraints.
+    - Why selected path is better under current constraints: selected path preserves user goal fit with lower risk and verifiable scope.
+    - Not-proven-optimal boundary: fixture proves reasonable constrained choice, not global optimality.
 
 ## Task Classification
 
@@ -4320,7 +4367,7 @@ Implementation Quality Contract:
 - Regression Surface: verify READY, plan-check, and role evidence behavior.
 - Security/Safety Notes: no secrets or destructive commands.
 - Shortcut Risk Check: no placeholder-only completion or unsupported claim.
-- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+- Reviewer Must Verify: quality contract, evidence discipline, shortcut risk, obvious better alternative check.
 
 Done Criteria:
 - both files are covered by one lease and one pre-edit guard.
@@ -4435,6 +4482,26 @@ Planned Verification: x
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Decision missing concrete Chosen option", result.stderr)
         self.assertIn("Decision missing concrete Decision reason", result.stderr)
+
+    def test_implementation_ready_rejects_required_exploration_without_decision_adequacy(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        idea_path = self.root / ".idea-to-code" / slug / "00-idea.md"
+        text = idea_path.read_text(encoding="utf-8")
+        replacement = """\n## Controlled Exploration\n\n- Exploration Needed: yes\n- Exploration Mode: option-comparison\n- Trigger: Two user-visible approaches need comparison before implementation.\n- Constraints:\n  - Keep scope narrow.\n- Planned Scope:\n  - Required Now: TASK-1 comparison fixture.\n  - Deferred: Production code changes and unrelated behavior.\n  - What READY Will Cover: TASK-1 only after a decision exists.\n- Options Considered:\n  - Option A: Direct command flow.\n    - Hypothesis: The direct path satisfies the fixture.\n    - Fit to user goal: Strong fit for the test fixture.\n    - Cost: Low.\n    - Risk: Low.\n    - Verification path: implementation ready command.\n    - Rejection condition: The command rejects the bundle.\n  - Option B: Larger redesign.\n    - Hypothesis: A larger redesign could also satisfy the fixture.\n    - Fit to user goal: Weak for this fixture.\n    - Cost: High.\n    - Risk: High.\n    - Verification path: full regression.\n    - Rejection condition: The direct path is enough.\n- Decision:\n  - Chosen option: Option A.\n  - Decision reason: Direct command flow is lower risk for the fixture.\n  - Rejected options: Option B larger redesign.\n  - Unverified items: none.\n"""
+        text = re.sub(
+            r"\n## Controlled Exploration\n[\s\S]*?(?=\n## Task Classification\n)",
+            replacement,
+            text,
+            count=1,
+        )
+        idea_path.write_text(text, encoding="utf-8")
+
+        result = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug, check=False)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Decision adequacy missing concrete Alternatives checked", result.stderr)
+        self.assertIn("Decision adequacy missing concrete Not-proven-optimal boundary", result.stderr)
 
     def test_implementation_ready_rejects_missing_structured_planned_scope(self) -> None:
         slug = self.init_bundle()
@@ -4709,7 +4776,7 @@ Implementation Quality Contract:
 - Regression Surface: verify READY, plan-check, and role evidence behavior.
 - Security/Safety Notes: no secrets or destructive commands.
 - Shortcut Risk Check: no placeholder-only completion or unsupported claim.
-- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+- Reviewer Must Verify: quality contract, evidence discipline, shortcut risk, obvious better alternative check.
 
 Done Criteria:
 - finalize and verify succeed.
@@ -4735,7 +4802,7 @@ Implementation Quality Contract:
 - Regression Surface: verify READY, plan-check, and role evidence behavior.
 - Security/Safety Notes: no secrets or destructive commands.
 - Shortcut Risk Check: no placeholder-only completion or unsupported claim.
-- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+- Reviewer Must Verify: quality contract, evidence discipline, shortcut risk, obvious better alternative check.
 
 Done Criteria:
 - TASK-2 focused READY output is available.
@@ -4807,7 +4874,7 @@ Implementation Quality Contract:
 - Regression Surface: verify READY, plan-check, and role evidence behavior.
 - Security/Safety Notes: no secrets or destructive commands.
 - Shortcut Risk Check: no placeholder-only completion or unsupported claim.
-- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+- Reviewer Must Verify: quality contract, evidence discipline, shortcut risk, obvious better alternative check.
 
 Done Criteria:
 - REQ-1 has milestone coverage.
@@ -4833,7 +4900,7 @@ Implementation Quality Contract:
 - Regression Surface: verify READY, plan-check, and role evidence behavior.
 - Security/Safety Notes: no secrets or destructive commands.
 - Shortcut Risk Check: no placeholder-only completion or unsupported claim.
-- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+- Reviewer Must Verify: quality contract, evidence discipline, shortcut risk, obvious better alternative check.
 
 Done Criteria:
 - TASK-2 READY Focus is visible after TASK-1 closure.
@@ -5179,7 +5246,7 @@ Planned Verification:
             "--slug", slug,
             "--role", "reviewer",
             "--covers", "REQ-1",
-            "--evidence", "REQ-1 independent review checked TASK-1 quality contract, evidence discipline, shortcut risk, scope, diff, and residual risk",
+            "--evidence", "REQ-1 independent review checked TASK-1 quality contract, evidence discipline, shortcut risk, obvious better alternative check, scope, diff, and residual risk",
             check=False,
         )
         self.assertNotEqual(refused.returncode, 0)
@@ -5201,7 +5268,7 @@ Planned Verification:
             "--slug", slug,
             "--role", "reviewer",
             "--covers", "REQ-1",
-            "--evidence", "REQ-1 independent review checked TASK-1 quality contract, evidence discipline, shortcut risk, scope, diff, and residual risk",
+            "--evidence", "REQ-1 independent review checked TASK-1 quality contract, evidence discipline, shortcut risk, obvious better alternative check, scope, diff, and residual risk",
         )
         self.assertEqual(accepted.returncode, 0)
 
@@ -5486,6 +5553,10 @@ Planned Verification:
   - Decision reason: No behavior fork is needed.
   - Rejected options: none.
   - Unverified items: MB-7..MB-9 remain pending.
+  - Decision adequacy:
+    - Alternatives checked: Option A and direct no-fork fallback under current fixture constraints.
+    - Why selected path is better under current constraints: selected path preserves user goal fit with lower risk and verifiable scope.
+    - Not-proven-optimal boundary: fixture proves reasonable constrained choice, not global optimality.
 
 ## Task Classification
 
@@ -5521,7 +5592,7 @@ Implementation Quality Contract:
 - Regression Surface: verify READY, plan-check, and role evidence behavior.
 - Security/Safety Notes: no secrets or destructive commands.
 - Shortcut Risk Check: no placeholder-only completion or unsupported claim.
-- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+- Reviewer Must Verify: quality contract, evidence discipline, shortcut risk, obvious better alternative check.
 
 Done Criteria:
 - MB-6 through MB-9 are tracked.
@@ -5658,7 +5729,7 @@ Implementation Quality Contract:
 - Regression Surface: verify READY, plan-check, and role evidence behavior.
 - Security/Safety Notes: no secrets or destructive commands.
 - Shortcut Risk Check: no placeholder-only completion or unsupported claim.
-- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+- Reviewer Must Verify: quality contract, evidence discipline, shortcut risk, obvious better alternative check.
 
 Done Criteria:
 - done
@@ -5863,7 +5934,7 @@ Planned Verification:
             payload["problems"],
         )
         self.assertIn(
-            "00-idea.md: TASK-1: Labeled weak quality contract Implementation Quality Contract: weak Reviewer Must Verify: (expected concrete reviewer checks, risks, and acceptance counterexamples)",
+            "00-idea.md: TASK-1: Labeled weak quality contract Implementation Quality Contract: weak Reviewer Must Verify: (expected concrete reviewer checks, risks, acceptance counterexamples, and obvious better alternative check)",
             payload["problems"],
         )
 
@@ -5892,7 +5963,7 @@ Implementation Quality Contract:
 - Regression Surface: verify READY, plan-check, and role evidence behavior.
 - Security/Safety Notes: no secrets or destructive commands.
 - Shortcut Risk Check: no placeholder-only completion or unsupported claim.
-- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+- Reviewer Must Verify: quality contract, evidence discipline, shortcut risk, obvious better alternative check.
 
 Done Criteria:
 - finalize and verify succeed.
@@ -5940,7 +6011,7 @@ Implementation Quality Contract:
 - Regression Surface: verify READY, plan-check, and role evidence behavior.
 - Security/Safety Notes: no secrets or destructive commands.
 - Shortcut Risk Check: no placeholder-only completion or unsupported claim.
-- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+- Reviewer Must Verify: quality contract, evidence discipline, shortcut risk, obvious better alternative check.
 
 Done Criteria:
 - verify succeeds.
@@ -6107,7 +6178,7 @@ Planned Verification:
             "--slug", slug,
             "--role", "reviewer",
             "--covers", "REQ-1",
-            "--evidence", "REQ-1 same-agent review checked TASK-1 quality contract, evidence discipline, shortcut risk, scope, and residual risk; independent review not run",
+            "--evidence", "REQ-1 same-agent review checked TASK-1 quality contract, evidence discipline, shortcut risk, obvious better alternative check, scope, and residual risk; independent review not run",
         )
 
         self.assertEqual(accepted.returncode, 0)
@@ -6493,7 +6564,7 @@ Implementation Quality Contract:
 - Regression Surface: verify READY, plan-check, and role evidence behavior.
 - Security/Safety Notes: no secrets or destructive commands.
 - Shortcut Risk Check: no placeholder-only completion or unsupported claim.
-- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+- Reviewer Must Verify: quality contract, evidence discipline, shortcut risk, obvious better alternative check.
 
 Done Criteria:
 - finalize and verify succeed.
@@ -6561,7 +6632,7 @@ Implementation Quality Contract:
 - Regression Surface: verify READY, plan-check, and role evidence behavior.
 - Security/Safety Notes: no secrets or destructive commands.
 - Shortcut Risk Check: no placeholder-only completion or unsupported claim.
-- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+- Reviewer Must Verify: quality contract, evidence discipline, shortcut risk, obvious better alternative check.
 
 Done Criteria:
 - finalize and verify succeed.
@@ -9017,7 +9088,7 @@ Planned Verification:
         self.run_bundle(
             "role", "record", "--root", str(self.root), "--slug", slug,
             "--role", "reviewer",
-            "--evidence", "same-agent review checked REQ-1 quality contract, evidence discipline, shortcut risk, scope, READY output, and 01-progress.md coverage",
+            "--evidence", "same-agent review checked REQ-1 quality contract, evidence discipline, shortcut risk, obvious better alternative check, scope, READY output, and 01-progress.md coverage",
             "--covers", "REQ-1",
         )
         verify = self.run_bundle("verify", "--root", str(self.root), "--slug", slug, check=False)
@@ -9053,7 +9124,7 @@ Planned Verification:
         self.run_bundle(
             "role", "record", "--root", str(self.root), "--slug", slug,
             "--role", "reviewer",
-            "--evidence", "same-agent review checked REQ-1 quality contract, evidence discipline, shortcut risk, scope, READY output, and 01-progress.md coverage",
+            "--evidence", "same-agent review checked REQ-1 quality contract, evidence discipline, shortcut risk, obvious better alternative check, scope, READY output, and 01-progress.md coverage",
             "--covers", "REQ-1",
         )
         self.run_bundle(
@@ -9134,7 +9205,7 @@ Implementation Quality Contract:
 - Regression Surface: verify READY, plan-check, and role evidence behavior.
 - Security/Safety Notes: no secrets or destructive commands.
 - Shortcut Risk Check: no placeholder-only completion or unsupported claim.
-- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+- Reviewer Must Verify: quality contract, evidence discipline, shortcut risk, obvious better alternative check.
 
 Done Criteria:
 - finalize and verify succeed.
@@ -9170,7 +9241,7 @@ Implementation Quality Contract:
 - Regression Surface: verify IMP section parsing and READY output.
 - Security/Safety Notes: no secrets or destructive commands.
 - Shortcut Risk Check: do not pass placeholder-only task content.
-- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+- Reviewer Must Verify: quality contract, evidence discipline, shortcut risk, obvious better alternative check.
 Done Criteria: finalize and verify succeed.
 Planned Verification: source-only python idea_to_code_bundle.py verify exits zero.
 """
@@ -9222,7 +9293,7 @@ Implementation Quality Contract:
 - Regression Surface: verify READY, plan-check, and role evidence behavior.
 - Security/Safety Notes: no secrets or destructive commands.
 - Shortcut Risk Check: no placeholder-only completion or unsupported claim.
-- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+- Reviewer Must Verify: quality contract, evidence discipline, shortcut risk, obvious better alternative check.
 
 Done Criteria:
 - revised gate and verify succeed.
@@ -10276,7 +10347,7 @@ Implementation Quality Contract:
 - Regression Surface: verify READY, plan-check, and role evidence behavior.
 - Security/Safety Notes: no secrets or destructive commands.
 - Shortcut Risk Check: no placeholder-only completion or unsupported claim.
-- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+- Reviewer Must Verify: quality contract, evidence discipline, shortcut risk, obvious better alternative check.
 
 Done Criteria:
 - finalize and verify succeed with the new acceptance case.
@@ -10586,6 +10657,10 @@ Planned Verification:
   - Decision reason: The scenario is a regression fixture, not an architecture fork.
   - Rejected options: none.
   - Unverified items: none.
+  - Decision adequacy:
+    - Alternatives checked: Option A and direct no-fork fallback under current fixture constraints.
+    - Why selected path is better under current constraints: selected path preserves user goal fit with lower risk and verifiable scope.
+    - Not-proven-optimal boundary: fixture proves reasonable constrained choice, not global optimality.
 
 ## Task Classification
 
@@ -10623,7 +10698,7 @@ Implementation Quality Contract:
 - Regression Surface: verify READY, plan-check, and role evidence behavior.
 - Security/Safety Notes: no secrets or destructive commands.
 - Shortcut Risk Check: no placeholder-only completion or unsupported claim.
-- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+- Reviewer Must Verify: quality contract, evidence discipline, shortcut risk, obvious better alternative check.
 
 Done Criteria:
 - REQ-1 is covered.
@@ -10649,7 +10724,7 @@ Implementation Quality Contract:
 - Regression Surface: verify READY, plan-check, and role evidence behavior.
 - Security/Safety Notes: no secrets or destructive commands.
 - Shortcut Risk Check: no placeholder-only completion or unsupported claim.
-- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+- Reviewer Must Verify: quality contract, evidence discipline, shortcut risk, obvious better alternative check.
 
 Done Criteria:
 - REQ-2 is covered.
@@ -10675,7 +10750,7 @@ Implementation Quality Contract:
 - Regression Surface: verify READY, plan-check, and role evidence behavior.
 - Security/Safety Notes: no secrets or destructive commands.
 - Shortcut Risk Check: no placeholder-only completion or unsupported claim.
-- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+- Reviewer Must Verify: quality contract, evidence discipline, shortcut risk, obvious better alternative check.
 
 Done Criteria:
 - REQ-3 is covered.
@@ -10701,7 +10776,7 @@ Implementation Quality Contract:
 - Regression Surface: verify READY, plan-check, and role evidence behavior.
 - Security/Safety Notes: no secrets or destructive commands.
 - Shortcut Risk Check: no placeholder-only completion or unsupported claim.
-- Reviewer Must Verify: quality contract, evidence discipline, and shortcut risk.
+- Reviewer Must Verify: quality contract, evidence discipline, shortcut risk, obvious better alternative check.
 
 Done Criteria:
 - finalize and verify succeed.
@@ -10741,7 +10816,7 @@ Validation types: real-product-path, mock-only, fixture-only, source-only, dom-o
         output_id = self.run_ready_output(large)
         self.run_bundle("role", "record", "--root", str(self.root), "--slug", large, "--role", "implementer", "--evidence", f"TASK-1..TASK-4 implemented through state.json 01-progress.md 01-progress.md and 02-report.md records after READY_TASK_OUTPUT_ID {output_id}", "--covers", covers)
         self.run_bundle("role", "record", "--root", str(self.root), "--slug", large, "--role", "validator", "--evidence", "REQ-1/REQ-2/REQ-3 source-only validation ran idea_to_code_bundle.py verify command flow", "--covers", covers)
-        self.run_bundle("role", "record", "--root", str(self.root), "--slug", large, "--role", "reviewer", "--evidence", "same-agent review checked REQ-1/REQ-2/REQ-3 quality contract, evidence discipline, shortcut risk, 00-idea.md, and 01-progress.md coverage", "--covers", covers)
+        self.run_bundle("role", "record", "--root", str(self.root), "--slug", large, "--role", "reviewer", "--evidence", "same-agent review checked REQ-1/REQ-2/REQ-3 quality contract, evidence discipline, shortcut risk, obvious better alternative check, 00-idea.md, and 01-progress.md coverage", "--covers", covers)
         for index in range(1, 5):
             self.run_bundle("checkpoint", "--root", str(self.root), "--slug", large, "--milestone", f"Large milestone {index}", "--delivered", "REQ-1/REQ-2/REQ-3 evidence recorded", "--verified", "source-only command flow evidence", "--next", "continue", "--focus", f"milestone {index}", "--gate", "acceptance", "--gate-status", "pass", "--covers", covers)
         listed = self.run_bundle("requirement", "list", "--root", str(self.root), "--slug", large)
