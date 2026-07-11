@@ -53,6 +53,7 @@ TEST_BATCH_PROFILE_KEYWORDS: dict[str, tuple[str, ...]] = {
         "render_status",
         "output_compliance",
         "install_parity",
+        "release_quality",
     ),
 }
 

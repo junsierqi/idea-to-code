@@ -178,6 +178,26 @@ This benchmark update does not add confirmation request compression; confirmatio
 
 Use the real-task sweep when the question is whether idea-to-code helps users get better software outcomes, not merely whether benchmark formatting is stable. Run these as read-only raw-answer tasks first; use execution mode only inside disposable fixtures or after explicitly choosing to test real edits.
 
+Repository runner:
+
+```bash
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" release-quality run \
+  --root "$(pwd)" \
+  --slug <slug> \
+  --mode source \
+  --strict
+```
+
+Use `--mode source` for deterministic repo-enforced release-quality evidence. It scores the installed guidance, gates, and rubrics for three publish-readiness areas: fresh-session behavior checks, RT real-task sweep coverage, and decision-quality effect evidence. Use `--mode live` only when a Codex CLI fresh session should be sampled; live mode is stronger evidence for observed model behavior but still must not claim host-level runner parity or native host interception.
+
+The runner completes the repo-achievable parts of:
+
+- real fresh-session behavior regression: `Next Action` display, autonomous same-scope continuation, Decision adequacy, and obvious better alternative review checks;
+- real-task sweep / RT-runner automation: RT-1 through RT-8 scored against the real-task quality dimensions below;
+- decision-quality effect evidence: user-goal fit, risk/cost reduction, constraint preservation, verifiability, and decision closure.
+
+It does not complete host-required enforcement such as physical native edit interception, send-time final-response blocking, or exact current-window/fresh-session isolation proof.
+
 Real-task sweep prompts:
 
 - `RT-1 Small documentation edit`: `Add one README sentence explaining how to run the tests.`

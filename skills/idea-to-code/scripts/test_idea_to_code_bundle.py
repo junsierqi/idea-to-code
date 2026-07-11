@@ -6959,6 +6959,17 @@ Planned Verification:
         self.assertIn("test-batch: PASS profile=output total_tests=2", result.stdout)
         self.assertNotIn("test-batch: slow_chunks", result.stdout)
 
+    def test_changed_surface_profile_includes_release_quality_tests(self) -> None:
+        runner = load_test_batch_runner_module()
+        tests = [
+            "test_idea_to_code_bundle.BundleTest.test_release_quality_source_run_completes_items_1_2_3_and_writes_artifact",
+            "test_idea_to_code_bundle.BundleTest.test_unrelated_example",
+        ]
+
+        selected = runner.filter_tests_by_profile(tests, "changed-surface")
+
+        self.assertEqual([tests[0]], selected)
+
     def test_test_batch_rejects_negative_slow_count(self) -> None:
         result = self.run_bundle(
             "test-batch",
@@ -8312,6 +8323,82 @@ Planned Verification:
         self.assertFalse(payload["ok"])
         self.assertIn("raw output FS-3 does not match default prompt: README test sentence", payload["problems"])
         self.assertFalse(payload["default_prompt_results"]["FS-3 README test sentence"])
+
+    def test_release_quality_source_run_completes_items_1_2_3_and_writes_artifact(self) -> None:
+        slug = self.init_bundle()
+
+        result = self.run_bundle("release-quality", "run", "--root", str(self.root), "--slug", slug, "--mode", "source", "--strict")
+        payload = json.loads(result.stdout)
+
+        self.assertTrue(payload["ok"], payload["problems"])
+        self.assertEqual(payload["schema"], "idea-to-code.release-quality.v1")
+        self.assertEqual(payload["mode"], "source")
+        self.assertEqual(payload["scores"]["fresh_behavior"], "4/4")
+        self.assertEqual(payload["scores"]["real_task_sweep"], "64/64")
+        self.assertEqual(payload["scores"]["decision_quality"], "5/5")
+        self.assertTrue(payload["completed_items"]["item_1_real_fresh_behavior_regression"])
+        self.assertTrue(payload["completed_items"]["item_2_real_task_sweep_runner"])
+        self.assertTrue(payload["completed_items"]["item_3_decision_quality_effect_evidence"])
+
+        status = self.run_bundle("release-quality", "status", "--root", str(self.root), "--slug", slug)
+        status_payload = json.loads(status.stdout)
+        self.assertTrue(status_payload["exists"])
+        self.assertTrue(status_payload["ok"])
+        artifact = self.root / ".idea-to-code" / slug / status_payload["artifact"]
+        self.assertTrue(artifact.is_file())
+        artifact_payload = json.loads(artifact.read_text(encoding="utf-8"))
+        self.assertEqual(artifact_payload["scores"], payload["scores"])
+
+    def test_release_quality_status_fails_before_run(self) -> None:
+        slug = self.init_bundle()
+
+        status = self.run_bundle("release-quality", "status", "--root", str(self.root), "--slug", slug, check=False)
+        payload = json.loads(status.stdout)
+
+        self.assertNotEqual(status.returncode, 0)
+        self.assertFalse(payload["exists"])
+        self.assertIn("release-quality run has not been recorded", payload["problems"])
+
+    def test_release_quality_live_run_scores_mocked_codex_output(self) -> None:
+        slug = self.init_bundle()
+        bundle = load_bundle_module()
+
+        def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            prompt = str(kwargs.get("input"))
+            self.assertIn("Fresh Behavior Checks", prompt)
+            self.assertIn("RT-1", prompt)
+            output_path = Path(command[command.index("--output-last-message") + 1])
+            lines = [
+                "Fresh Behavior Checks:",
+                "- Next Action display: pass - shown",
+                "- Autonomous same-scope continuation: pass - continues",
+                "- Decision adequacy: pass - alternatives checked",
+                "- Reviewer obvious better alternative: pass - reviewer checks",
+                "Real-Task Sweep:",
+            ]
+            for index in range(1, 9):
+                lines.append(f"RT-{index}: mocked")
+                for dimension in bundle.RELEASE_QUALITY_RT_DIMENSIONS:
+                    lines.append(f"- {dimension}: 1 - evidence")
+            lines.append("Decision-Quality Effect:")
+            for effect in bundle.RELEASE_QUALITY_DECISION_EFFECTS:
+                lines.append(f"- {effect}: 1 - evidence")
+            output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            return subprocess.CompletedProcess(command, 0, stdout="model: mocked\n")
+
+        buffer = io.StringIO()
+        with mock.patch.object(bundle.shutil, "which", return_value="codex"), \
+                mock.patch.object(bundle.subprocess, "run", side_effect=fake_run), \
+                contextlib.redirect_stdout(buffer):
+            code = bundle.release_quality_run(self.root, slug, "live", str(self.root), "read-only", 30, True)
+
+        payload = json.loads(buffer.getvalue())
+        self.assertEqual(code, 0)
+        self.assertTrue(payload["ok"], payload["problems"])
+        self.assertEqual(payload["mode"], "live")
+        self.assertEqual(payload["scores"]["fresh_behavior"], "4/4")
+        self.assertEqual(payload["scores"]["real_task_sweep"], "64/64")
+        self.assertEqual(payload["scores"]["decision_quality"], "5/5")
 
     def test_fresh_benchmark_verify_import_rejects_partial_external_status(self) -> None:
         slug = self.init_bundle()

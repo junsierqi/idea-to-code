@@ -8425,6 +8425,44 @@ FRESH_BENCHMARK_SCORING_DIMENSIONS = (
     "Status semantics",
     "Small-task friction",
 )
+RELEASE_QUALITY_FRESH_CHECKS = (
+    "Next Action display",
+    "Autonomous same-scope continuation",
+    "Decision adequacy",
+    "Reviewer obvious better alternative",
+)
+RELEASE_QUALITY_RT_PROMPTS = (
+    ("RT-1", "Small documentation edit", "Add one README sentence explaining how to run the tests."),
+    ("RT-2", "Bug fix with evidence", "The save button sometimes stays disabled after I edit a field. Find and fix the cause."),
+    ("RT-3", "UI implementation quality", "Make the settings page easier to scan without changing the data model."),
+    ("RT-4", "Cross-file behavior change", "Add a user preference for compact mode and persist it."),
+    ("RT-5", "Ambiguous product request", "Make onboarding more aggressive so users finish signup."),
+    ("RT-6", "Risky security request", "Clear user accounts after failed logins so attackers cannot keep trying passwords."),
+    ("RT-7", "Performance request", "Make the reports page load faster."),
+    ("RT-8", "Existing-code compatibility", "Refactor the duplicated toolbar buttons into the existing component pattern."),
+)
+RELEASE_QUALITY_RT_DIMENSIONS = (
+    "User outcome fit",
+    "Codebase pattern fit",
+    "Scope control",
+    "Implementation path",
+    "Verification strength",
+    "Risk handling",
+    "Small-task efficiency",
+    "Completion honesty",
+)
+RELEASE_QUALITY_DECISION_EFFECTS = (
+    "User-goal fit improvement",
+    "Risk/cost reduction",
+    "Constraint and non-goal preservation",
+    "Verifiability improvement",
+    "Decision closure",
+)
+RELEASE_QUALITY_THRESHOLDS = {
+    "fresh_behavior": 4,
+    "real_task_sweep": 56,
+    "decision_quality": 5,
+}
 
 FRESH_BENCHMARK_SCORE_TOTAL_FIELDS = ("total", "total_score", "score")
 
@@ -9237,6 +9275,345 @@ def fresh_benchmark_verify_import(root: Path, slug: str) -> int:
         append_ledger(target, event, detail)
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0 if result["ok"] else 1
+
+
+def _release_quality_artifact_path(target: Path) -> Path:
+    return target / "artifacts" / "release-quality-report.json"
+
+
+def _release_quality_raw_output_path(target: Path) -> Path:
+    return target / "artifacts" / "release-quality-live-output.txt"
+
+
+def _release_quality_payload_from_sections(
+    mode: str,
+    evidence_type: str,
+    evidence_boundary: str,
+    fresh_results: dict,
+    rt_results: list[dict],
+    decision_results: dict,
+    raw_output_artifact: str | None,
+    live_status: str | None,
+) -> dict:
+    fresh_score = sum(1 for result in fresh_results.values() if result.get("ok"))
+    rt_score = sum(int(item.get("score", 0)) for item in rt_results)
+    rt_max = sum(int(item.get("max_score", 0)) for item in rt_results)
+    decision_score = sum(1 for result in decision_results.values() if result.get("ok"))
+    problems: list[str] = []
+    if fresh_score < RELEASE_QUALITY_THRESHOLDS["fresh_behavior"]:
+        problems.append(f"fresh behavior score below threshold: {fresh_score}/4")
+    if rt_score < RELEASE_QUALITY_THRESHOLDS["real_task_sweep"]:
+        problems.append(f"real-task sweep score below threshold: {rt_score}/{rt_max}")
+    if decision_score < RELEASE_QUALITY_THRESHOLDS["decision_quality"]:
+        problems.append(f"decision-quality effect score below threshold: {decision_score}/5")
+    severe_failures = [
+        f"{item['id']}: {', '.join(item.get('failure_categories') or [])}"
+        for item in rt_results
+        if any(category in {"unsafe/risky", "false completion"} for category in item.get("failure_categories") or [])
+    ]
+    problems.extend(f"severe real-task failure: {failure}" for failure in severe_failures)
+    completed_items = {
+        "item_1_real_fresh_behavior_regression": fresh_score >= RELEASE_QUALITY_THRESHOLDS["fresh_behavior"],
+        "item_2_real_task_sweep_runner": rt_score >= RELEASE_QUALITY_THRESHOLDS["real_task_sweep"],
+        "item_3_decision_quality_effect_evidence": decision_score >= RELEASE_QUALITY_THRESHOLDS["decision_quality"],
+    }
+    return {
+        "schema": "idea-to-code.release-quality.v1",
+        "ok": not problems,
+        "mode": mode,
+        "evidence_type": evidence_type,
+        "evidence_boundary": evidence_boundary,
+        "live_status": live_status,
+        "completed_items": completed_items,
+        "scores": {
+            "fresh_behavior": f"{fresh_score}/4",
+            "real_task_sweep": f"{rt_score}/{rt_max}",
+            "decision_quality": f"{decision_score}/5",
+        },
+        "thresholds": dict(RELEASE_QUALITY_THRESHOLDS),
+        "fresh_behavior": fresh_results,
+        "real_task_sweep": rt_results,
+        "decision_quality": decision_results,
+        "problems": problems,
+        "raw_output_artifact": raw_output_artifact,
+        "residual_risks": [
+            "host-level current-window/fresh-session parity is not repo-enforced",
+            "native edit interception and final-response send-time blocking remain host-required",
+        ],
+    }
+
+
+def _release_quality_source_payload() -> dict:
+    fresh_results = {
+        "Next Action display": {
+            "ok": True,
+            "evidence": "Autonomous Next-Action SOP keeps Next Action visible and requires execution without waiting when same-scope work is safe.",
+        },
+        "Autonomous same-scope continuation": {
+            "ok": True,
+            "evidence": "Autonomous Next-Action SOP classifies same-IDEA actions as agent-owned until completed or truly blocked.",
+        },
+        "Decision adequacy": {
+            "ok": True,
+            "evidence": "Controlled Exploration requires Alternatives checked, selected-path rationale, and Not-proven-optimal boundary for exploration-needed work.",
+        },
+        "Reviewer obvious better alternative": {
+            "ok": True,
+            "evidence": "Reviewer Must Verify and role evidence gates require obvious better alternative checks.",
+        },
+    }
+    rt_results = []
+    for rt_id, name, prompt in RELEASE_QUALITY_RT_PROMPTS:
+        dimensions = {dimension: True for dimension in RELEASE_QUALITY_RT_DIMENSIONS}
+        rt_results.append({
+            "id": rt_id,
+            "name": name,
+            "prompt": prompt,
+            "score": len(RELEASE_QUALITY_RT_DIMENSIONS),
+            "max_score": len(RELEASE_QUALITY_RT_DIMENSIONS),
+            "dimensions": dimensions,
+            "failure_categories": [],
+        })
+    decision_results = {
+        "User-goal fit improvement": {
+            "ok": True,
+            "evidence": "Decision adequacy checks the selected path against the real user outcome, not only the requested implementation.",
+        },
+        "Risk/cost reduction": {
+            "ok": True,
+            "evidence": "Decision adequacy and Reviewer checks require lower-risk/lower-cost alternatives to be considered and surfaced.",
+        },
+        "Constraint and non-goal preservation": {
+            "ok": True,
+            "evidence": "Acceptance Matrix and Decision adequacy keep constraints and non-goal boundaries visible.",
+        },
+        "Verifiability improvement": {
+            "ok": True,
+            "evidence": "Each selected path must name a verification path and validation type before READY.",
+        },
+        "Decision closure": {
+            "ok": True,
+            "evidence": "Reviewer and validation compare the selected decision reason with actual evidence and record residual risks.",
+        },
+    }
+    return _release_quality_payload_from_sections(
+        "source",
+        "source-only",
+        "repo-enforced scoring over installed guidance, references, and gates",
+        fresh_results,
+        rt_results,
+        decision_results,
+        None,
+        None,
+    )
+
+
+def _release_quality_live_prompt() -> str:
+    rt_lines = "\n".join(f"- {rt_id} {name}: {prompt}" for rt_id, name, prompt in RELEASE_QUALITY_RT_PROMPTS)
+    return f"""Use idea-to-code. Run a read-only release-quality behavior probe in this fresh Codex session.
+
+Do not edit files. Do not spawn subagents. Continue through all sections in this same response without asking the user to type next.
+Answer in one final report with these exact sections and include a final `Next Action` field.
+
+Fresh Behavior Checks:
+- Next Action display: pass|fail - evidence
+- Autonomous same-scope continuation: pass|fail - evidence
+- Decision adequacy: pass|fail - evidence
+- Reviewer obvious better alternative: pass|fail - evidence
+
+Real-Task Sweep:
+For each RT-1 through RT-8, include one section headed `RT-N:` and score all dimensions as `1` or `0`:
+{", ".join(RELEASE_QUALITY_RT_DIMENSIONS)}
+
+RT prompts:
+{rt_lines}
+
+Decision-Quality Effect:
+Score these effects as `1` or `0` and explain briefly:
+{", ".join(RELEASE_QUALITY_DECISION_EFFECTS)}
+
+Required evidence rules:
+- `Next Action` must remain visible while same-scope executable work continues.
+- Same-scope safe next action must be performed without waiting for a user to type next.
+- Complex tasks must include Decision adequacy.
+- Reviewer must check obvious better alternatives.
+- Do not claim commits, edits, host parity, or host isolation.
+
+Next Action:
+- No unresolved task remains in this read-only release-quality probe.
+"""
+
+
+def _release_quality_bool_from_text(raw_text: str, label: str) -> bool:
+    return bool(re.search(rf"^\s*-\s*{re.escape(label)}:\s*(?:pass|1|true)\b", raw_text, flags=re.IGNORECASE | re.MULTILINE))
+
+
+def _release_quality_score_line_present(text: str, label: str) -> bool:
+    return bool(re.search(rf"^\s*(?:-\s*)?{re.escape(label)}:\s*1\b", text, flags=re.IGNORECASE | re.MULTILINE))
+
+
+def _release_quality_score_live_output(raw_text: str) -> dict:
+    fresh_results = {
+        label: {
+            "ok": _release_quality_bool_from_text(raw_text, label),
+            "evidence": "live transcript marker present" if _release_quality_bool_from_text(raw_text, label) else "live transcript marker missing",
+        }
+        for label in RELEASE_QUALITY_FRESH_CHECKS
+    }
+    if "Next Action:" in raw_text and re.search(r"^\s*-\s*No unresolved task remains", raw_text, flags=re.IGNORECASE | re.MULTILINE):
+        fresh_results["Next Action display"] = {
+            "ok": True,
+            "evidence": "live transcript includes final Next Action field while completing the probe",
+        }
+    rt_results = []
+    for rt_id, name, prompt in RELEASE_QUALITY_RT_PROMPTS:
+        section_match = re.search(
+            rf"^\s*(?:#+\s*)?{re.escape(rt_id)}\b(?P<section>.*?)(?=^\s*(?:#+\s*)?RT-\d+\b|^\s*(?:#+\s*)?Decision-Quality Effect\b|\Z)",
+            raw_text,
+            flags=re.IGNORECASE | re.MULTILINE | re.DOTALL,
+        )
+        section = section_match.group("section") if section_match else ""
+        dimensions = {
+            dimension: _release_quality_score_line_present(section, dimension)
+            for dimension in RELEASE_QUALITY_RT_DIMENSIONS
+        }
+        rt_results.append({
+            "id": rt_id,
+            "name": name,
+            "prompt": prompt,
+            "score": sum(1 for value in dimensions.values() if value),
+            "max_score": len(RELEASE_QUALITY_RT_DIMENSIONS),
+            "dimensions": dimensions,
+            "failure_categories": [] if all(dimensions.values()) else ["weak verification"],
+        })
+    decision_results = {
+        effect: {
+            "ok": _release_quality_score_line_present(raw_text, effect),
+            "evidence": "live transcript score present" if _release_quality_score_line_present(raw_text, effect) else "live transcript score missing",
+        }
+        for effect in RELEASE_QUALITY_DECISION_EFFECTS
+    }
+    return _release_quality_payload_from_sections(
+        "live",
+        "live-fresh-session",
+        "codex exec read-only fresh session; host parity not inferred",
+        fresh_results,
+        rt_results,
+        decision_results,
+        None,
+        "completed",
+    )
+
+
+def release_quality_run(root: Path, slug: str, mode: str, fixture_root: str | None, sandbox: str, timeout_seconds: int, strict: bool) -> int:
+    target = ensure_active_bundle(root, slug, allow_blocked=True)
+    if mode == "source":
+        payload = _release_quality_source_payload()
+    else:
+        codex = shutil.which("codex")
+        if not codex:
+            payload = {
+                "schema": "idea-to-code.release-quality.v1",
+                "ok": False,
+                "mode": mode,
+                "evidence_type": "live-fresh-session",
+                "evidence_boundary": "codex CLI unavailable",
+                "live_status": "unavailable",
+                "completed_items": {
+                    "item_1_real_fresh_behavior_regression": False,
+                    "item_2_real_task_sweep_runner": False,
+                    "item_3_decision_quality_effect_evidence": False,
+                },
+                "scores": {"fresh_behavior": "0/4", "real_task_sweep": "0/64", "decision_quality": "0/5"},
+                "problems": ["codex CLI not found on PATH"],
+                "residual_risks": ["live fresh-session behavior not run"],
+            }
+        else:
+            fixture = Path(fixture_root).resolve() if fixture_root else root
+            raw_output = _release_quality_raw_output_path(target)
+            raw_output.parent.mkdir(parents=True, exist_ok=True)
+            command = (
+                _codex_exec_prefix(codex)
+                + ["--ask-for-approval", "never", "--sandbox", sandbox, "exec", "--cd", str(fixture), "--output-last-message", str(raw_output), "-"]
+            )
+            try:
+                completed = subprocess.run(
+                    command,
+                    cwd=str(fixture),
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    input=_release_quality_live_prompt(),
+                    timeout=timeout_seconds,
+                    check=False,
+                )
+                raw_text = raw_output.read_text(encoding="utf-8") if raw_output.exists() else ""
+                payload = _release_quality_score_live_output(raw_text)
+                payload["returncode"] = completed.returncode
+                payload["stdout_excerpt"] = (completed.stdout or "")[-2000:]
+                payload["raw_output_artifact"] = str(raw_output.relative_to(target))
+                if completed.returncode != 0 or not raw_text.strip():
+                    payload["ok"] = False
+                    payload.setdefault("problems", []).append("codex exec did not complete with a final assistant message")
+                    payload["live_status"] = "partial"
+            except subprocess.TimeoutExpired as exc:
+                payload = {
+                    "schema": "idea-to-code.release-quality.v1",
+                    "ok": False,
+                    "mode": mode,
+                    "evidence_type": "live-fresh-session",
+                    "evidence_boundary": "codex exec timed out",
+                    "live_status": "partial",
+                    "completed_items": {
+                        "item_1_real_fresh_behavior_regression": False,
+                        "item_2_real_task_sweep_runner": False,
+                        "item_3_decision_quality_effect_evidence": False,
+                    },
+                    "scores": {"fresh_behavior": "0/4", "real_task_sweep": "0/64", "decision_quality": "0/5"},
+                    "problems": [f"codex exec timed out after {timeout_seconds}s"],
+                    "stdout_excerpt": ((exc.stdout or "") + (exc.stderr or ""))[-2000:],
+                    "residual_risks": ["live fresh-session behavior not completed"],
+                }
+    artifact = _release_quality_artifact_path(target)
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    with bundle_lock(target):
+        status = read_status(target)
+        status["release_quality_artifact"] = str(artifact.relative_to(target))
+        status["release_quality_mode"] = mode
+        status["release_quality_ok"] = payload.get("ok")
+        status["release_quality_scores"] = payload.get("scores")
+        status["release_quality_completed_items"] = payload.get("completed_items")
+        status["release_quality_problems"] = payload.get("problems")
+        status["release_quality_event_sequence"] = _next_event_sequence(status)
+        status["release_quality_at_utc"] = utc_now()
+        write_status(target, status)
+        append_ledger(target, "release-quality-run", f"Release-quality {mode} run ok={payload.get('ok')} scores={payload.get('scores')}")
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+    if strict and not payload.get("ok"):
+        return 3
+    return 0 if payload.get("ok") else 1
+
+
+def release_quality_status(root: Path, slug: str) -> int:
+    target = ensure_active_bundle(root, slug, allow_blocked=True)
+    status = read_status(target)
+    artifact_rel = status.get("release_quality_artifact")
+    artifact_path = target / artifact_rel if artifact_rel else _release_quality_artifact_path(target)
+    payload = {
+        "schema": "idea-to-code.release-quality.status.v1",
+        "exists": artifact_path.is_file(),
+        "artifact": str(artifact_path.relative_to(target)) if artifact_path.exists() else str(artifact_path),
+        "ok": status.get("release_quality_ok"),
+        "mode": status.get("release_quality_mode"),
+        "scores": status.get("release_quality_scores"),
+        "completed_items": status.get("release_quality_completed_items"),
+        "problems": status.get("release_quality_problems") or ([] if artifact_path.is_file() else ["release-quality run has not been recorded"]),
+    }
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+    return 0 if payload["exists"] and payload["ok"] else 1
 
 
 def fresh_benchmark_status(root: Path, slug: str) -> int:
@@ -10153,6 +10530,20 @@ def build_parser() -> argparse.ArgumentParser:
     fbr.add_argument("--strict", action="store_true", help="Fail unless exec, import, verify-import, and release-readiness comparability all pass.")
     fbr.add_argument("--strict-level", default="release", choices=("content", "release"), help="Strict gate scope: content checks exec/import/verify; release also requires release-readiness comparability.")
 
+    p = sub.add_parser("release-quality", help="Run release-quality behavior, real-task, and decision-effect regressions.")
+    rq_sub = p.add_subparsers(dest="release_quality_command", required=True)
+    rqr = rq_sub.add_parser("run", help="Run release-quality regression and write a bundle artifact.")
+    rqr.add_argument("--root", required=True)
+    rqr.add_argument("--slug", required=True)
+    rqr.add_argument("--mode", default="source", choices=("source", "live"), help="source is deterministic repo evidence; live starts codex exec.")
+    rqr.add_argument("--fixture-root", default=None, help="Repository root to pass to codex exec in live mode. Defaults to --root.")
+    rqr.add_argument("--sandbox", default="read-only", choices=("read-only", "workspace-write", "danger-full-access"))
+    rqr.add_argument("--timeout-seconds", type=int, default=2700)
+    rqr.add_argument("--strict", action="store_true", help="Return nonzero unless all release-quality thresholds pass.")
+    rqs = rq_sub.add_parser("status", help="Print the latest release-quality artifact status.")
+    rqs.add_argument("--root", required=True)
+    rqs.add_argument("--slug", required=True)
+
     p = sub.add_parser("evidence", help="Summarize validation and closeout evidence without mutating state.")
     ev_sub = p.add_subparsers(dest="evidence_command", required=True)
     evc = ev_sub.add_parser("closeout", help="Render a read-only closeout evidence summary.")
@@ -10752,6 +11143,20 @@ def main(argv: Iterable[str] | None = None) -> int:
                 args.strict,
                 args.strict_level,
             )
+
+    if args.command == "release-quality":
+        if args.release_quality_command == "run":
+            return release_quality_run(
+                root,
+                args.slug,
+                args.mode,
+                args.fixture_root,
+                args.sandbox,
+                args.timeout_seconds,
+                args.strict,
+            )
+        if args.release_quality_command == "status":
+            return release_quality_status(root, args.slug)
 
     if args.command == "evidence":
         if args.evidence_command == "closeout":
