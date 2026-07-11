@@ -54,7 +54,7 @@ Selection rules:
 - Use `same-agent` for small low-risk work, unavailable subagent tools, unclear delegation boundaries, or when delegation would create write conflicts.
 - Do not fabricate independent work. If a subagent did not actually run, evidence must say `same-agent` or explain the fallback.
 - If a subagent times out or returns no usable evidence, close it, record the timeout, split the task smaller or fall back to `same-agent`, and do not count that attempt as independent evidence.
-- Record delegated or fresh-agent attempts with `delegation record`. Only `status usable` can support an independent/subagent/fresh-agent role claim. `timeout`, `unusable`, `planned`, and `unverified` records are visible risk/evidence gaps, not proof. Close a non-usable finding with `delegation resolve` only when the fallback, supersession, accepted risk, or invalid-record reason is explicit; this closes the branch but does not create independent evidence.
+- Record delegated or fresh-agent attempts with `delegation record`. Only `status usable` can support an independent/subagent/fresh-agent role claim. `timeout`, `unusable`, `planned`, and `unverified` records are visible risk/evidence gaps, not proof. Close a non-usable finding with `delegation resolve` only when the fallback, supersession, accepted risk, or invalid-record reason is explicit; this closes the branch but does not create independent evidence. Use `delegation status` before closeout when independence matters; its `recommendation` field tells the next control action but must not be quoted as if a delegated review actually ran.
 - Do not infer the cause of a timeout from convenience. If cause matters, run comparison tests such as ping, scoped review, and broader review. Record only observed results; leave the root cause `unverified` when the evidence does not isolate it.
 
 ## Delegation Healthcheck Protocol
@@ -262,6 +262,8 @@ State changes are script-owned:
 - `block` and `unblock` change blocked state.
 - `current pause` and `current resume` change paused state.
 - `finalize` changes to `completed` or `closed`.
+- `current inspect` is the preferred non-mutating read-only status path for reviewers. It reads `current.json` and selected bundle state without updating verification, gate, current-task, or lifecycle evidence fields.
+- `current status` is compatibility status output with gate diagnostics; use `current inspect` when the review claim depends on read-only behavior.
 - `verify` updates verification fields only.
 - `role record` records evidence only.
 

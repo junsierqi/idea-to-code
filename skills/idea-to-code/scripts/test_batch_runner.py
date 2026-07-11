@@ -42,6 +42,18 @@ TEST_BATCH_PROFILE_KEYWORDS: dict[str, tuple[str, ...]] = {
         "finalize",
         "next_action",
     ),
+    "changed-surface": (
+        "host_hook",
+        "guarded_apply",
+        "quality_contract",
+        "test_batch",
+        "changed_surface",
+        "delegation",
+        "finalize",
+        "render_status",
+        "output_compliance",
+        "install_parity",
+    ),
 }
 
 
@@ -102,14 +114,28 @@ def run_test_batch(
         command = [sys.executable, "-m", "unittest", *chunk]
         print(f"chunk {index}/{len(chunks)}: RUN tests {first}-{last}")
         started = time.perf_counter()
-        result = subprocess.run(
-            command,
-            cwd=test_script.parent,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=timeout_seconds,
-        )
+        try:
+            result = subprocess.run(
+                command,
+                cwd=test_script.parent,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as exc:
+            elapsed = time.perf_counter() - started
+            print(f"chunk {index}/{len(chunks)}: TIMEOUT tests {first}-{last} elapsed={elapsed:.3f}s timeout={timeout_seconds}s")
+            if exc.stdout:
+                print(exc.stdout, end="" if str(exc.stdout).endswith("\n") else "\n")
+            if exc.stderr:
+                print(exc.stderr, end="" if str(exc.stderr).endswith("\n") else "\n")
+            print("test-batch: TIMEOUT")
+            print(
+                "test-batch: rerun_hint "
+                f"--profile {profile} --chunk-size {min(chunk_size, 20)} --timeout-seconds {max(timeout_seconds, 300)}"
+            )
+            return 124
         elapsed = time.perf_counter() - started
         timings.append((elapsed, index, first, last))
         if result.stdout:

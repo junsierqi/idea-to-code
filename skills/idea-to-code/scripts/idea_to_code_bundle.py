@@ -19,7 +19,7 @@ import shutil
 import subprocess
 import sys
 import time
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager, nullcontext, redirect_stdout
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
@@ -101,6 +101,16 @@ QUALITY_CONTRACT_REQUIRED_LABELS = (
     "Shortcut Risk Check:",
     "Reviewer Must Verify:",
 )
+QUALITY_CONTRACT_FIELD_HINTS = {
+    "Existing Pattern Evidence:": "expected inspected file, command, or source pattern evidence",
+    "Assumption Handling:": "expected explicit fact/hypothesis boundary and verification path",
+    "Scope Boundary:": "expected TASK/REQ/file scope check or out-of-scope rejection rule",
+    "Real Path / Mock Policy:": "expected validation type and real/mock/fixture boundary",
+    "Regression Surface:": "expected concrete test, command, or changed-surface evidence",
+    "Security/Safety Notes:": "expected secret, destructive-command, host-required, or safety boundary",
+    "Shortcut Risk Check:": "expected evidence against placeholders, unsupported claims, or skipped verification",
+    "Reviewer Must Verify:": "expected concrete reviewer checks, risks, and acceptance counterexamples",
+}
 TASK_SECTION_RESERVED_HEADINGS = {
     "## Requirements",
     "## Intake Gate",
@@ -217,6 +227,14 @@ BRANCH_COVERAGE_MAP = [
         "failure_handling": "classify before planning, editing, or claiming tracked status",
     },
     {
+        "id": "autonomous-next-action",
+        "workflow_branch": "Autonomous next-action branch",
+        "entry": "same-IDEA safe next action remains after an idea, correction, related follow-up, or formal handoff",
+        "exit": "agent executes safe same-scope work now or stops only with a concrete user-required stop condition",
+        "validation": "workflow branch, skill SOP, branch-map, and lifecycle-audit expose the agent-owned next-action rule",
+        "failure_handling": "treat repeated next prompts after safe work remains as a premature-stop signal and harden the workflow guidance",
+    },
+    {
         "id": "scope-override",
         "workflow_branch": "Scope Override branch",
         "entry": "incomplete work exists and user asks to handle non-Next Action work such as Unverified Items or Residual Risks",
@@ -263,6 +281,14 @@ BRANCH_COVERAGE_MAP = [
         "exit": "implementation plan-check and READY reject missing approved validation types",
         "validation": "plan-check tests cover missing and accepted validation type cases",
         "failure_handling": "add an approved validation type before retrying READY",
+    },
+    {
+        "id": "legacy-quality-contract-remediation",
+        "workflow_branch": "Legacy quality-contract remediation branch",
+        "entry": "legacy or manually edited TASK/IMP plan lacks current Implementation Quality Contract fields",
+        "exit": "plan-check and verify provide actionable remediation while keeping the gate failed",
+        "validation": "plan-check and verify tests cover remediation output and post-remediation pass behavior",
+        "failure_handling": "update implementation, rerun plan-check, refresh Exploration/READY, and do not treat stale implementation_ready as compliant",
     },
     {
         "id": "ready-recovery",
@@ -365,7 +391,7 @@ BRANCH_COVERAGE_MAP = [
         "workflow_branch": "Skill self-validation branch",
         "entry": "idea-to-code itself is being validated and full unittest is too slow or flaky",
         "exit": "official chunked runner records total test count, chunks, and pass/fail output",
-        "validation": "test-batch --chunk-size 40 --timeout-seconds 180 is accepted self-validation evidence",
+        "validation": "test-batch --profile full --chunk-size 20 --timeout-seconds 300 is accepted self-validation evidence",
         "failure_handling": "record slow or flaky full-suite limits instead of claiming unrun coverage",
     },
     {
@@ -1124,6 +1150,14 @@ def _latest_task_closure(status: dict, task_id: str | None = None) -> dict | Non
     return None
 
 
+def _latest_task_closure_any_entry(status: dict, task_id: str) -> dict | None:
+    normalized_task_id = task_id.strip().upper()
+    for record in reversed(status.get("task_closure_records", [])):
+        if (record.get("task_id") or "").strip().upper() == normalized_task_id:
+            return record
+    return None
+
+
 def _current_task_is_open(status: dict) -> bool:
     current_task = (status.get("current_task_id") or "").strip().upper()
     if not current_task:
@@ -1590,6 +1624,65 @@ def _delegation_problems(status: dict) -> list[str]:
             f"{record.get('reason') or record.get('evidence_summary') or 'no reason recorded'}"
         )
     return problems
+
+
+def _delegation_recommendation(status: dict) -> dict:
+    usable = _usable_delegation_records(status)
+    open_findings = _open_delegation_findings(status)
+    role_evidence = status.get("role_evidence", {})
+    reviewer_records = role_evidence.get("reviewer", []) if isinstance(role_evidence, dict) else []
+    same_agent_reviewer = any(
+        isinstance(record, dict)
+        and not _evidence_claims_independent_delegation(record.get("evidence", ""))
+        for record in reviewer_records
+    )
+    scope_bits = []
+    current_task = status.get("current_task_id")
+    if current_task:
+        scope_bits.append(str(current_task))
+    reqs = [req.get("id") for req in status.get("requirements", []) if req.get("id")]
+    if reqs:
+        scope_bits.append(",".join(reqs))
+    scope = " / ".join(scope_bits) or "current plan revision"
+    if usable:
+        return {
+            "action": "independent-evidence-present",
+            "scope": scope,
+            "reason": "usable delegation record exists for the current evidence set",
+            "command": "none",
+        }
+    if open_findings:
+        return {
+            "action": "resolve-or-retry-delegation",
+            "scope": scope,
+            "reason": "non-usable delegation findings remain open and cannot count as independent evidence",
+            "command": (
+                'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" '
+                "delegation resolve --root \"$(pwd)\" --slug <slug> --id <delegation-id> "
+                "--resolution fallback-same-agent --reason \"<why independent review is unavailable>\""
+            ),
+        }
+    if same_agent_reviewer:
+        return {
+            "action": "consider-independent-review",
+            "scope": scope,
+            "reason": "same-agent reviewer evidence exists but no usable independent delegation record is present",
+            "command": (
+                'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" '
+                "delegation record --root \"$(pwd)\" --slug <slug> --role reviewer --status usable "
+                "--scope \"<TASK/REQ scope>\" --evidence-summary \"<independent review evidence>\""
+            ),
+        }
+    return {
+        "action": "record-delegation-if-claiming-independent-evidence",
+        "scope": scope,
+        "reason": "no usable delegation record exists; do not claim subagent, fresh-agent, or independent review until one is recorded",
+        "command": (
+            'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" '
+            "delegation record --root \"$(pwd)\" --slug <slug> --role reviewer --status usable "
+            "--scope \"<TASK/REQ scope>\" --evidence-summary \"<independent review evidence>\""
+        ),
+    }
 
 
 def _evidence_claims_independent_delegation(evidence: str) -> bool:
@@ -2085,6 +2178,13 @@ def _markdown_table_cell(value: str) -> str:
     return " ".join(value.replace("|", "/").split())
 
 
+def _explicit_validation_type(value: str) -> str | None:
+    for validation_type in VALIDATION_TYPES:
+        if re.search(rf"\b{re.escape(validation_type)}\b", value, re.I):
+            return validation_type
+    return None
+
+
 def quickstart_ineligibility_reason(
     title: str,
     idea: str,
@@ -2132,8 +2232,12 @@ def quickstart_bundle(
             f"{ineligible}. Use init plus structured requirements, design, implementation ready, "
             "role evidence, validation, review, and closeout instead."
         )
-    if not re.search(r"\b(real-product-path|mock-only|fixture-only|source-only|dom-only|manual-inspection|unverified)\b", verification, re.I):
-        verification = f"source-only {verification}"
+    validation_type = _explicit_validation_type(verification)
+    if validation_type is None:
+        raise SystemExit(
+            "quickstart --verification must include an explicit validation type: "
+            + ", ".join(VALIDATION_TYPES)
+        )
 
     target = init_bundle(root, slug, title, idea, unique, True)
     actual_slug = target.name
@@ -2191,7 +2295,7 @@ def quickstart_bundle(
 ## Acceptance Matrix
 
 {acceptance_matrix_header()}
-| REQ-1 | The requested small scoped change is the user outcome. | `{matrix_file_path}` contains the requested change after implementation. | Unrelated edits outside `{matrix_file_path}` are not accepted. | Broad refactors and behavior changes outside the requested file are non-goals. | {matrix_task} | Unrelated edits outside `{matrix_file_path}` are not accepted. | The change remains concise and scoped to the requested file. | Repository file content persists after edit. | User can revert the small file change if needed. | Validation reports whether the expected text/change is present. | The diff and verification output show the result. | `{matrix_file_path}` is the affected product path. | source-only |
+| REQ-1 | The requested small scoped change is the user outcome. | `{matrix_file_path}` contains the requested change after implementation. | Unrelated edits outside `{matrix_file_path}` are not accepted. | Broad refactors and behavior changes outside the requested file are non-goals. | {matrix_task} | Unrelated edits outside `{matrix_file_path}` are not accepted. | The change remains concise and scoped to the requested file. | Repository file content persists after edit. | User can revert the small file change if needed. | Validation reports whether the expected text/change is present. | The diff and verification output show the result. | `{matrix_file_path}` is the affected product path. | {validation_type} |
 
 ## Design
 
@@ -2213,10 +2317,10 @@ Execution Details:
 
 Implementation Quality Contract:
 - Existing Pattern Evidence: inspect the current local pattern around `{file_path}` before editing.
-- Assumption Handling: treat unclear implementation claims as unverified until source-only validation supports them.
+- Assumption Handling: treat unclear implementation claims as unverified until {validation_type} validation supports them.
 - Scope Boundary: change only `{file_path}` unless the user explicitly expands scope.
 - Real Path / Mock Policy: validate against the real repository file path, not a substitute mock path.
-- Regression Surface: run source-only validation for the requested file change and nearby content that could regress.
+- Regression Surface: run {validation_type} validation for the requested file change and nearby content that could regress.
 - Security/Safety Notes: avoid secrets and destructive filesystem actions.
 - Shortcut Risk Check: no placeholder-only edit, unrelated refactor, or unsupported completion claim.
 - Reviewer Must Verify: scope fit, evidence strength, and absence of unrelated edits.
@@ -2266,6 +2370,21 @@ Planned Verification:
         append_ledger(target, "quickstart", f"Quickstart generated ready single-task bundle; exploration_output={exploration_id}; ready_output={output_id}")
     write_current(root, actual_slug, "ready_to_implement")
     return target, ready_output_lines
+
+
+def print_ready_bundle_result(target: Path, ready_output_lines: list[str], json_only: bool) -> int:
+    status = read_status(target)
+    print(json.dumps({
+        "path": str(target),
+        "slug": target.name,
+        "ready": True,
+        "exploration_output_id": status.get("exploration_output_id"),
+        "ready_task_output_id": status.get("ready_task_output_id"),
+    }, indent=2, ensure_ascii=False))
+    if not json_only:
+        print()
+        print("\n".join(ready_output_lines))
+    return 0
 
 
 def _parse_ids(raw: str | list[str] | None) -> list[str]:
@@ -2679,7 +2798,10 @@ def _task_sections_quality_problems(task_name: str, sections: dict[str, str]) ->
                     task_problems.append(f"{task_name} Implementation Quality Contract: missing {label}")
                     continue
                 if _weak_quality_contract_value(label_match.group(1).strip()):
-                    task_problems.append(f"{task_name} Implementation Quality Contract: weak {label}")
+                    hint = QUALITY_CONTRACT_FIELD_HINTS.get(label, "expected concrete evidence, boundary, or command")
+                    task_problems.append(
+                        f"{task_name} Implementation Quality Contract: weak {label} ({hint})"
+                    )
     return task_problems
 
 
@@ -2752,7 +2874,7 @@ def _implementation_plan_check_payload(target: Path) -> dict[str, Any]:
             "problems": task_problems,
         })
         problems.extend(f"{IMPLEMENTATION_FILE}: {problem}" for problem in task_problems)
-    return {
+    payload = {
         "schema": "idea-to-code.implementation-plan-check.v1",
         "ok": not problems,
         "path": str(path),
@@ -2760,6 +2882,23 @@ def _implementation_plan_check_payload(target: Path) -> dict[str, Any]:
         "tasks": tasks,
         "problems": problems,
     }
+    if any("Implementation Quality Contract:" in problem for problem in problems):
+        payload["remediation"] = {
+            "reason": "One or more TASK/IMP blocks are missing or weakening the current Implementation Quality Contract gate.",
+            "required_action": "Update the implementation plan with agent-authored quality-contract fields, then refresh Exploration/READY before editing or closeout.",
+            "commands": [
+                "update --root <root> --slug <slug> --file implementation --content-file <implementation.md>",
+                "implementation plan-check --root <root> --slug <slug> --json",
+                "exploration render --root <root> --slug <slug>",
+                "implementation ready --root <root> --slug <slug> --task <TASK-ID>",
+            ],
+            "must_not": [
+                "Do not treat old implementation_ready state as compliant after plan-check fails.",
+                "Do not auto-invent quality-contract text without an agent-visible plan update.",
+                "Do not claim accepted closeout until verify passes on the refreshed plan.",
+            ],
+        }
+    return payload
 
 
 def implementation_plan_check(root: Path, slug: str, json_only: bool) -> int:
@@ -2775,6 +2914,18 @@ def implementation_plan_check(root: Path, slug: str, json_only: bool) -> int:
         print("implementation plan-check: FAIL")
         for problem in payload["problems"]:
             print(f"- {problem}")
+        remediation = payload.get("remediation")
+        if remediation:
+            print("")
+            print("Remediation:")
+            print(f"- Reason: {remediation['reason']}")
+            print(f"- Required Action: {remediation['required_action']}")
+            print("- Commands:")
+            for command in remediation["commands"]:
+                print(f"  - {command}")
+            print("- Must Not:")
+            for item in remediation["must_not"]:
+                print(f"  - {item}")
     return 0 if payload["ok"] else 1
 
 
@@ -3823,7 +3974,21 @@ def implementation_overview(
     task_blocks = _ready_task_blocks(target)
     current_task_id = (status.get("current_task_id") or "").strip().upper()
     task_ids = [name.split(":", 1)[0].strip().upper() for name, _ in task_blocks]
-    next_tasks = [task_id for task_id in task_ids if task_id != current_task_id]
+    current_closure = _latest_task_closure_any_entry(status, current_task_id) if current_task_id else None
+    if current_task_id and current_task_id in task_ids:
+        start_index = task_ids.index(current_task_id) + 1
+    else:
+        start_index = 0
+    next_tasks = [
+        task_id for task_id in task_ids[start_index:]
+        if _latest_task_closure_any_entry(status, task_id) is None
+    ]
+    current_task_line = current_task_id or "none entered; run implementation enter-task --task TASK-N before edits."
+    if current_closure:
+        current_task_line = (
+            f"{current_task_id} (closed: {current_closure.get('status', 'unknown')}; "
+            "enter the next unresolved TASK before edits.)"
+        )
     lines = [
         f"{_visibility_prefix(profile, 'planner', 'agent')} Implementation Overview | Bundle: {slug}",
         "",
@@ -3840,7 +4005,7 @@ def implementation_overview(
         f"- What READY Will Cover: {exploration.get('ready_coverage') or 'TASK/REQ items in the current implementation plan.'}",
         "",
         "Current TASK:",
-        f"- {current_task_id or 'none entered; run implementation enter-task --task TASK-N before edits.'}",
+        f"- {current_task_line}",
         "",
         "Next Tasks:",
     ]
@@ -3958,6 +4123,13 @@ def implementation_next_action(
                             recommended_commands.append(
                                 f'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation pre-edit --root "$(pwd)" --slug {slug} --task {normalized_task_id} --owner {owner.strip() or "agent"} --files {command_files}'
                             )
+    if action == "READY_FOR_EDIT":
+        recommended_commands.append(
+            'preferred patch path: python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" '
+            f'implementation guarded-apply --root "$(pwd)" --slug {slug} --task {normalized_task_id} '
+            f'--owner {owner.strip() or "agent"} --patch-file <patch.diff>'
+        )
+        recommended_commands.append("native edit tools remain allowed only after visible READY, lease, and pre-edit evidence")
 
     payload = {
         "schema": "idea-to-code.implementation.next-action.v1",
@@ -4010,6 +4182,7 @@ def implementation_next_action(
     lines.extend([
         "",
         "Boundary:",
+        "- Prefer implementation guarded-apply for patch-based tracked edits because it checks scope before applying.",
         "- Native edit-tool interception is host-required; this command is read-only guidance plus machine-checkable evidence.",
     ])
     print("\n".join(lines))
@@ -4200,6 +4373,7 @@ def delegation_status(root: Path, slug: str) -> int:
         "usable": _usable_delegation_records(status),
         "open_findings": _open_delegation_findings(status),
         "problems": _delegation_problems(status),
+        "recommendation": _delegation_recommendation(status),
     }
     print(json.dumps(payload, indent=2, ensure_ascii=False))
     return 0 if not payload["problems"] else 1
@@ -5659,6 +5833,40 @@ def current_status(root: Path) -> int:
     return 0 if payload["ok"] else 1
 
 
+def current_inspect(root: Path) -> int:
+    current = read_current(root)
+    if not current:
+        print(json.dumps({"ok": False, "current": None}, indent=2, ensure_ascii=False))
+        return 1
+    slug = current.get("slug", "")
+    target = bundle_dir(root, slug)
+    payload = {
+        "ok": target.exists(),
+        "current": current,
+        "bundle_exists": target.exists(),
+        "read_only": True,
+        "mutation_boundary": "does not update bundle verification, gate, current-task, or lifecycle evidence fields",
+    }
+    if target.exists() and state_exists(target):
+        status = read_status(target)
+        payload["bundle_status"] = {
+            "title": status.get("title"),
+            "slug": status.get("slug", slug),
+            "phase": status.get("phase"),
+            "state": status.get("state"),
+            "plan_revision": status.get("plan_revision"),
+            "current_task_id": status.get("current_task_id"),
+            "pending_plan_update": status.get("pending_plan_update"),
+            "implementation_ready": status.get("implementation_ready"),
+            "last_verify_ok": status.get("last_verify_ok"),
+            "last_verified_plan_revision": status.get("last_verified_plan_revision"),
+            "ready_task_output_id": status.get("ready_task_output_id"),
+            "exploration_output_id": status.get("exploration_output_id"),
+        }
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+    return 0 if payload["ok"] else 1
+
+
 def contract() -> int:
     payload = {
         "schema_version": SCHEMA_VERSION,
@@ -5912,7 +6120,7 @@ def route_task(root: Path, user_input: str) -> int:
         route_gate = "skip-delivery"
     elif classification == "status":
         route_gate = "read-only"
-        required_next_commands.append("current status --root <root>")
+        required_next_commands.append("current inspect --root <root>")
     elif classification == "pause":
         route_gate = "pause"
         required_next_commands.append('current pause --root <root> --reason "<reason>"')
@@ -6653,12 +6861,13 @@ def finalize_bundle(
     acceptance_notes: str,
     deferred: str,
     force: bool,
+    allow_failed_verify: bool,
 ) -> Path:
     target = ensure_active_bundle(root, slug)
     with bundle_lock(target):
         return _finalize_bundle_locked(
             root, slug, target, summary, verification, risks, acceptance,
-            gate_status, decision, acceptance_notes, deferred, force,
+            gate_status, decision, acceptance_notes, deferred, force, allow_failed_verify,
         )
 
 
@@ -6675,12 +6884,18 @@ def _finalize_bundle_locked(
     acceptance_notes: str,
     deferred: str,
     force: bool,
+    allow_failed_verify: bool,
 ) -> Path:
     argument_text = "\n".join([summary, verification, risks, acceptance, acceptance_notes, deferred])
     if not _is_ascii(argument_text):
         raise SystemExit("finalize refused - summary, verification, risks, acceptance, notes, and deferred text must be English-only ASCII.")
     if not re.search(r"\b(real-product-path|mock-only|fixture-only|source-only|dom-only|manual-inspection|unverified)\b", verification, re.I):
         raise SystemExit("finalize refused - --verification must name a validation type.")
+    failed_closeout_mode = bool(allow_failed_verify)
+    if failed_closeout_mode and not (gate_status == "fail" and decision == "not-accepted"):
+        raise SystemExit(
+            "finalize refused - --allow-failed-verify is only valid with --gate-status fail --decision not-accepted."
+        )
 
     timestamp = utc_now()
     status = read_status(target)
@@ -6693,7 +6908,7 @@ def _finalize_bundle_locked(
     integrity_problems = _finalize_integrity_problems(
         status, gate_status, decision, implementation_gate_problems(target)
     )
-    if structural_problems:
+    if structural_problems and not failed_closeout_mode:
         force_note = ""
         if force and decision == "accepted":
             force_note = "\n--force cannot override accepted closeout integrity failures."
@@ -6730,7 +6945,7 @@ def _finalize_bundle_locked(
             + "\nFix the evidence or lower --gate-status. "
             "--force cannot override pass-gate integrity failures."
         )
-    if integrity_problems and not force:
+    if integrity_problems and not force and not failed_closeout_mode:
         raise SystemExit(
             "finalize refused - the claim contradicts the bundle state:\n  - "
             + "\n  - ".join(integrity_problems)
@@ -6738,6 +6953,7 @@ def _finalize_bundle_locked(
             "or --decision to match reality, or pass --force to override (the "
             "override is recorded in the final report)."
         )
+    failed_closeout_problems = structural_problems + (integrity_problems if failed_closeout_mode else [])
 
     status["state"] = "completed" if decision == "accepted" else "closed"
     status["phase"] = "accepted" if decision == "accepted" else "closed"
@@ -6763,6 +6979,16 @@ def _finalize_bundle_locked(
                 "problems": integrity_problems,
                 "gate_status": gate_status,
                 "decision": decision,
+            }
+        )
+    if failed_closeout_mode:
+        status.setdefault("failed_closeout_records", []).append(
+            {
+                "timestamp_utc": timestamp,
+                "gate_status": gate_status,
+                "decision": decision,
+                "verification": verification,
+                "problems": failed_closeout_problems,
             }
         )
     write_status(target, status)
@@ -6797,6 +7023,14 @@ def _finalize_bundle_locked(
             "The following integrity checks were bypassed via --force at finalize time:\n\n"
             + "".join(f"- {p}\n" for p in integrity_problems)
         )
+    failed_closeout_block = ""
+    if failed_closeout_mode:
+        failed_closeout_block = (
+            "\n## Failed Closeout Evidence\n\n"
+            "The bundle was intentionally closed as fail/not-accepted with --allow-failed-verify. "
+            "These verification problems remain part of the result:\n\n"
+            + ("".join(f"- {p}\n" for p in failed_closeout_problems) if failed_closeout_problems else "- none recorded\n")
+        )
 
     final_path.write_text(
         "# Final Report\n\n"
@@ -6808,7 +7042,8 @@ def _finalize_bundle_locked(
         f"## Verification\n\n- Gate status: {gate_status}\n- {verification}\n{block_summary}\n"
         "## Visual Evidence\n\n- Attach screenshots or saved artifacts here when the task has UI or runtime output.\n\n"
         f"## Risks And Follow-Up\n\n- {risks}\n"
-        f"{override_block}",
+        f"{override_block}"
+        f"{failed_closeout_block}",
         encoding="utf-8",
     )
 
@@ -6836,21 +7071,21 @@ def _finalize_bundle_locked(
         ],
     )
     final_verify_problems = _bundle_integrity_problems(target, require_closer=True)
-    if final_verify_problems:
+    if final_verify_problems and not failed_closeout_mode:
         raise SystemExit(
             "finalize refused - final verification failed after writing closeout artifacts:\n  - "
             + "\n  - ".join(final_verify_problems)
             + "\nFix the bundle state or final report inputs and rerun finalize."
         )
     status = read_status(target)
-    status["last_verify_ok"] = True
+    status["last_verify_ok"] = not bool(final_verify_problems)
     status["last_verified_plan_revision"] = status.get("plan_revision")
     status["last_verified_at_utc"] = utc_now()
     status["last_verified_event_sequence"] = _next_event_sequence(status)
     status.setdefault("closeout_status", {})
     status["closeout_status"].update(
         {
-            "final_verify_ok": True,
+            "final_verify_ok": not bool(final_verify_problems),
             "final_verified_at_utc": status["last_verified_at_utc"],
             "completed": decision == "accepted",
             "closed": True,
@@ -6861,7 +7096,10 @@ def _finalize_bundle_locked(
         }
     )
     write_status(target, status)
-    append_ledger(target, "finalize-complete", f"Final verification passed; gate={gate_status}, decision={decision}")
+    if failed_closeout_mode and final_verify_problems:
+        append_ledger(target, "finalize-complete", f"Failed closeout recorded; gate={gate_status}, decision={decision}")
+    else:
+        append_ledger(target, "finalize-complete", f"Final verification passed; gate={gate_status}, decision={decision}")
     current = read_current(root)
     if current and current.get("slug") == slug:
         append_history(root, slug, status, "finalize")
@@ -7007,14 +7245,14 @@ def _default_render_status_label(status: dict) -> str:
     return "Progress"
 
 
-def render_status_response(
+def build_render_status_response(
     root: Path,
     slug: str,
     status_label: str | None,
     profile: str | None = None,
     role: str = "Closer",
     source: str = "agent",
-) -> int:
+) -> str:
     target = ensure_bundle(root, slug)
     status = read_status(target)
     status_label = status_label or _default_render_status_label(status)
@@ -7193,7 +7431,18 @@ def render_status_response(
         "Next Action:",
         next_action_line,
     ])
-    print("\n".join(lines))
+    return "\n".join(lines)
+
+
+def render_status_response(
+    root: Path,
+    slug: str,
+    status_label: str | None,
+    profile: str | None = None,
+    role: str = "Closer",
+    source: str = "agent",
+) -> int:
+    print(build_render_status_response(root, slug, status_label, profile, role, source))
     return 0
 
 
@@ -7370,6 +7619,13 @@ def validate_formal_status_visible_output(tool_stdout: str, assistant_visible_bo
         problems.append("Next Action section must name the next recommended action or state that no unresolved task remains")
     elif not re.search(r"(?m)^\s*-\s+\S", next_action):
         problems.append("Next Action section must use a bullet line starting with '- '")
+    if re.search(
+        r"(?is)\b(?:type|say|reply|respond)\s+(?:with\s+)?[`'\"]?(?:next|continue)[`'\"]?"
+        r"|(?:输入|回复|发送).{0,12}(?:下一步|继续)"
+        r"|(?:等待|等).{0,12}(?:用户|user).{0,12}(?:next|下一步|continue|继续)",
+        next_action,
+    ):
+        problems.append("Next Action must not ask the user to type next for same-scope safe work the agent can execute now")
     key_details = _section_between(assistant_visible_body, "Key Technical Details:", "Next Action:")
     exploration_match = re.search(r"EXPLORATION_OUTPUT_ID:\s*(\S+)", key_details)
     ready_match = re.search(r"READY_TASK_OUTPUT_ID:\s*(\S+)", key_details)
@@ -7450,6 +7706,92 @@ def output_compliance_check(
     else:
         print("output-compliance: PASS")
     return 0 if not problems else 1
+
+
+def _auto_output_compliance_result(
+    tool_stdout: str,
+    assistant_visible_body: str,
+    prompt: str = "",
+    transcript: str = "",
+    actions: list[str] | None = None,
+) -> dict[str, Any]:
+    response_classification = classify_response_mode(prompt=prompt, transcript=transcript, actions=actions)
+    response_kind = response_classification["response_kind"]
+    if response_kind in {"formal-tracked-handoff", "blocked-handoff"}:
+        effective_kind = "formal-status"
+        problems = validate_formal_status_visible_output(tool_stdout, assistant_visible_body)
+    elif response_kind == "ordinary-answer":
+        effective_kind = "ordinary"
+        problems = validate_ordinary_visible_output(assistant_visible_body)
+    elif response_kind in {"read-only-status", "mixed-review"}:
+        effective_kind = "formal-status" if re.search(FORMAL_STATUS_PREFIX_PATTERN, assistant_visible_body) else "ordinary"
+        problems = (
+            validate_formal_status_visible_output(tool_stdout, assistant_visible_body)
+            if effective_kind == "formal-status"
+            else validate_ordinary_visible_output(assistant_visible_body)
+        )
+    else:
+        raise SystemExit(f"response final-body refused - unsupported auto response kind: {response_kind}")
+    return {
+        "kind": "auto",
+        "effective_kind": effective_kind,
+        "ok": not problems,
+        "problems": problems,
+        "response_classification": response_classification,
+    }
+
+
+def response_final_body(
+    root: Path | None,
+    slug: str | None,
+    status_label: str | None,
+    profile: str | None,
+    role: str,
+    source: str,
+    tool_stdout: str | None,
+    tool_stdout_file: str | None,
+    assistant_body: str | None,
+    assistant_body_file: str | None,
+    prompt: str,
+    prompt_file: str | None,
+    transcript: str,
+    transcript_file: str | None,
+    actions: list[str],
+    json_only: bool,
+) -> int:
+    prompt_text = read_content_arg(prompt, prompt_file) if prompt or prompt_file else ""
+    transcript_text = read_content_arg(transcript, transcript_file) if transcript or transcript_file else ""
+    effective_actions = actions or ["render-status", "tracked-delivery"]
+    if assistant_body or assistant_body_file:
+        final_body = read_content_arg(assistant_body, assistant_body_file)
+        tool_body = read_content_arg(tool_stdout, tool_stdout_file) if tool_stdout or tool_stdout_file else final_body
+    else:
+        if root is None or not slug:
+            raise SystemExit("response final-body requires --root and --slug unless --assistant-body or --assistant-body-file is provided")
+        final_body = build_render_status_response(root, slug, status_label, profile, role, source)
+        tool_body = final_body
+    result = _auto_output_compliance_result(
+        tool_body,
+        final_body,
+        prompt=prompt_text,
+        transcript=transcript_text,
+        actions=effective_actions,
+    )
+    payload = {
+        "schema": "idea-to-code.response.final-body.v1",
+        **result,
+        "actions": effective_actions,
+        "body": final_body if not result["problems"] else "",
+    }
+    if json_only:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    elif result["problems"]:
+        print("response final-body: FAIL")
+        for problem in result["problems"]:
+            print(f"- {problem}")
+    else:
+        print(final_body)
+    return 0 if not result["problems"] else 1
 
 
 TOOL_ACTION_PREFIXES = (
@@ -8035,6 +8377,31 @@ FRESH_BENCHMARK_RAW_OUTPUT_MARKERS = (
     "READY_TASK_OUTPUT_ID",
 )
 
+FRESH_BENCHMARK_SAME_SESSION_MARKERS = (
+    "Run mode: same-session sequential",
+    "Subagents used: no",
+    "State source for FS-4/FS-7",
+)
+
+FRESH_BENCHMARK_EVIDENCE_MODES = {
+    "fresh-agent": FRESH_BENCHMARK_RAW_OUTPUT_MARKERS,
+    "same-session-sequential": FRESH_BENCHMARK_SAME_SESSION_MARKERS,
+}
+
+FRESH_BENCHMARK_FS_LABELS = tuple(f"FS-{index}" for index in range(1, 8))
+
+FRESH_BENCHMARK_SCORING_DIMENSIONS = (
+    "Controlled Exploration fit",
+    "User-goal critique",
+    "Recommended decision",
+    "READY visibility",
+    "Current TASK loop",
+    "Overview loop",
+    "Response mode",
+    "Status semantics",
+    "Small-task friction",
+)
+
 FRESH_BENCHMARK_SCORE_TOTAL_FIELDS = ("total", "total_score", "score")
 
 
@@ -8132,6 +8499,284 @@ def _fresh_benchmark_template_text() -> str:
     return "# Fresh-Session Live Benchmark Template\n\n" + match.group("body").strip() + "\n"
 
 
+def _fresh_benchmark_same_session_results(raw_text: str) -> dict[str, bool]:
+    results = {marker: marker in raw_text for marker in FRESH_BENCHMARK_SAME_SESSION_MARKERS}
+    for label in FRESH_BENCHMARK_FS_LABELS:
+        results[label] = bool(re.search(rf"^\s*(?:#+\s*)?{re.escape(label)}\b", raw_text, flags=re.MULTILINE))
+    return results
+
+
+def _fresh_benchmark_raw_answer_results(raw_text: str) -> dict[str, bool]:
+    if "Raw answer capture summary" in raw_text and "Raw Answers" not in raw_text:
+        return {label: False for label in FRESH_BENCHMARK_FS_LABELS}
+    raw_section = raw_text.split("Raw Answers", 1)[1] if "Raw Answers" in raw_text else raw_text
+    return {
+        label: bool(re.search(rf"^\s*(?:#+\s*)?{re.escape(label)}\b", raw_section, flags=re.MULTILINE))
+        for label in FRESH_BENCHMARK_FS_LABELS
+    }
+
+
+def _fresh_benchmark_raw_answer_section(raw_text: str, label: str) -> str:
+    raw_section = raw_text.split("Raw Answers", 1)[1] if "Raw Answers" in raw_text else raw_text
+    start = re.search(rf"^\s*(?:#+\s*)?{re.escape(label)}\b.*$", raw_section, flags=re.MULTILINE)
+    if not start:
+        return ""
+    next_label_number = int(label.split("-", 1)[1]) + 1
+    section_with_heading = raw_section[start.start():]
+    end = re.search(rf"^\s*(?:#+\s*)?FS-{next_label_number}\b.*$", section_with_heading[start.end() - start.start():], flags=re.MULTILINE)
+    if not end:
+        return section_with_heading
+    offset = start.end() - start.start()
+    return section_with_heading[:offset + end.start()]
+
+
+def _fresh_benchmark_default_prompt_results(raw_text: str) -> dict[str, bool]:
+    fs3 = _fresh_benchmark_raw_answer_section(raw_text, "FS-3").lower()
+    return {
+        "FS-3 README test sentence": bool(fs3 and "readme" in fs3 and re.search(r"\btests?\b|test command|run tests", fs3)),
+    }
+
+
+def _fresh_benchmark_per_output_scoring_results(raw_text: str) -> dict[str, bool]:
+    match = re.search(r"^\s*(?:#+\s*)?(?:\*\*)?Per-Output Scoring\b(?:\*\*)?.*$", raw_text, flags=re.IGNORECASE | re.MULTILINE)
+    if not match:
+        return {label: False for label in FRESH_BENCHMARK_FS_LABELS}
+    scoring_section = raw_text[match.end():]
+    return {
+        label: bool(re.search(rf"^\s*(?:#+\s*)?(?:\*\*)?Scenario:\s*{re.escape(label)}\b", scoring_section, flags=re.IGNORECASE | re.MULTILINE))
+        for label in FRESH_BENCHMARK_FS_LABELS
+    }
+
+
+def _fresh_benchmark_per_output_scoring_sections(raw_text: str) -> dict[str, str]:
+    match = re.search(r"^\s*(?:#+\s*)?(?:\*\*)?Per-Output Scoring\b(?:\*\*)?.*$", raw_text, flags=re.IGNORECASE | re.MULTILINE)
+    if not match:
+        return {label: "" for label in FRESH_BENCHMARK_FS_LABELS}
+    scoring_section = raw_text[match.end():]
+    sections: dict[str, str] = {}
+    for label in FRESH_BENCHMARK_FS_LABELS:
+        start = re.search(rf"^\s*(?:#+\s*)?(?:\*\*)?Scenario:\s*{re.escape(label)}\b.*$", scoring_section, flags=re.IGNORECASE | re.MULTILINE)
+        if not start:
+            sections[label] = ""
+            continue
+        next_number = int(label.split("-", 1)[1]) + 1
+        section_with_heading = scoring_section[start.start():]
+        next_match = re.search(
+            rf"^\s*(?:#+\s*)?(?:\*\*)?Scenario:\s*FS-{next_number}\b.*$",
+            section_with_heading[start.end() - start.start():],
+            flags=re.IGNORECASE | re.MULTILINE,
+        )
+        if not next_match:
+            sections[label] = section_with_heading
+            continue
+        offset = start.end() - start.start()
+        sections[label] = section_with_heading[:offset + next_match.start()]
+    return sections
+
+
+def _fresh_benchmark_scoring_dimension_results(raw_text: str) -> dict[str, dict[str, bool]]:
+    sections = _fresh_benchmark_per_output_scoring_sections(raw_text)
+    return {
+        label: {dimension: dimension in section for dimension in FRESH_BENCHMARK_SCORING_DIMENSIONS}
+        for label, section in sections.items()
+    }
+
+
+def _fresh_benchmark_raw_dimension_score(raw_text: str) -> tuple[int | None, int | None]:
+    sections = _fresh_benchmark_per_output_scoring_sections(raw_text)
+    if not any(sections.values()):
+        return None, None
+    total = 0
+    expected = 0
+    for section in sections.values():
+        if not section:
+            continue
+        for dimension in FRESH_BENCHMARK_SCORING_DIMENSIONS:
+            match = re.search(
+                rf"^\s*-\s*{re.escape(dimension)}:\s*([01])\b",
+                section,
+                flags=re.MULTILINE,
+            )
+            if match:
+                total += int(match.group(1))
+            expected += 1
+    if expected == 0:
+        return None, None
+    return total, expected
+
+
+def _fresh_benchmark_declared_total_score(raw_text: str) -> int | None:
+    match = re.search(r"^\s*-\s*Total score:\s*(\d+)\s*/\s*63\b", raw_text, flags=re.IGNORECASE | re.MULTILINE)
+    if not match:
+        match = re.search(r"^\s*Total score:\s*(\d+)\s*/\s*63\b", raw_text, flags=re.IGNORECASE | re.MULTILINE)
+    if not match:
+        return None
+    return int(match.group(1))
+
+
+def _fresh_benchmark_runner_prompt(current_window_runner: str, run_comparability: str) -> str:
+    return f"""Use idea-to-code. Run the fresh-session benchmark against this repository.
+
+Do not spawn subagents; answer the default FS-1 through FS-7 benchmark prompts sequentially in this same fresh Codex session unless the benchmark explicitly asks for subagent behavior.
+Before FS-4 and FS-7, check whether `.idea-to-code/current.json` already exists. When answering status/overview prompts, state whether the status comes from existing fixture bundle state, benchmark-produced temporary state, or no active/read-only state.
+Capture raw answers for each prompt. Do not edit files unless the specific benchmark prompt asks for an edit.
+Use FS-3 raw-answer benchmark mode unless I explicitly ask for execution benchmark mode.
+
+Runner parity fields:
+- Current window runner: {current_window_runner}
+- Fresh runner: report the runner/model/reasoning/session metadata visible to this session.
+- Runner parity: yes only if the fresh runner matches the current window runner; otherwise no or unverified.
+- Run comparability: {run_comparability}
+
+Your final answer must include `Raw Answers` with FS-1 through FS-7 sections and `Per-Output Scoring` with `Scenario: FS-1` through `Scenario: FS-7` sections. The declared `Total score` must equal the sum of all 63 per-dimension 0|1 score lines.
+"""
+
+
+def _codex_exec_prefix(codex_path: str) -> list[str]:
+    path = Path(codex_path)
+    if os.name == "nt" and path.suffix.lower() == ".ps1":
+        powershell = shutil.which("powershell.exe") or shutil.which("powershell")
+        if not powershell:
+            raise SystemExit("fresh-benchmark run-self refused - codex resolved to a PowerShell script but powershell.exe was not found")
+        return [powershell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(path)]
+    return [codex_path]
+
+
+def _fresh_benchmark_parse_codex_exec_metadata(stdout: str) -> dict[str, str]:
+    fields = {
+        "workdir": "workdir",
+        "model": "model",
+        "provider": "provider",
+        "approval": "approval",
+        "sandbox": "sandbox",
+        "reasoning_effort": "reasoning effort",
+        "session_id": "session id",
+    }
+    metadata: dict[str, str] = {}
+    for key, label in fields.items():
+        match = re.search(rf"^\s*{re.escape(label)}:\s*(.+?)\s*$", stdout, flags=re.IGNORECASE | re.MULTILINE)
+        if match:
+            metadata[key] = match.group(1).strip()
+    if metadata:
+        bits = []
+        if metadata.get("model"):
+            bits.append(f"model={metadata['model']}")
+        if metadata.get("provider"):
+            bits.append(f"provider={metadata['provider']}")
+        if metadata.get("reasoning_effort"):
+            bits.append(f"reasoning={metadata['reasoning_effort']}")
+        if metadata.get("sandbox"):
+            bits.append(f"sandbox={metadata['sandbox']}")
+        if metadata.get("session_id"):
+            bits.append(f"session={metadata['session_id']}")
+        metadata["summary"] = "; ".join(bits)
+    return metadata
+
+
+def _fresh_benchmark_score_json_from_raw(
+    raw_text: str,
+    runner_parity: str,
+    run_comparability: str,
+    fresh_runner_metadata: dict[str, str] | None = None,
+) -> str:
+    declared_total = _fresh_benchmark_declared_total_score(raw_text)
+    dimension_score, expected = _fresh_benchmark_raw_dimension_score(raw_text)
+    total = declared_total if declared_total is not None else dimension_score
+    scores: dict[str, object] = {
+        "total": f"{total}/63" if total is not None else "unverified",
+        "runner_parity": runner_parity,
+        "run_comparability": run_comparability,
+    }
+    if fresh_runner_metadata:
+        scores["fresh_runner"] = fresh_runner_metadata.get("summary") or fresh_runner_metadata
+    if dimension_score is not None:
+        scores["raw_dimension_score"] = dimension_score
+    if expected is not None:
+        scores["raw_dimension_score_expected"] = expected
+    return json.dumps(scores, ensure_ascii=False)
+
+
+def _fresh_benchmark_current_runner_metadata(
+    model: str | None,
+    provider: str | None,
+    reasoning_effort: str | None,
+    sandbox: str | None,
+) -> dict[str, str]:
+    metadata: dict[str, str] = {}
+    if model:
+        metadata["model"] = model
+    if provider:
+        metadata["provider"] = provider
+    if reasoning_effort:
+        metadata["reasoning_effort"] = reasoning_effort
+    if sandbox:
+        metadata["sandbox"] = sandbox
+    return metadata
+
+
+def _fresh_benchmark_resolve_runner_parity(
+    requested: str,
+    current: dict[str, str],
+    fresh: dict[str, str],
+    current_metadata_source: str = "unverified",
+) -> tuple[str, str, list[str]]:
+    if requested in {"yes", "no"}:
+        comparability = "release-readiness evidence" if requested == "yes" else "non-comparable diagnostic"
+        return requested, comparability, ["manual override"]
+    if not current:
+        return "unverified", "non-comparable diagnostic", ["no current runner metadata provided"]
+    if current_metadata_source not in {"host", "user-confirmed"}:
+        return "unverified", "non-comparable diagnostic", [f"current runner metadata source is {current_metadata_source}, not host or user-confirmed"]
+    comparable_fields = sorted(field for field in current if current.get(field))
+    missing = [field for field in comparable_fields if not fresh.get(field)]
+    mismatched = [
+        field
+        for field in comparable_fields
+        if fresh.get(field) and fresh.get(field) != current.get(field)
+    ]
+    if missing:
+        return "unverified", "non-comparable diagnostic", [f"fresh runner metadata missing: {', '.join(missing)}"]
+    if mismatched:
+        details = ", ".join(f"{field}: current={current[field]} fresh={fresh.get(field)}" for field in mismatched)
+        return "no", "non-comparable diagnostic", [f"runner metadata mismatch: {details}"]
+    return "yes", "release-readiness evidence", [f"matched fields: {', '.join(comparable_fields)}"]
+
+
+def _fresh_benchmark_score_range_problems(scores: object) -> list[str]:
+    if not isinstance(scores, dict):
+        return []
+    problems: list[str] = []
+
+    def check_value(path: str, value: object) -> None:
+        parsed: float | None = None
+        if isinstance(value, bool):
+            return
+        if isinstance(value, (int, float)):
+            parsed = float(value)
+        elif isinstance(value, str):
+            match = re.fullmatch(r"\s*(\d+(?:\.\d+)?)(?:\s*/\s*9)?\s*", value)
+            if match:
+                parsed = float(match.group(1))
+        if parsed is not None and (parsed < 0 or parsed > 9):
+            problems.append(f"scores-json per-output score out of 0-9 range: {path}={value}")
+
+    for key, value in scores.items():
+        key_lower = str(key).lower()
+        if re.fullmatch(r"fs[-_ ]?[1-7]", key_lower):
+            if isinstance(value, dict):
+                for nested_key in ("score", "total"):
+                    if nested_key in value:
+                        check_value(f"{key}.{nested_key}", value[nested_key])
+            else:
+                check_value(str(key), value)
+        elif isinstance(value, dict):
+            for nested_key, nested_value in value.items():
+                nested_lower = str(nested_key).lower()
+                if re.fullmatch(r"fs[-_ ]?[1-7]", nested_lower):
+                    check_value(f"{key}.{nested_key}", nested_value)
+    return problems
+
+
 def fresh_benchmark_init(root: Path, slug: str, force: bool) -> int:
     target = ensure_active_bundle(root, slug, allow_blocked=True)
     artifact = _fresh_benchmark_artifact_path(target)
@@ -8203,6 +8848,169 @@ def fresh_benchmark_import_result(root: Path, slug: str, raw_output_file: str, s
     return 0
 
 
+def fresh_benchmark_run_self(
+    root: Path,
+    slug: str,
+    fixture_root: str | None,
+    current_window_runner: str,
+    runner_parity: str,
+    current_model: str | None,
+    current_provider: str | None,
+    current_reasoning_effort: str | None,
+    current_sandbox: str | None,
+    current_metadata_source: str,
+    model: str | None,
+    sandbox: str,
+    timeout_seconds: int,
+    import_result: bool,
+    strict: bool,
+    strict_level: str,
+) -> int:
+    target = ensure_active_bundle(root, slug, allow_blocked=True)
+    artifact = _fresh_benchmark_artifact_path(target)
+    if not artifact.exists():
+        with open(os.devnull, "w", encoding="utf-8") as devnull, redirect_stdout(devnull):
+            fresh_benchmark_init(root, slug, False)
+    codex = shutil.which("codex")
+    if not codex:
+        result = {
+            "schema": "idea-to-code.fresh-benchmark.run-self.v1",
+            "ok": False,
+            "status": "unavailable",
+            "problem": "codex CLI not found on PATH",
+            "run_comparability": "external validation required",
+        }
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 2
+
+    current_runner_metadata = _fresh_benchmark_current_runner_metadata(
+        current_model,
+        current_provider,
+        current_reasoning_effort,
+        current_sandbox,
+    )
+    initial_comparability = "release-readiness evidence" if runner_parity == "yes" else "non-comparable diagnostic"
+    fixture = Path(fixture_root).resolve() if fixture_root else root
+    output_file = target / "artifacts" / "fresh-benchmark-self-last-message.txt"
+    stdout_file = target / "artifacts" / "fresh-benchmark-self-stdout.txt"
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    for path in (output_file, stdout_file):
+        if path.exists():
+            path.unlink()
+    prompt = _fresh_benchmark_runner_prompt(current_window_runner, initial_comparability)
+    command = (
+        _codex_exec_prefix(codex)
+        + ["--ask-for-approval", "never", "--sandbox", sandbox]
+        + (["--model", model] if model else [])
+        + ["exec", "--cd", str(fixture), "--output-last-message", str(output_file), "-"]
+    )
+    started = time.time()
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=str(fixture),
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            input=prompt,
+            timeout=timeout_seconds,
+            check=False,
+        )
+        stdout_file.write_text(completed.stdout or "", encoding="utf-8")
+        timed_out = False
+        returncode = completed.returncode
+    except subprocess.TimeoutExpired as exc:
+        stdout_file.write_text((exc.stdout or "") + (exc.stderr or ""), encoding="utf-8")
+        timed_out = True
+        returncode = 124
+    elapsed = round(time.time() - started, 3)
+    stdout_text = stdout_file.read_text(encoding="utf-8") if stdout_file.exists() else ""
+    fresh_runner_metadata = _fresh_benchmark_parse_codex_exec_metadata(stdout_text)
+    resolved_runner_parity, comparability, runner_parity_reasons = _fresh_benchmark_resolve_runner_parity(
+        runner_parity,
+        current_runner_metadata,
+        fresh_runner_metadata,
+        current_metadata_source,
+    )
+    raw_text = output_file.read_text(encoding="utf-8") if output_file.exists() else ""
+    external_status = "completed" if returncode == 0 and raw_text.strip() else "partial"
+    scores_json = _fresh_benchmark_score_json_from_raw(raw_text, resolved_runner_parity, comparability, fresh_runner_metadata)
+    imported = False
+    verify_result: dict | None = None
+    if import_result and raw_text.strip():
+        with open(os.devnull, "w", encoding="utf-8") as devnull, redirect_stdout(devnull):
+            fresh_benchmark_import_result(root, slug, str(output_file), scores_json, external_status)
+        with bundle_lock(target):
+            status = read_status(target)
+            status["fresh_benchmark_self_run"] = {
+                "at_utc": utc_now(),
+                "codex_path": codex,
+                "fixture_root": str(fixture),
+                "current_window_runner": current_window_runner,
+                "current_runner_metadata": current_runner_metadata,
+                "current_metadata_source": current_metadata_source,
+                "fresh_runner_metadata": fresh_runner_metadata,
+                "runner_parity": resolved_runner_parity,
+                "runner_parity_requested": runner_parity,
+                "runner_parity_reasons": runner_parity_reasons,
+                "run_comparability": comparability,
+                "sandbox": sandbox,
+                "model": model,
+                "returncode": returncode,
+                "timed_out": timed_out,
+                "elapsed_seconds": elapsed,
+                "stdout_artifact": str(stdout_file.relative_to(target)),
+            }
+            write_status(target, status)
+        verify_result = _fresh_benchmark_import_verification(target, read_status(target))
+        imported = True
+    result = {
+        "schema": "idea-to-code.fresh-benchmark.run-self.v1",
+        "ok": returncode == 0 and bool(raw_text.strip()),
+        "status": external_status,
+        "returncode": returncode,
+        "timed_out": timed_out,
+        "elapsed_seconds": elapsed,
+        "codex_path": codex,
+        "fixture_root": str(fixture),
+        "current_window_runner": current_window_runner,
+        "current_runner_metadata": current_runner_metadata,
+        "current_metadata_source": current_metadata_source,
+        "fresh_runner_metadata": fresh_runner_metadata,
+        "runner_parity": resolved_runner_parity,
+        "runner_parity_requested": runner_parity,
+        "runner_parity_reasons": runner_parity_reasons,
+        "run_comparability": comparability,
+        "sandbox": sandbox,
+        "model": model,
+        "raw_output_file": str(output_file),
+        "stdout_file": str(stdout_file),
+        "imported": imported,
+        "verify_import_ok": verify_result.get("ok") if verify_result else None,
+        "verify_import_problems": verify_result.get("problems") if verify_result else None,
+    }
+    strict_problems: list[str] = []
+    if strict:
+        if not result["ok"]:
+            strict_problems.append("codex exec did not complete with a final assistant message")
+        if not imported:
+            strict_problems.append("run-self did not import a raw output artifact")
+        if result["verify_import_ok"] is not True:
+            strict_problems.append("verify-import did not pass")
+        if strict_level == "release" and comparability != "release-readiness evidence":
+            strict_problems.append(f"run comparability is {comparability}")
+    result["strict"] = strict
+    result["strict_level"] = strict_level
+    result["strict_ok"] = not strict_problems
+    result["strict_problems"] = strict_problems
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+    if strict and strict_problems:
+        return 3
+    return 0 if result["ok"] else 1
+
+
 def _fresh_benchmark_import_verification(target: Path, status: dict) -> dict:
     payload = _fresh_benchmark_payload(target, status)
     problems: list[str] = []
@@ -8210,6 +9018,25 @@ def _fresh_benchmark_import_verification(target: Path, status: dict) -> dict:
     score_rel = status.get("fresh_benchmark_score_artifact")
     raw_text = ""
     scores = status.get("fresh_benchmark_scores")
+    mode_results = {
+        mode: {marker: False for marker in markers}
+        for mode, markers in FRESH_BENCHMARK_EVIDENCE_MODES.items()
+    }
+    mode_results["same-session-sequential"] = {
+        **{marker: False for marker in FRESH_BENCHMARK_SAME_SESSION_MARKERS},
+        **{label: False for label in FRESH_BENCHMARK_FS_LABELS},
+    }
+    accepted_modes: list[str] = []
+    raw_answer_results = {label: False for label in FRESH_BENCHMARK_FS_LABELS}
+    per_output_scoring_results = {label: False for label in FRESH_BENCHMARK_FS_LABELS}
+    scoring_dimension_results = {
+        label: {dimension: False for dimension in FRESH_BENCHMARK_SCORING_DIMENSIONS}
+        for label in FRESH_BENCHMARK_FS_LABELS
+    }
+    declared_total_score: int | None = None
+    raw_dimension_score: int | None = None
+    raw_dimension_score_expected: int | None = None
+    default_prompt_results = {"FS-3 README test sentence": False}
 
     if not payload["exists"]:
         problems.append("fresh-benchmark scaffold artifact is missing; run fresh-benchmark init first")
@@ -8226,9 +9053,88 @@ def _fresh_benchmark_import_verification(target: Path, status: dict) -> dict:
             problems.append(f"raw output artifact missing: {raw_rel}")
         else:
             raw_text = raw_path.read_text(encoding="utf-8")
-            for marker in FRESH_BENCHMARK_RAW_OUTPUT_MARKERS:
-                if marker not in raw_text:
-                    problems.append(f"raw output missing marker: {marker}")
+            mode_results = {
+                mode: {marker: marker in raw_text for marker in markers}
+                for mode, markers in FRESH_BENCHMARK_EVIDENCE_MODES.items()
+            }
+            mode_results["same-session-sequential"] = _fresh_benchmark_same_session_results(raw_text)
+            raw_answer_results = _fresh_benchmark_raw_answer_results(raw_text)
+            per_output_scoring_results = _fresh_benchmark_per_output_scoring_results(raw_text)
+            scoring_dimension_results = _fresh_benchmark_scoring_dimension_results(raw_text)
+            declared_total_score = _fresh_benchmark_declared_total_score(raw_text)
+            raw_dimension_score, raw_dimension_score_expected = _fresh_benchmark_raw_dimension_score(raw_text)
+            default_prompt_results = _fresh_benchmark_default_prompt_results(raw_text)
+            accepted_modes = [
+                mode for mode, results in mode_results.items()
+                if all(results.values())
+            ]
+            if not accepted_modes:
+                for marker in FRESH_BENCHMARK_RAW_OUTPUT_MARKERS:
+                    if marker not in raw_text:
+                        problems.append(f"raw output missing marker: {marker}")
+                for marker in FRESH_BENCHMARK_SAME_SESSION_MARKERS:
+                    if marker not in raw_text:
+                        problems.append(f"raw output missing same-session marker: {marker}")
+                for label in FRESH_BENCHMARK_FS_LABELS:
+                    if not mode_results["same-session-sequential"].get(label, False):
+                        problems.append(f"raw output missing same-session marker: {label}")
+            summary_only_raw_capture = "Raw answer capture summary" in raw_text and "Raw Answers" not in raw_text
+            should_require_raw_answers = "same-session-sequential" in accepted_modes or summary_only_raw_capture
+            if summary_only_raw_capture:
+                problems.append("raw output uses Raw answer capture summary instead of Raw Answers sections")
+            if should_require_raw_answers:
+                if "Raw Answers" not in raw_text:
+                    problems.append("raw output missing Raw Answers section")
+                for label, present in raw_answer_results.items():
+                    if not present:
+                        problems.append(f"raw output missing raw answer section: {label}")
+                if not default_prompt_results["FS-3 README test sentence"]:
+                    problems.append("raw output FS-3 does not match default prompt: README test sentence")
+            if "Per-Output Scoring" not in raw_text and "Per-output scoring" not in raw_text:
+                problems.append("raw output missing Per-Output Scoring section")
+            for label, present in per_output_scoring_results.items():
+                if not present:
+                    problems.append(f"raw output missing per-output scoring section: {label}")
+                elif not all(scoring_dimension_results[label].values()):
+                    missing = [
+                        dimension
+                        for dimension, dimension_present in scoring_dimension_results[label].items()
+                        if not dimension_present
+                    ]
+                    problems.append(
+                        f"raw output per-output scoring section missing dimension evidence: {label} ({', '.join(missing)})"
+                    )
+            if (
+                declared_total_score is not None
+                and raw_dimension_score is not None
+                and raw_dimension_score_expected == 63
+                and declared_total_score != raw_dimension_score
+            ):
+                problems.append(
+                    f"raw output Total score mismatch: declared {declared_total_score}/63 but dimension scores sum to {raw_dimension_score}/63"
+                )
+        if raw_text:
+            mode_results = {
+                mode: {marker: marker in raw_text for marker in markers}
+                for mode, markers in FRESH_BENCHMARK_EVIDENCE_MODES.items()
+            }
+            mode_results["same-session-sequential"] = _fresh_benchmark_same_session_results(raw_text)
+            raw_answer_results = _fresh_benchmark_raw_answer_results(raw_text)
+            per_output_scoring_results = _fresh_benchmark_per_output_scoring_results(raw_text)
+            scoring_dimension_results = _fresh_benchmark_scoring_dimension_results(raw_text)
+            declared_total_score = _fresh_benchmark_declared_total_score(raw_text)
+            raw_dimension_score, raw_dimension_score_expected = _fresh_benchmark_raw_dimension_score(raw_text)
+            default_prompt_results = _fresh_benchmark_default_prompt_results(raw_text)
+            accepted_modes = [
+                mode for mode, results in mode_results.items()
+                if all(results.values())
+            ]
+        else:
+            mode_results = {
+                mode: {marker: False for marker in markers}
+                for mode, markers in FRESH_BENCHMARK_EVIDENCE_MODES.items()
+            }
+            accepted_modes = []
 
     if not score_rel:
         problems.append("import-result has not recorded a score JSON artifact")
@@ -8254,6 +9160,7 @@ def _fresh_benchmark_import_verification(target: Path, status: dict) -> dict:
         detail_fields = [field for field in scores if field not in FRESH_BENCHMARK_SCORE_TOTAL_FIELDS]
         if not detail_fields:
             problems.append("scores-json must contain at least one detail field besides total")
+        problems.extend(_fresh_benchmark_score_range_problems(scores))
 
     return {
         "schema": "idea-to-code.fresh-benchmark.verify-import.v1",
@@ -8264,8 +9171,26 @@ def _fresh_benchmark_import_verification(target: Path, status: dict) -> dict:
         "score_artifact": score_rel,
         "external_run_status": status.get("fresh_benchmark_external_run_status"),
         "required_markers": list(FRESH_BENCHMARK_RAW_OUTPUT_MARKERS),
+        "required_marker_modes": {
+            mode: (
+                list(markers) + list(FRESH_BENCHMARK_FS_LABELS)
+                if mode == "same-session-sequential"
+                else list(markers)
+            )
+            for mode, markers in FRESH_BENCHMARK_EVIDENCE_MODES.items()
+        },
+        "accepted_evidence_mode": accepted_modes[0] if accepted_modes else None,
+        "accepted_evidence_modes": accepted_modes,
         "score_total_fields": list(FRESH_BENCHMARK_SCORE_TOTAL_FIELDS),
         "marker_results": {marker: marker in raw_text for marker in FRESH_BENCHMARK_RAW_OUTPUT_MARKERS},
+        "marker_results_by_mode": mode_results,
+        "raw_answer_section_results": raw_answer_results,
+        "per_output_scoring_results": per_output_scoring_results,
+        "per_output_scoring_dimension_results": scoring_dimension_results,
+        "declared_total_score": declared_total_score,
+        "raw_dimension_score": raw_dimension_score,
+        "raw_dimension_score_expected": raw_dimension_score_expected,
+        "default_prompt_results": default_prompt_results,
     }
 
 
@@ -8292,6 +9217,124 @@ def fresh_benchmark_status(root: Path, slug: str) -> int:
     payload = _fresh_benchmark_payload(target, status)
     print(json.dumps(payload, indent=2, ensure_ascii=False))
     return 0 if payload["exists"] else 1
+
+
+def evidence_closeout_payload(root: Path, slug: str, status_label: str | None) -> dict:
+    target = ensure_bundle(root, slug)
+    status = read_status(target)
+    require_closer = status.get("state") in {"completed", "closed"} or bool(status.get("finalized_at_utc"))
+    verify_problems = _bundle_integrity_problems(target, require_closer=require_closer)
+    fresh_payload = _fresh_benchmark_payload(target, status)
+    latest_milestone = _latest_milestone_entry(status) or {}
+    usable_delegation = [
+        record for record in status.get("delegation_records", [])
+        if record.get("status") == "usable"
+    ]
+    open_delegation = _open_delegation_findings(status)
+    render_status_label = status_label or _default_render_status_label(status)
+    render_command = (
+        'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" '
+        f"render-status --root <root> --slug {slug} --status {render_status_label}"
+    )
+    next_actions: list[str] = []
+    if verify_problems:
+        next_actions.append("fix verify problems before accepted closeout")
+    if open_delegation:
+        next_actions.append("resolve or disclose unusable delegation evidence")
+    if fresh_payload.get("exists") and not fresh_payload.get("evidence_ready"):
+        next_actions.append(str(fresh_payload.get("next_required_action")))
+    if not next_actions:
+        next_actions.append("run render-status and final output-compliance before final response")
+    return {
+        "schema": "idea-to-code.evidence-closeout.v1",
+        "path": str(target),
+        "slug": slug,
+        "read_only": True,
+        "verify_ok": not verify_problems,
+        "verify_problems": verify_problems,
+        "latest_milestone": {
+            "name": latest_milestone.get("name"),
+            "covers": latest_milestone.get("covers", []),
+            "verified": latest_milestone.get("verified"),
+            "gate_status": latest_milestone.get("gate_status"),
+        },
+        "delegation": {
+            "usable_count": len(usable_delegation),
+            "open_count": len(open_delegation),
+            "usable": [
+                {
+                    "id": record.get("id"),
+                    "role": record.get("role"),
+                    "scope": record.get("scope"),
+                    "agent_id": record.get("agent_id"),
+                }
+                for record in usable_delegation
+            ],
+            "open": [
+                {
+                    "id": record.get("id"),
+                    "role": record.get("role"),
+                    "status": record.get("status"),
+                    "scope": record.get("scope"),
+                }
+                for record in open_delegation
+            ],
+        },
+        "fresh_benchmark": {
+            "exists": fresh_payload.get("exists"),
+            "state": fresh_payload.get("state"),
+            "evidence_ready": fresh_payload.get("evidence_ready"),
+            "external_run_status": fresh_payload.get("external_run_status"),
+            "total": (fresh_payload.get("scores") or {}).get("total") if isinstance(fresh_payload.get("scores"), dict) else None,
+            "next_required_action": fresh_payload.get("next_required_action"),
+        },
+        "render_status": {
+            "status": render_status_label,
+            "command": render_command,
+        },
+        "next_actions": next_actions,
+    }
+
+
+def evidence_closeout(root: Path, slug: str, status_label: str | None, json_only: bool) -> int:
+    payload = evidence_closeout_payload(root, slug, status_label)
+    if json_only:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return 0 if payload["verify_ok"] else 1
+    print("[idea-to-code][Closer/agent] Evidence Closeout")
+    print("")
+    print(f"Bundle: {payload['slug']}")
+    print(f"Read Only: {str(payload['read_only']).lower()}")
+    print(f"Verify: {'PASS' if payload['verify_ok'] else 'FAIL'}")
+    if payload["verify_problems"]:
+        print("Verify Problems:")
+        for problem in payload["verify_problems"]:
+            print(f"- {problem}")
+    milestone = payload["latest_milestone"]
+    print("")
+    print("Latest Milestone:")
+    print(f"- Name: {milestone.get('name') or 'none'}")
+    print(f"- Covers: {', '.join(milestone.get('covers') or []) or 'none'}")
+    print(f"- Gate Status: {milestone.get('gate_status') or 'unknown'}")
+    print("")
+    print("Delegation:")
+    print(f"- Usable: {payload['delegation']['usable_count']}")
+    print(f"- Open: {payload['delegation']['open_count']}")
+    print("")
+    fresh = payload["fresh_benchmark"]
+    print("Fresh Benchmark:")
+    print(f"- State: {fresh.get('state')}")
+    print(f"- Evidence Ready: {str(fresh.get('evidence_ready')).lower()}")
+    if fresh.get("total"):
+        print(f"- Total: {fresh.get('total')}")
+    print("")
+    print("Render Status:")
+    print(f"- {payload['render_status']['command']}")
+    print("")
+    print("Next Actions:")
+    for action in payload["next_actions"]:
+        print(f"- {action}")
+    return 0 if payload["verify_ok"] else 1
 
 
 def branch_map(json_only: bool) -> int:
@@ -8485,9 +9528,14 @@ COMMAND_GUIDE_FLOWS: dict[str, list[dict[str, str]]] = {
             "notes": "quickstart requires --task and may refuse broad work; use init when refused.",
         },
         {
+            "step": "Create a fast-lane one-file bundle only when eligible",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" fast-lane --root "$(pwd)" --slug <slug> --title "<title>" --idea "<idea>" --task "<task>" --file <path> --verification "<validation type and command>"',
+            "notes": "fast-lane is the user-facing quickstart alias for clear low-risk one-file tasks and refuses the same risky or broad scopes.",
+        },
+        {
             "step": "Read current bundle",
-            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" current status --root "$(pwd)"',
-            "notes": "current status does not take --slug; bundle status does.",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" current inspect --root "$(pwd)"',
+            "notes": "current inspect is the non-mutating read-only path; current status also prints gate diagnostics and does not take --slug.",
         },
         {
             "step": "Read a specific bundle status",
@@ -8524,7 +9572,7 @@ COMMAND_GUIDE_FLOWS: dict[str, list[dict[str, str]]] = {
         {
             "step": "Check TASK/IMP markdown structure after manual edits",
             "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation plan-check --root "$(pwd)" --slug <slug> --json',
-            "notes": "Run before READY when 00-idea.md was edited manually.",
+            "notes": "Run before READY when 00-idea.md was edited manually. If remediation appears for Implementation Quality Contract failures, update implementation, rerun plan-check, refresh Exploration/READY, and do not treat stale implementation_ready as compliant.",
         },
     ],
     "implementation-edit": [
@@ -8552,6 +9600,11 @@ COMMAND_GUIDE_FLOWS: dict[str, list[dict[str, str]]] = {
             "step": "Run pre-edit guard",
             "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation pre-edit --root "$(pwd)" --slug <slug> --task TASK-1 --files <path-a> <path-b>',
             "notes": "Do not edit until this prints PRE_EDIT_OK_ID.",
+        },
+        {
+            "step": "Prefer guarded patch application when a patch file is available",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation guarded-apply --root "$(pwd)" --slug <slug> --task TASK-1 --patch-file <patch.diff> --owner agent',
+            "notes": "guarded-apply checks lease, pre-edit, and TASK file scope before git apply; native edit tools still require the same visible READY/pre-edit evidence and host-required disclosure.",
         },
         {
             "step": "Close non-verified current TASK outcomes before switching",
@@ -8584,6 +9637,11 @@ COMMAND_GUIDE_FLOWS: dict[str, list[dict[str, str]]] = {
             "step": "Record Reviewer evidence",
             "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" role record --root "$(pwd)" --slug <slug> --role reviewer --covers REQ-1 --evidence "<TASK/REQ same-agent review or independent review with usable delegation record>"',
             "notes": "Do not claim independent review without a usable delegation record.",
+        },
+        {
+            "step": "Summarize current closeout evidence without mutating state",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" evidence closeout --root "$(pwd)" --slug <slug>',
+            "notes": "Read-only summary of verify, delegation, fresh-benchmark, latest milestone, render-status recommendation, and next actions; it does not replace running validation.",
         },
     ],
     "closeout": [
@@ -8660,6 +9718,7 @@ def host_pre_edit_contract(json_only: bool) -> int:
     payload = {
         "schema": "idea-to-code.host-hook.pre-edit-contract.v1",
         "enforcement_boundary": "host-required",
+        "repo_can_intercept_native_tools": False,
         "purpose": "Physically block native file-editing tools until idea-to-code Display Layer and pre-edit gates pass.",
         "required_inputs": ["root", "slug", "task_id", "owner", "files", "assistant_visible_body"],
         "required_checks": [
@@ -8717,6 +9776,7 @@ def host_final_response_contract(json_only: bool) -> int:
     payload = {
         "schema": "idea-to-code.host-hook.final-response-contract.v1",
         "enforcement_boundary": "host-required",
+        "repo_can_intercept_final_response": False,
         "purpose": "Physically block malformed formal tracked handoffs before the assistant-visible final response is sent.",
         "required_inputs": [
             "response_kind",
@@ -8733,6 +9793,7 @@ def host_final_response_contract(json_only: bool) -> int:
             "profile-prefixed callers preserve Exploration/READY and final formal status fields",
             "Next Action is present as the final formal field",
             "Next Action content uses a bullet line starting with '- '",
+            "Next Action display is preserved; same-scope safe agent-owned next actions continue without user confirmation",
             "TASK/REQ mappings are concrete and no TASK-* or REQ-* placeholders remain",
             "ordinary read-only answers do not include READY, render-status, or fixed status fields",
         ],
@@ -8741,6 +9802,7 @@ def host_final_response_contract(json_only: bool) -> int:
             "assistant_visible_body omits any formal status field",
             "Next Action is missing or not the final formal field",
             "Next Action content is plain paragraph text instead of a bullet line",
+            "assistant asks the user to type next for same-scope safe work the agent can execute now",
             "tracked delivery actions occurred but final body is an ordinary summary",
             "profile-prefixed upper-layer output omits the underlying idea-to-code gates",
         ],
@@ -8812,6 +9874,22 @@ def verify_bundle(root: Path, slug: str) -> int:
             for rid, covers in coverage.items()
         },
     }
+    if any("Implementation Quality Contract:" in problem for problem in problems):
+        result["remediation"] = {
+            "reason": "Verification found TASK/IMP blocks that do not satisfy the current Implementation Quality Contract gate.",
+            "required_action": "Repair the implementation plan with concrete quality-contract fields, run implementation plan-check, refresh Exploration/READY, then rerun verify.",
+            "commands": [
+                "update --root <root> --slug <slug> --file implementation --content-file <implementation.md>",
+                "implementation plan-check --root <root> --slug <slug> --json",
+                "exploration render --root <root> --slug <slug>",
+                "implementation ready --root <root> --slug <slug> --task <TASK-ID>",
+                "verify --root <root> --slug <slug>",
+            ],
+            "must_not": [
+                "Do not treat stale implementation_ready state as compliant.",
+                "Do not close accepted work until the refreshed plan verifies.",
+            ],
+        }
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0 if not problems else 1
 
@@ -8973,7 +10051,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--idea", required=True)
     p.add_argument("--file", required=True, help="Primary file or module to edit.")
     p.add_argument("--task", required=True, help="Concrete TASK-1 description.")
-    p.add_argument("--verification", default="source-only inspect the changed file for the requested update")
+    p.add_argument("--verification", required=True)
+    p.add_argument("--unique", action="store_true", help="Use YYYYMMDD-HHMM-<normalized-slug> and add -02/-03 on collision.")
+    p.add_argument("--json", action="store_true", help="Print only machine-readable JSON instead of JSON plus READY TASK text.")
+
+    p = sub.add_parser("fast-lane", help="Alias quickstart for clear low-risk one-file tasks.")
+    p.add_argument("--root", required=True)
+    p.add_argument("--slug", required=True)
+    p.add_argument("--title", required=True)
+    p.add_argument("--idea", required=True)
+    p.add_argument("--file", required=True, help="Primary file or module to edit.")
+    p.add_argument("--task", required=True, help="Concrete TASK-1 description.")
+    p.add_argument("--verification", required=True)
     p.add_argument("--unique", action="store_true", help="Use YYYYMMDD-HHMM-<normalized-slug> and add -02/-03 on collision.")
     p.add_argument("--json", action="store_true", help="Print only machine-readable JSON instead of JSON plus READY TASK text.")
 
@@ -8983,8 +10072,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("contract", help="Print the fixed idea-to-code artifact contract.")
 
     p = sub.add_parser("test-batch", help="Run this skill's unittest suite in deterministic chunks.")
-    p.add_argument("--chunk-size", type=int, default=40)
-    p.add_argument("--timeout-seconds", type=int, default=180)
+    p.add_argument("--chunk-size", type=int, default=20)
+    p.add_argument("--timeout-seconds", type=int, default=300)
     p.add_argument("--limit", type=int, default=None, help="Optional test count limit for smoke validation.")
     p.add_argument("--profile", choices=tuple(TEST_BATCH_PROFILE_KEYWORDS), default="full", help="Validation profile to run.")
     p.add_argument("--slow-count", type=int, default=3, help="Number of slow chunks to summarize after a passing run.")
@@ -9018,6 +10107,31 @@ def build_parser() -> argparse.ArgumentParser:
     fbv = fb_sub.add_parser("verify-import", help="Audit imported fresh-session evidence before treating it as evidence ready.")
     fbv.add_argument("--root", required=True)
     fbv.add_argument("--slug", required=True)
+    fbr = fb_sub.add_parser("run-self", help="Run a local codex exec fresh benchmark and optionally import its output.")
+    fbr.add_argument("--root", required=True)
+    fbr.add_argument("--slug", required=True)
+    fbr.add_argument("--fixture-root", default=None, help="Repository root to pass to codex exec. Defaults to --root.")
+    fbr.add_argument("--current-window-runner", default="unverified", help="Current window agent/model/effort label for runner parity reporting.")
+    fbr.add_argument("--runner-parity", default="unverified", choices=("yes", "no", "unverified"))
+    fbr.add_argument("--current-model", default=None, help="Current window model, used to auto-resolve runner parity.")
+    fbr.add_argument("--current-provider", default=None, help="Current window provider, used to auto-resolve runner parity.")
+    fbr.add_argument("--current-reasoning-effort", default=None, help="Current window reasoning effort, used to auto-resolve runner parity.")
+    fbr.add_argument("--current-sandbox", default=None, help="Current window sandbox, used to auto-resolve runner parity.")
+    fbr.add_argument("--current-metadata-source", default="unverified", choices=("host", "user-confirmed", "inferred", "unverified"), help="Trust source for current-window metadata.")
+    fbr.add_argument("--model", default=None, help="Optional model to pass through to codex.")
+    fbr.add_argument("--sandbox", default="read-only", choices=("read-only", "workspace-write", "danger-full-access"))
+    fbr.add_argument("--timeout-seconds", type=int, default=2700)
+    fbr.add_argument("--import-result", action="store_true", help="Import the generated final message into the benchmark artifact.")
+    fbr.add_argument("--strict", action="store_true", help="Fail unless exec, import, verify-import, and release-readiness comparability all pass.")
+    fbr.add_argument("--strict-level", default="release", choices=("content", "release"), help="Strict gate scope: content checks exec/import/verify; release also requires release-readiness comparability.")
+
+    p = sub.add_parser("evidence", help="Summarize validation and closeout evidence without mutating state.")
+    ev_sub = p.add_subparsers(dest="evidence_command", required=True)
+    evc = ev_sub.add_parser("closeout", help="Render a read-only closeout evidence summary.")
+    evc.add_argument("--root", required=True)
+    evc.add_argument("--slug", required=True)
+    evc.add_argument("--status", choices=("Completed", "Progress", "Blocked"), default=None)
+    evc.add_argument("--json", action="store_true")
 
     p = sub.add_parser("branch-map", help="Print the lifecycle branch coverage map.")
     p.add_argument("--json", action="store_true", help="Print machine-readable JSON only.")
@@ -9054,6 +10168,25 @@ def build_parser() -> argparse.ArgumentParser:
                     choices=("edit", "install", "validation", "verify", "commit", "finalize", "checkpoint", "render-status", "output-compliance", "tracked-delivery", "status", "review", "blocked"),
                     help="Observed action signal. Repeat to pass multiple signals.")
     rc.add_argument("--json", action="store_true", help="Print machine-readable JSON only.")
+    rfb = response_sub.add_parser("final-body", help="Render or validate the exact final assistant-visible body for tracked closeout.")
+    rfb.add_argument("--root", help="Bundle root. Required unless --assistant-body or --assistant-body-file is supplied.")
+    rfb.add_argument("--slug", help="Bundle slug. Required unless --assistant-body or --assistant-body-file is supplied.")
+    rfb.add_argument("--status", choices=("Completed", "Progress", "Blocked"), help="Status label passed to render-status when rendering from a bundle.")
+    rfb.add_argument("--profile", default=None, help="Optional profile label passed to render-status.")
+    rfb.add_argument("--role", default="Closer", choices=("Closer", "closer"), help="Role label passed to render-status.")
+    rfb.add_argument("--source", default="agent", choices=("agent", "subagent"), help="Source label passed to render-status.")
+    rfb.add_argument("--tool-stdout")
+    rfb.add_argument("--tool-stdout-file")
+    rfb.add_argument("--assistant-body")
+    rfb.add_argument("--assistant-body-file")
+    rfb.add_argument("--prompt", default="", help="Prompt or summary used for auto response classification.")
+    rfb.add_argument("--prompt-file", help="File containing prompt text for auto response classification.")
+    rfb.add_argument("--transcript", default="", help="Transcript text used for auto response classification.")
+    rfb.add_argument("--transcript-file", help="File containing transcript text for auto response classification.")
+    rfb.add_argument("--action", action="append", default=[],
+                     choices=("edit", "install", "validation", "verify", "commit", "finalize", "checkpoint", "render-status", "output-compliance", "tracked-delivery", "status", "review", "blocked"),
+                     help="Observed action signal. Defaults to render-status and tracked-delivery when omitted.")
+    rfb.add_argument("--json", action="store_true", help="Print machine-readable JSON only.")
 
     p = sub.add_parser("output-compliance", help="Check user-visible output against tool stdout for display-layer compliance.")
     oc_sub = p.add_subparsers(dest="output_compliance_command", required=True)
@@ -9363,6 +10496,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("current", help="Manage .idea-to-code/current.json and history/index.jsonl.")
     cur_sub = p.add_subparsers(dest="current_command", required=True)
+    ci = cur_sub.add_parser("inspect", help="Print the active bundle pointer and selected state without mutating lifecycle evidence.")
+    ci.add_argument("--root", required=True)
     cs = cur_sub.add_parser("status", help="Print the active bundle pointer.")
     cs.add_argument("--root", required=True)
     cset = cur_sub.add_parser("set", help="Point current.json at an existing bundle.")
@@ -9427,6 +10562,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--deferred", default="")
     p.add_argument("--force", action="store_true",
                    help=f"Overwrite {FINAL_REPORT_FILE} without creating a .bak backup.")
+    p.add_argument("--allow-failed-verify", action="store_true",
+                   help="Allow only --gate-status fail --decision not-accepted to close while recording failed verification problems.")
 
     p = sub.add_parser("status", help="Print bundle status as JSON.")
     p.add_argument("--root", required=True)
@@ -9488,6 +10625,27 @@ def main(argv: Iterable[str] | None = None) -> int:
             prompt = read_content_arg(args.prompt, args.prompt_file) if args.prompt or args.prompt_file else ""
             transcript = read_content_arg(args.transcript, args.transcript_file) if args.transcript or args.transcript_file else ""
             return response_classify(prompt, transcript, args.action, args.json)
+        if args.response_command == "final-body":
+            role = "Closer" if args.role == "closer" else args.role
+            response_root = Path(args.root).resolve() if args.root else None
+            return response_final_body(
+                response_root,
+                args.slug,
+                args.status,
+                args.profile,
+                role,
+                args.source,
+                args.tool_stdout,
+                args.tool_stdout_file,
+                args.assistant_body,
+                args.assistant_body_file,
+                args.prompt,
+                args.prompt_file,
+                args.transcript,
+                args.transcript_file,
+                args.action,
+                args.json,
+            )
 
     if args.command == "output-compliance":
         if args.output_compliance_command == "check":
@@ -9522,18 +10680,11 @@ def main(argv: Iterable[str] | None = None) -> int:
 
     if args.command == "quickstart":
         target, ready_output_lines = quickstart_bundle(root, args.slug, args.title, args.idea, args.file, args.task, args.verification, args.unique)
-        status = read_status(target)
-        print(json.dumps({
-            "path": str(target),
-            "slug": target.name,
-            "ready": True,
-            "exploration_output_id": status.get("exploration_output_id"),
-            "ready_task_output_id": status.get("ready_task_output_id"),
-        }, indent=2, ensure_ascii=False))
-        if not args.json:
-            print()
-            print("\n".join(ready_output_lines))
-        return 0
+        return print_ready_bundle_result(target, ready_output_lines, args.json)
+
+    if args.command == "fast-lane":
+        target, ready_output_lines = quickstart_bundle(root, args.slug, args.title, args.idea, args.file, args.task, args.verification, args.unique)
+        return print_ready_bundle_result(target, ready_output_lines, args.json)
 
     if args.command == "doctor":
         return doctor(root)
@@ -9554,6 +10705,29 @@ def main(argv: Iterable[str] | None = None) -> int:
             return fresh_benchmark_import_result(root, args.slug, args.raw_output_file, args.scores_json, args.external_status)
         if args.fresh_benchmark_command == "verify-import":
             return fresh_benchmark_verify_import(root, args.slug)
+        if args.fresh_benchmark_command == "run-self":
+            return fresh_benchmark_run_self(
+                root,
+                args.slug,
+                args.fixture_root,
+                args.current_window_runner,
+                args.runner_parity,
+                args.current_model,
+                args.current_provider,
+                args.current_reasoning_effort,
+                args.current_sandbox,
+                args.current_metadata_source,
+                args.model,
+                args.sandbox,
+                args.timeout_seconds,
+                args.import_result,
+                args.strict,
+                args.strict_level,
+            )
+
+    if args.command == "evidence":
+        if args.evidence_command == "closeout":
+            return evidence_closeout(root, args.slug, args.status, args.json)
 
     if args.command == "checkpoint":
         target = checkpoint_bundle(
@@ -9730,6 +10904,8 @@ def main(argv: Iterable[str] | None = None) -> int:
             return implementation_status(root, args.slug)
 
     if args.command == "current":
+        if args.current_command == "inspect":
+            return current_inspect(root)
         if args.current_command == "status":
             return current_status(root)
         if args.current_command == "set":
@@ -9774,7 +10950,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         target = finalize_bundle(
             root, args.slug, args.summary, args.verification, args.risks,
             args.acceptance, args.gate_status, args.decision,
-            args.acceptance_notes, args.deferred, args.force,
+            args.acceptance_notes, args.deferred, args.force, args.allow_failed_verify,
         )
         print(target)
         return 0

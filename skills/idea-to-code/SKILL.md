@@ -205,12 +205,33 @@ Do not require slash commands. When this skill is triggered, default to autonomo
 4. Record Planner evidence.
 5. Execute the checklist, validate, review, checkpoint, run pre-close verification, close, finalize, and run final verification.
 
+### Autonomous Next-Action SOP
+
+Same-IDEA safe next actions are agent-owned work, not user-owned confirmations. After the user gives an idea, correction, or related follow-up, the agent must keep executing discoverable same-scope next actions until the idea is completed, formally blocked, or a user-required stop condition is reached. This SOP applies to planning, READY refresh, task entry, edits, validation, review, install parity, self-run diagnostics, status repair, and closeout when those actions maintain the same IDEA/TASK/REQ scope.
+
+This does not remove or hide `Next Action`. Keep the original result template and keep displaying `Next Action` when the Console Response Contract requires it. The hard rule is that displaying an agent-owned `Next Action` is not a stopping point: if the action is safe, same-scope, and executable, the agent proceeds into it without waiting for the user to confirm `next`.
+
+Do not end a turn by asking or implying that the user should type `next`, `下一步`, or `continue` for an action the agent can safely perform now. Repeated `下一步` / `next` prompts after safe same-IDEA work remains are a process failure signal: resume the safe action immediately, then harden the workflow if the premature stop came from skill guidance.
+
+The standard decision loop is:
+
+1. Classify the candidate action as `same-IDEA`, `scope-correction`, `new-related-scope`, or `unrelated`.
+2. If it is `same-IDEA` or a required `scope-correction`, check whether it is safe and executable in the current environment.
+3. If safe and executable, perform it now and continue the loop.
+4. If not safe or not executable, stop only with a concrete user-required stop condition.
+5. Before a formal final handoff, confirm no agent-owned safe next action remains in the stated scope.
+
+User-required stop conditions are limited to explicit user pause/status-only/review-only requests; missing product decisions; missing credentials, accounts, permissions, tools, or external services; destructive or irreversible actions; commit, push, deploy, publish, payment, or release approval not already requested; scope uncertainty where the next action may not belong to the same IDEA/TASK/REQ; safety, legal, security, or privacy uncertainty needing user or policy input; or repeated tool/environment failure that blocks meaningful progress.
+
+For formal tracked handoff, keep the `Next Action` field in its normal place. Its content must either state that no unresolved task remains in the response scope, name the exact user-required stop condition, name an explicitly deferred out-of-scope follow-up, or describe the same-scope agent-owned action that the agent is already continuing into. If a safe same-IDEA next action remains and the turn can continue, display it as the next action and execute it in the same turn instead of waiting for another user message.
+
 ### Tracked Work Compliance Checklist
 
 For tracked idea-to-code work, these checks are mandatory, not style preferences:
 
+- **Autonomous next-action SOP rule**: after a user idea or related follow-up enters idea-to-code, same-IDEA safe next actions are agent-owned work. Keep the original result template and `Next Action` display, but do not ask for or wait for `next`, `下一步`, or `continue` when planning, READY, implementation, validation, install parity, self-test, review, or closeout can proceed safely in the current environment. Stop only for a user-required stop condition from `Autonomous Next-Action SOP`, and surface that condition explicitly in formal status.
 - **Rule loading**: every agent, subagent, or role simulation using idea-to-code must read `SKILL.md` as the behavior authority and then read only the relevant referenced files before acting. Do not rely on partial snippets, old chat memory, or historical bundle ledgers as the source of behavior rules.
-- **Delegation evidence rule**: claims about independent agents, subagents, fresh agents, hybrid-team, or independent-team evidence require a current usable `delegation record`. Planned, timed-out, unusable, or unverified attempts must be recorded as such and surfaced by `delegation status`, `verify`, and `render-status`; they are not evidence of compliance.
+- **Delegation evidence rule**: claims about independent agents, subagents, fresh agents, hybrid-team, or independent-team evidence require a current usable `delegation record`. Planned, timed-out, unusable, or unverified attempts must be recorded as such and surfaced by `delegation status`, `verify`, and `render-status`; they are not evidence of compliance. `delegation status` also emits a recommendation for the next delegation action, but that recommendation is guidance, not independent evidence.
 - **Non-bypassable pre-edit self-check**: immediately before calling any file-editing tool for tracked work, stop and confirm in the agent's own working context that the current user-visible conversation already contains the focused READY TASK excerpt for the exact TASK/REQ and files about to be edited. If that visible excerpt is missing, do not edit. Run or reuse `implementation show-ready --task <TASK-ID>`, send the focused READY excerpt as a normal assistant message, then continue only after that message is visible.
 - **Before any tracked repository or artifact edit**: resolve the current bundle, run or reuse `implementation ready` / `implementation show-ready --task <TASK-ID>`, and paste the relevant READY TASK excerpt in a normal assistant message. This applies to code, docs, tests, config, scripts, and tracked bundle artifacts. Reusing a prior READY result still requires showing the relevant excerpt again before the current edit unless the user explicitly waived repeated visibility after an initial visible READY excerpt. Tool stdout, folded transcripts, and internal notes do not satisfy this requirement.
 - **Display artifact rule**: required Display Layer output is not complete until the assistant-visible message body contains the required block. Tool stdout, folded command transcripts, hidden observations, or "I ran the command" summaries are only generation evidence; they are not user display evidence. For output compliance checks, treat `tool_stdout` and `assistant_visible_body` as separate artifacts, and fail when `Exploration Result`, `Implementation Gate: READY`, or `render-status` exists only in `tool_stdout`.
@@ -257,7 +278,7 @@ Use `--assistant-body-file` when the visible block is too large for a command ar
 - **Visible-output before pre-edit rule**: `pre-edit` requires a current `VISIBLE_OUTPUT_ID` created after the assistant-visible Exploration/READY block was shown. If `pre-edit` refuses with `visible output record missing or stale`, run `implementation show-ready --task <TASK-ID>`, paste the complete Display Layer block into the assistant-visible conversation, run `implementation visible-output record` with `--display-channel main-chat` and a main-chat assertion for same-agent work, then retry `pre-edit`.
 - **Next-action display controller rule**: before tracked edits or clean-context compliance review, run `implementation next-action --task <TASK-ID>` for the intended files. If it returns `NEEDS_READY`, `NEEDS_TASK_ENTRY`, or `NEEDS_VISIBLE_OUTPUT_RECORD`, do not edit and do not accept the transcript as compliant until the required Exploration/READY Display Layer fields appear in the assistant-visible body and `implementation visible-output record` captures them with the correct display channel. `next-action` is read-only and does not physically intercept native edit tools; host-level interception remains `host-required`.
 - **Tool-layer edit wrapper rule**: `implementation guarded-apply --task <TASK-ID> --patch-file <path>` is the default tracked edit path when an edit can be represented as a git patch. The wrapper resolves the active bundle, checks patch paths, requires visible Exploration and READY Focus for the current TASK, requires a non-overlapping lease, runs `implementation pre-edit`, captures `PRE_EDIT_OK_ID`, verifies the patch with `git apply --check`, then applies it with `git apply` and records `guarded_apply_records` plus `edit_wrapper_compliance=wrapper-compliant` evidence for status and closeout. If a tracked edit cannot use `guarded-apply`, record a fallback reason in Implementer evidence and still cite the current `READY_TASK_OUTPUT_ID` and `PRE_EDIT_OK_ID`; do not describe the fallback edit as wrapper-compliant. Current Codex-native edit tools are still not host-level blocked by this skill; until host pre-edit hooks exist, native-tool bypass remains a `residual risk` and must not be described as impossible.
-- **Host pre-edit hook contract rule**: use `host-hook pre-edit-contract --json` when specifying or reviewing the native edit interception contract. The command describes required host checks and evidence IDs, but its enforcement boundary is `host-required`; do not treat the contract command as physical interception.
+- **Host pre-edit hook contract rule**: use `host-hook pre-edit-contract --json` when specifying or reviewing the native edit interception contract. The command describes required host checks and evidence IDs, but its enforcement boundary is `host-required` and its machine-readable contract says the repository cannot intercept native tools; do not treat the contract command as physical interception.
 - **Multi-role regression rule**: after changing lifecycle, exploration, READY, validation, review, or output-compliance guidance, run or update the multi-role output compliance scenario in `references/roles-and-state.md#multi-role-output-compliance`, covering Planner, Implementer, Validator, Reviewer, Closer, and ordinary-answer boundary expectations, then record expected versus observed behavior and any instruction drift.
 
 This checklist does not apply to ordinary untracked explanations, naming discussions, or lightweight commentary updates; those remain concise while still using the required role/source prefix when this skill is active.
@@ -452,7 +473,7 @@ Use `Need Confirmation: no` when the task is clear, low-risk, reversible, and th
 
 `Need Confirmation: no` skips the approval wait; it does not skip exploration and task-list visibility. `implementation ready` prints the generated Exploration Visibility Gate output when needed and then the `[idea-to-code][Planner/agent] Implementation Gate: READY` output, or `[idea-to-code/<profile>][Planner/agent] Implementation Gate: READY` when an upper-layer skill passes a profile, including `EXPLORATION_OUTPUT_ID` and `READY_TASK_OUTPUT_ID`; send both outputs to the user before any product-file edit, and only then continue implementation. Treat them as separate user-visible blocks: `Exploration Result` is `Display Step: 1/2` and authorizes no edits; `Implementation Gate: READY` is `Display Step: 2/2` and edit authorization still starts only after visible-output record, lease, and pre-edit pass. By default, READY prints the focused first TASK/IMP excerpt and records `ready_task_output_scope: focused-default`; use `implementation ready --full-plan` or `implementation show-ready --full-plan` only when a full audit list is needed. The full READY plan remains in `00-idea.md`. Command stdout, tool output, or a folded transcript is not enough by itself; the Exploration Result plus READY TASK list or focused excerpt for the TASKs about to be executed must appear in normal assistant messages. Every time execution enters a different current TASK, show that TASK's focused READY info with `implementation show-ready --task TASK-N` before editing files for that TASK, unless the user explicitly waived repeated visibility after the first display. Profile prefixes are display-only: they do not alter lifecycle gates, bundle state, requirements, role evidence, checkpoints, ledger semantics, finalize behavior, or permissions. This message is transparency, not an approval request, so continue implementation immediately after sending it unless the user interrupts.
 
-For clear, low-risk, single-slice tasks such as a small README or documentation edit, prefer the lightweight quickstart path instead of manually drafting every bundle section:
+For clear, low-risk, single-slice tasks such as a small README or documentation edit, prefer the lightweight quickstart path instead of manually drafting every bundle section. Use `fast-lane` when the user-facing intent is "just handle this small safe edit"; it is an alias for quickstart with the same eligibility checks and refusal behavior:
 
 ```bash
 python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" quickstart \
@@ -465,9 +486,20 @@ python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" quickst
   --unique
 ```
 
-Quickstart creates the current bundle, fills intake, Controlled Exploration with `Exploration Needed: no`, REQ-1, acceptance matrix, design, and TASK-1, records an Exploration Visibility Gate output, marks implementation ready, records Planner evidence, and prints the generated READY TASK output with `EXPLORATION_OUTPUT_ID`. It does not replace confirmation for ambiguous, risky, destructive, security-sensitive, or multi-interpretation work; use the full intake and confirmation flow for those tasks. Paste the quickstart READY output to the user, then continue unless interrupted.
+```bash
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" fast-lane \
+  --root "$(pwd)" \
+  --slug <short-task-slug> \
+  --title "<short title>" \
+  --idea "<restated user goal>" \
+  --file <primary-file> \
+  --task "<concrete TASK-1 description>" \
+  --unique
+```
 
-Use `quickstart --json` only for automation that needs pure machine-readable output; the default output intentionally includes the READY TASK text for agent/user visibility.
+Quickstart and fast-lane create the current bundle, fill intake, Controlled Exploration with `Exploration Needed: no`, REQ-1, acceptance matrix, design, and TASK-1, record an Exploration Visibility Gate output, mark implementation ready, record Planner evidence, and print the generated READY TASK output with `EXPLORATION_OUTPUT_ID`. They do not replace confirmation for ambiguous, risky, destructive, security-sensitive, broad, multi-file, or multi-interpretation work; use the full intake and confirmation flow for those tasks. Paste the generated READY output to the user, then continue unless interrupted.
+
+Use `quickstart --json` or `fast-lane --json` only for automation that needs pure machine-readable output; the default output intentionally includes the READY TASK text for agent/user visibility.
 
 When `Need Confirmation: yes`, the user-visible response must be an explicit decision request, not a status paragraph that hides the ask. The confirmation output must restate the user goal as a hard rule before asking for approval: the user must be able to see what the agent believes it will do, what observable acceptance outcome will prove it, and which planned TASK items will be executed. Use this confirmation shape:
 
@@ -934,8 +966,11 @@ For milestone and implementation-plan patterns, read `references/planning-patter
 When validating this skill itself, prefer the official chunked regression runner when the full unittest suite is too large for one command. Use `--profile full` for acceptance that needs full-suite evidence; use `quick`, `output`, or `lifecycle` profiles only when the TASK scope is narrower and record that profile boundary:
 
 ```bash
-python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" test-batch --profile full --chunk-size 40 --timeout-seconds 180
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" test-batch --profile full --chunk-size 20 --timeout-seconds 300
 ```
+
+For lifecycle-control changes, `test-batch --profile changed-surface` is the fast targeted profile. It covers host hooks, guarded apply, quality contract diagnostics, delegation, finalize, render-status, output compliance, and install parity surfaces. It is validation evidence for the changed surface, not a replacement for full validation when full-suite evidence is in scope.
+If a full batch times out, use the runner's chunk number, test range, elapsed time, timeout value, and rerun hint to narrow the failure before changing coverage.
 
 ### Installed Skill Parity Checklist
 

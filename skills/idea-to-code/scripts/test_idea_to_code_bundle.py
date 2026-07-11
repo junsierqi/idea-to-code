@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import importlib.util
+import contextlib
+import io
 import json
 import os
 import re
@@ -11,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -48,6 +51,28 @@ def load_bundle_module():
     spec = importlib.util.spec_from_file_location("idea_to_code_bundle_under_test", SCRIPT)
     if spec is None or spec.loader is None:
         raise AssertionError(f"could not load module spec for {SCRIPT}")
+    module = importlib.util.module_from_spec(spec)
+    script_dir = str(SCRIPT.parent)
+    inserted = False
+    if script_dir not in sys.path:
+        sys.path.insert(0, script_dir)
+        inserted = True
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        if inserted:
+            try:
+                sys.path.remove(script_dir)
+            except ValueError:
+                pass
+    return module
+
+
+def load_test_batch_runner_module():
+    runner = SCRIPT.with_name("test_batch_runner.py")
+    spec = importlib.util.spec_from_file_location("test_batch_runner_under_test", runner)
+    if spec is None or spec.loader is None:
+        raise AssertionError(f"could not load module spec for {runner}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -121,6 +146,27 @@ class BundleTest(unittest.TestCase):
             "Next Action:\n"
             "- No unresolved task remains in this scope.\n"
         )
+
+    def fresh_benchmark_per_output_scoring_text(self) -> str:
+        lines = ["Per-Output Scoring:"]
+        for label in range(1, 8):
+            lines.extend([
+                "",
+                f"Scenario: FS-{label} sample",
+                "Raw output: transcript",
+                "Generated bundle snippets: none",
+                "Scores:",
+                "- Controlled Exploration fit: 1 - evidence",
+                "- User-goal critique: 1 - evidence",
+                "- Recommended decision: 1 - evidence",
+                "- READY visibility: 1 - evidence",
+                "- Current TASK loop: 1 - evidence",
+                "- Overview loop: 1 - evidence",
+                "- Response mode: 1 - evidence",
+                "- Status semantics: 1 - evidence",
+                "- Small-task friction: 1 - evidence",
+            ])
+        return "\n".join(lines)
 
     def sample_visible_ready_body(self) -> str:
         return (
@@ -898,6 +944,7 @@ class BundleTest(unittest.TestCase):
             "--idea", "Render a formal status response skeleton.",
             "--file", "README.md",
             "--task", "Document the status render behavior.",
+            "--verification", "source-only inspect README for the requested update",
             "--unique",
         )
         slug = json.loads((self.root / ".idea-to-code" / "current.json").read_text(encoding="utf-8"))["slug"]
@@ -1225,6 +1272,60 @@ class BundleTest(unittest.TestCase):
             "Fresh-Session Live Benchmark Protocol",
             "Controlled samples and instruction-level reviews are useful, but they are not production proof",
             "Use the exact installed skill; do not paste corrected guidance into the chat",
+            "sequentially in this same fresh Codex session: FS-1 through FS-7",
+            "Do not spawn subagents; answer the default FS-1 through FS-7 benchmark prompts sequentially in this same fresh session unless the benchmark explicitly asks for subagent behavior",
+            "Use the same runner class as the current user-facing Codex window",
+            "Runner parity:",
+            "Current window runner",
+            "Fresh runner",
+            "Run comparability: release-readiness evidence | non-comparable diagnostic",
+            "A scripted `codex exec` run is acceptable only when it is configured to match the current window runner",
+            "Runner parity: no",
+            "Run comparability: non-comparable diagnostic",
+            "Runner parity: unverified",
+            "Self-run automation",
+            "fresh-benchmark run-self",
+            "wraps Windows `.ps1` launchers with `powershell.exe -File`",
+            "captures the final assistant message as the raw output artifact",
+            "fresh_runner_metadata",
+            "`model`, `provider`, `sandbox`, `reasoning effort`, and `session id`",
+            "--current-model",
+            "--current-provider",
+            "--current-reasoning-effort",
+            "--current-sandbox",
+            "--current-metadata-source",
+            "`--current-metadata-source host`",
+            "matching field values remain `non-comparable diagnostic` evidence",
+            "resolves `Runner parity` to `yes`, `no`, or `unverified`",
+            "--strict",
+            "--strict-level content",
+            "Content strict fails unless `codex exec` completes",
+            "--strict --strict-level release",
+            "Release strict also requires run comparability",
+            "does not reproduce the full interactive Codex window transcript format",
+            "Subagent-per-prompt runs are diagnostic only",
+            "non-standard for release-readiness evidence",
+            "FS-3 mode must be explicit before the prompt is answered",
+            "raw-answer benchmark mode",
+            "read-only raw-answer mode",
+            "do not write `.idea-to-code/current.json`",
+            "State source for FS-4/FS-7: none/read-only",
+            "artifact evidence mode",
+            "execution benchmark mode",
+            "A direct README edit without these lifecycle artifacts is instruction drift",
+            "Raw Answers",
+            "Raw answer capture summary",
+            "Per-Output Scoring",
+            "compact score line such as `FS-1: 9/9; no drift.` is not auditable evidence",
+            "Every `Scenario: FS-*` scoring section must include the scoring dimension labels with evidence",
+            "Declared `Total score` must equal the sum of the 63 per-dimension `0|1` score lines",
+            "`Installed skill source` must match the actual `SKILL.md` path loaded by the benchmark session",
+            "Every per-output score must be in the inclusive `0-9` range",
+            "Do not write over-range scores",
+            ".idea-to-code/current.json",
+            "existing fixture bundle state",
+            "benchmark-produced temporary state",
+            "Do not imply pre-existing fixture state was created by FS-1 through FS-3",
             "Capture raw assistant output before editing or correcting it",
             "Fresh-session score dimensions",
             "Controlled Exploration fit",
@@ -1234,6 +1335,22 @@ class BundleTest(unittest.TestCase):
             "Overview loop",
             "Status semantics",
             "Small-task friction",
+            "Real-Task Quality Sweep",
+            "whether idea-to-code helps users get better software outcomes",
+            "RT-1 Small documentation edit",
+            "RT-2 Bug fix with evidence",
+            "RT-3 UI implementation quality",
+            "RT-4 Cross-file behavior change",
+            "RT-5 Ambiguous product request",
+            "RT-6 Risky security request",
+            "RT-7 Performance request",
+            "RT-8 Existing-code compatibility",
+            "User outcome fit",
+            "Codebase pattern fit",
+            "Implementation path",
+            "Verification strength",
+            "Completion honesty",
+            "format-only compliance",
             "Fresh-session score: `0-9` per output",
             ">= 54/63",
             "Time and cost bounds",
@@ -1244,6 +1361,10 @@ class BundleTest(unittest.TestCase):
             "Prompt count",
             "FS-6",
             "FS-7",
+            "Default Fresh-Session Prompt Set",
+            "Add one README sentence explaining how to run tests.",
+            "Do not substitute Scenario Library 3",
+            "Add this button by copying the existing HTML block in three places.",
             "Current TASK Entry",
             "Read-Only Overview",
             "Stop reason",
@@ -1251,6 +1372,12 @@ class BundleTest(unittest.TestCase):
             "Copyable Fresh-Session Result Template",
             "The copyable template below is part of this benchmark reference",
             "Fresh-session run id",
+            "Run mode: same-session sequential",
+            "Subagents used: no",
+            "Fixture existing current.json: absent",
+            "State source for FS-4/FS-7",
+            "Default run mode is same-session sequential",
+            "FS-3 Mode:",
             "External run status",
             "CLI lifecycle state",
             "External run limitation",
@@ -1333,7 +1460,7 @@ class BundleTest(unittest.TestCase):
             "Before product-file edits, the READY task list must be visible to the user in a normal assistant message",
             "Implementer evidence must cite the generated READY output id",
             "Use `implementation show-ready` to reprint or refresh",
-            "Use `quickstart --json` only for automation",
+            "Use `quickstart --json` or `fast-lane --json` only for automation",
         ]:
             self.assertIn(required, combined)
 
@@ -1348,6 +1475,16 @@ class BundleTest(unittest.TestCase):
         for required in [
             "Tracked Work Compliance Checklist",
             "mandatory, not style preferences",
+            "Autonomous Next-Action SOP",
+            "Same-IDEA safe next actions are agent-owned work",
+            "This does not remove or hide `Next Action`",
+            "Keep the original result template and keep displaying `Next Action`",
+            "displaying an agent-owned `Next Action` is not a stopping point",
+            "Do not end a turn by asking or implying that the user should type `next`, `下一步`, or `continue`",
+            "User-required stop conditions",
+            "display it as the next action and execute it in the same turn instead of waiting for another user message",
+            "Autonomous next-action SOP rule",
+            "Keep the original result template and `Next Action` display",
             "Rule loading",
             "must read `SKILL.md` as the behavior authority",
             "Do not rely on partial snippets, old chat memory, or historical bundle ledgers",
@@ -1432,6 +1569,12 @@ class BundleTest(unittest.TestCase):
             "Branch closure checks for output compliance",
             "Tracked edit branch",
             "Same-session continuity branch",
+            "Autonomous next-action branch",
+            "same-IDEA safe next actions are agent-owned work",
+            "does not remove the `Next Action` field or change the formal result template",
+            "display the next action normally, then continue into it without waiting for the user",
+            "Stop only for a concrete user-required stop condition",
+            "premature-stop signal",
             "Master backlog branch",
             "Plan-correction branch",
             "Read-only status branch",
@@ -2392,6 +2535,36 @@ class BundleTest(unittest.TestCase):
         misplaced_problems = bundle.validate_formal_status_visible_output(tool_stdout, misplaced_next_action)
         self.assertIn("assistant-visible body field out of order: Next Action:", misplaced_problems)
 
+    def test_output_compliance_rejects_next_action_that_waits_for_user_next(self) -> None:
+        bundle = load_bundle_module()
+        tool_stdout = self.sample_formal_status_body()
+        assistant_body = self.sample_formal_status_body().replace(
+            "\nNext Action:\n- No unresolved task remains in this scope.\n",
+            "\nNext Action:\n- Reply with next so I can continue validation.\n",
+        )
+
+        problems = bundle.validate_formal_status_visible_output(tool_stdout, assistant_body)
+
+        self.assertIn(
+            "Next Action must not ask the user to type next for same-scope safe work the agent can execute now",
+            problems,
+        )
+
+    def test_output_compliance_allows_user_required_next_action(self) -> None:
+        bundle = load_bundle_module()
+        tool_stdout = self.sample_formal_status_body()
+        assistant_body = self.sample_formal_status_body().replace(
+            "\nNext Action:\n- No unresolved task remains in this scope.\n",
+            "\nNext Action:\n- User decision needed for TASK-1 / REQ-1: choose whether to publish the release.\n",
+        )
+
+        problems = bundle.validate_formal_status_visible_output(tool_stdout, assistant_body)
+
+        self.assertNotIn(
+            "Next Action must not ask the user to type next for same-scope safe work the agent can execute now",
+            problems,
+        )
+
     def test_output_compliance_preserves_ordinary_answer_boundary(self) -> None:
         bundle = load_bundle_module()
         ordinary = "[idea-to-code][Planner/agent] Controlled Exploration 是 READY 前的可见方案选择。"
@@ -2464,6 +2637,84 @@ class BundleTest(unittest.TestCase):
         self.assertEqual("formal-tracked-handoff", payload["response_classification"]["response_kind"])
         self.assertTrue(payload["response_classification"]["action_derived"])
         self.assertIn("assistant-visible formal status must start", "\n".join(payload["problems"]))
+
+    def test_response_final_body_emits_checked_formal_status_body(self) -> None:
+        body = self.sample_formal_status_body()
+        result = self.run_bundle(
+            "response",
+            "final-body",
+            "--assistant-body",
+            body,
+            "--action",
+            "validation",
+            "--action",
+            "finalize",
+        )
+
+        self.assertEqual(body + "\n", result.stdout)
+
+    def test_response_final_body_accepts_assistant_body_file(self) -> None:
+        body_path = self.root / "final-body.txt"
+        body_path.write_text(self.sample_formal_status_body(), encoding="utf-8")
+        result = self.run_bundle(
+            "response",
+            "final-body",
+            "--assistant-body-file",
+            str(body_path),
+            "--action",
+            "validation",
+            "--action",
+            "finalize",
+        )
+
+        self.assertIn("[idea-to-code][Closer/agent] Status: Completed", result.stdout)
+
+    def test_response_final_body_renders_bundle_status_and_checks_output(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        self.run_bundle(
+            "checkpoint",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--milestone", "Sample final-body gate",
+            "--delivered", "TASK-1 delivered checked final-body output.",
+            "--verified", "source-only final-body command passed.",
+            "--next", "No unresolved task remains in this scope.",
+            "--focus", "TASK-1 / REQ-1",
+            "--gate", "final-body gate",
+            "--gate-status", "pass",
+            "--covers", "REQ-1",
+        )
+
+        result = self.run_bundle(
+            "response",
+            "final-body",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--status", "Completed",
+            "--action", "finalize",
+        )
+
+        self.assertIn("[idea-to-code][Closer/agent] Status: Completed", result.stdout)
+        self.assertIn("TASK-1 / REQ-1: TASK-1 delivered checked final-body output.", result.stdout)
+        self.assertIn("Next Action:\n- No unresolved task remains in this scope.", result.stdout)
+
+    def test_response_final_body_rejects_casual_tracked_summary(self) -> None:
+        result = self.run_bundle(
+            "response",
+            "final-body",
+            "--assistant-body",
+            "Done. Tests passed.",
+            "--action",
+            "validation",
+            "--action",
+            "finalize",
+            check=False,
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("response final-body: FAIL", result.stdout)
+        self.assertIn("assistant-visible formal status must start", result.stdout)
 
     def test_output_compliance_auto_accepts_ordinary_without_tracked_actions(self) -> None:
         result = run_test_subprocess([
@@ -3300,6 +3551,94 @@ Planned Verification:
             "--gate-status", "pass",
             "--covers", "REQ-1",
         )
+
+    def test_changed_surface_profile_is_available(self) -> None:
+        result = self.run_bundle(
+            "test-batch",
+            "--profile", "changed-surface",
+            "--chunk-size", "2",
+            "--limit", "2",
+            "--timeout-seconds", "60",
+            "--slow-count", "0",
+        )
+        self.assertIn("test-batch: profile=changed-surface total_tests=2", result.stdout)
+        self.assertIn("test-batch: PASS profile=changed-surface total_tests=2", result.stdout)
+
+    def test_quality_contract_weak_error_includes_field_hint(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        implementation_path = self.root / "bad-implementation.md"
+        good = (self.root / "implementation.md").read_text(encoding="utf-8")
+        bad = (
+            good
+            .replace("Scope Boundary: keep edits inside the stated test fixture scope.", "Scope Boundary: ok")
+            .replace("Regression Surface: verify READY, plan-check, and role evidence behavior.", "Regression Surface: ok")
+        )
+        implementation_path.write_text(bad, encoding="utf-8")
+        self.run_bundle("update", "--root", str(self.root), "--slug", slug, "--file", "implementation", "--content-file", str(implementation_path))
+        result = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("weak Scope Boundary:", result.stderr)
+        self.assertIn("expected TASK/REQ/file scope check", result.stderr)
+        self.assertIn("weak Regression Surface:", result.stderr)
+        self.assertIn("expected concrete test, command, or changed-surface evidence", result.stderr)
+
+    def test_host_hook_contracts_expose_repo_cannot_intercept_flags(self) -> None:
+        pre_edit = self.run_bundle("host-hook", "pre-edit-contract", "--json")
+        final = self.run_bundle("host-hook", "final-response-contract", "--json")
+        self.assertFalse(json.loads(pre_edit.stdout)["repo_can_intercept_native_tools"])
+        self.assertFalse(json.loads(final.stdout)["repo_can_intercept_final_response"])
+
+    def test_delegation_status_recommends_next_action_without_evidence_claim(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        self.record_roles_through_reviewer(slug)
+        result = self.run_bundle("delegation", "status", "--root", str(self.root), "--slug", slug)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["recommendation"]["action"], "consider-independent-review")
+        self.assertIn("same-agent reviewer evidence exists", payload["recommendation"]["reason"])
+        self.assertEqual(payload["usable"], [])
+
+    def test_finalize_allow_failed_verify_is_narrow_and_records_failed_closeout(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        refused = self.run_bundle(
+            "finalize",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--summary", "Bad accepted closeout",
+            "--verification", "source-only failed validation evidence",
+            "--risks", "REQ-1 remains unresolved",
+            "--acceptance", "REQ-1 not delivered",
+            "--gate-status", "pass",
+            "--decision", "accepted",
+            "--allow-failed-verify",
+            check=False,
+        )
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("--allow-failed-verify is only valid", refused.stderr)
+
+        allowed = self.run_bundle(
+            "finalize",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--summary", "Failed closeout recorded",
+            "--verification", "source-only failed validation evidence",
+            "--risks", "REQ-1 remains unresolved",
+            "--acceptance", "REQ-1 not accepted",
+            "--gate-status", "fail",
+            "--decision", "not-accepted",
+            "--allow-failed-verify",
+        )
+        self.assertEqual(allowed.returncode, 0)
+        state = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(state["gate_status"], "fail")
+        self.assertEqual(state["decision"], "not-accepted")
+        self.assertFalse(state["closeout_status"]["final_verify_ok"])
+        self.assertTrue(state["failed_closeout_records"])
+        report = (self.root / ".idea-to-code" / slug / "02-report.md").read_text(encoding="utf-8")
+        self.assertIn("Failed Closeout Evidence", report)
+        self.assertIn("pre-close verify has not passed", report)
 
     def test_full_governance_flow_verifies(self) -> None:
         slug = self.init_bundle()
@@ -4619,6 +4958,61 @@ Planned Verification:
         self.assertIn("Full Plan:", result.stdout)
         self.assertIn("--full-plan", result.stdout)
 
+    def test_implementation_overview_lists_only_unresolved_next_tasks(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug, mark_ready=False)
+        implementation = (self.root / "three-task-implementation.md")
+        task_template = """## {task}: {title}
+
+Status: pending
+
+Files:
+- state.json
+
+Execution Details:
+- Covers: REQ-1
+- Exercise overview task ordering.
+
+Implementation Quality Contract:
+- Existing Pattern Evidence: inspect implementation overview command behavior.
+- Assumption Handling: verify closed task filtering with command output evidence.
+- Scope Boundary: TASK overview test only edits temporary bundle state.
+- Real Path / Mock Policy: source-only CLI command output.
+- Regression Surface: implementation overview next task list command output.
+- Security/Safety Notes: no secrets or destructive commands.
+- Shortcut Risk Check: test evidence must prove closed tasks are not listed as pending next work and no unsupported overview claim is accepted.
+- Reviewer Must Verify: reviewer checks completed task absence, unresolved task presence, status wording, shortcut risk, and acceptance counterexamples.
+
+Done Criteria:
+- Overview reports only unresolved next tasks.
+
+Planned Verification:
+- source-only implementation overview command output assertion.
+"""
+        implementation.write_text(
+            "# Implementation\n\nGate Status: READY\n\n"
+            + task_template.format(task="TASK-1", title="First task")
+            + "\n"
+            + task_template.format(task="TASK-2", title="Second task")
+            + "\n"
+            + task_template.format(task="TASK-3", title="Third task"),
+            encoding="utf-8",
+        )
+        self.run_bundle("update", "--root", str(self.root), "--slug", slug, "--file", "implementation", "--content-file", str(implementation))
+        self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("implementation", "enter-task", "--root", str(self.root), "--slug", slug, "--task", "TASK-1")
+        self.run_bundle("checkpoint", "--root", str(self.root), "--slug", slug, "--milestone", "Task one done", "--delivered", "REQ-1 task one delivered", "--verified", "source-only command assertion", "--next", "enter TASK-2", "--focus", "TASK-1", "--gate", "focused validation", "--gate-status", "pass", "--covers", "REQ-1")
+        self.run_bundle("implementation", "enter-task", "--root", str(self.root), "--slug", slug, "--task", "TASK-2")
+        self.run_bundle("checkpoint", "--root", str(self.root), "--slug", slug, "--milestone", "Task two done", "--delivered", "REQ-1 task two delivered", "--verified", "source-only command assertion", "--next", "enter TASK-3", "--focus", "TASK-2", "--gate", "focused validation", "--gate-status", "pass", "--covers", "REQ-1")
+
+        result = self.run_bundle("implementation", "overview", "--root", str(self.root), "--slug", slug)
+
+        next_section = result.stdout.split("Next Tasks:\n", 1)[1].split("\n\nFull Plan:", 1)[0]
+        self.assertIn("TASK-2 (closed: verified", result.stdout)
+        self.assertNotIn("TASK-1", next_section)
+        self.assertNotIn("TASK-2", next_section)
+        self.assertIn("TASK-3", next_section)
+
     def test_implementation_pre_edit_records_guard_and_requires_matching_task_files(self) -> None:
         slug = self.init_bundle()
         self.write_ready_bundle(slug, mark_ready=False)
@@ -5188,6 +5582,23 @@ Planned Verification:
             self.assertIn(required, commands)
         self.assertNotIn("finalize --root \"$(pwd)\" --slug <slug> --status", commands)
 
+    def test_command_guide_start_lists_fast_lane_alias(self) -> None:
+        result = run_test_subprocess([
+            sys.executable,
+            str(SCRIPT),
+            "command-guide",
+            "--flow",
+            "start",
+            "--json",
+        ])
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        payload = json.loads(result.stdout)
+        combined = "\n".join(f"{item['step']}\n{item['command']}\n{item['notes']}" for item in payload["flows"]["start"])
+        self.assertIn("fast-lane --root", combined)
+        self.assertIn("clear low-risk one-file tasks", combined)
+        self.assertIn("refuses the same risky or broad scopes", combined)
+
     def test_command_guide_implementation_edit_lists_enter_lease_and_pre_edit(self) -> None:
         result = run_test_subprocess([
             sys.executable,
@@ -5296,6 +5707,78 @@ Planned Verification:
         payload = json.loads(result.stdout)
         self.assertFalse(payload["ok"])
         self.assertIn("00-idea.md: TASK-1: Missing quality contract missing Implementation Quality Contract:", payload["problems"])
+        self.assertIn("remediation", payload)
+        self.assertIn("Update the implementation plan", payload["remediation"]["required_action"])
+        self.assertIn("implementation plan-check --root <root> --slug <slug> --json", payload["remediation"]["commands"])
+        self.assertIn("Do not treat old implementation_ready state as compliant after plan-check fails.", payload["remediation"]["must_not"])
+
+    def test_implementation_plan_check_text_prints_quality_contract_remediation(self) -> None:
+        slug = self.init_bundle()
+        bad_plan = """# Implementation
+
+Gate Status: READY
+
+### TASK-1: Missing quality contract
+
+Status: pending
+
+Files:
+- state.json
+
+Execution Details:
+- Record one requirement and evidence.
+
+Done Criteria:
+- verify succeeds.
+
+Planned Verification:
+- source-only python idea_to_code_bundle.py verify exits zero.
+"""
+        plan_path = self.root / "missing-quality-contract-text.md"
+        plan_path.write_text(bad_plan, encoding="utf-8")
+        self.run_bundle("update", "--root", str(self.root), "--slug", slug, "--file", "implementation", "--content-file", str(plan_path))
+
+        result = self.run_bundle("implementation", "plan-check", "--root", str(self.root), "--slug", slug, check=False)
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("Remediation:", result.stdout)
+        self.assertIn("Required Action:", result.stdout)
+        self.assertIn("implementation ready --root <root> --slug <slug> --task <TASK-ID>", result.stdout)
+
+    def test_verify_reports_quality_contract_remediation(self) -> None:
+        slug = self.init_bundle()
+        bad_plan = """# Implementation
+
+Gate Status: READY
+
+### TASK-1: Missing quality contract
+
+Status: pending
+
+Files:
+- state.json
+
+Execution Details:
+- Record one requirement and evidence.
+
+Done Criteria:
+- verify succeeds.
+
+Planned Verification:
+- source-only python idea_to_code_bundle.py verify exits zero.
+"""
+        plan_path = self.root / "missing-quality-contract-verify.md"
+        plan_path.write_text(bad_plan, encoding="utf-8")
+        self.run_bundle("update", "--root", str(self.root), "--slug", slug, "--file", "implementation", "--content-file", str(plan_path))
+
+        result = self.run_bundle("verify", "--root", str(self.root), "--slug", slug, check=False)
+
+        self.assertNotEqual(0, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertIn("remediation", payload)
+        self.assertIn("Repair the implementation plan", payload["remediation"]["required_action"])
+        self.assertIn("verify --root <root> --slug <slug>", payload["remediation"]["commands"])
+        self.assertIn("Do not treat stale implementation_ready state as compliant.", payload["remediation"]["must_not"])
 
     def test_implementation_plan_check_rejects_weak_quality_contract(self) -> None:
         slug = self.init_bundle()
@@ -5375,8 +5858,14 @@ Planned Verification:
         self.assertNotEqual(0, result.returncode)
         payload = json.loads(result.stdout)
         self.assertFalse(payload["ok"])
-        self.assertIn("00-idea.md: TASK-1: Labeled weak quality contract Implementation Quality Contract: weak Existing Pattern Evidence:", payload["problems"])
-        self.assertIn("00-idea.md: TASK-1: Labeled weak quality contract Implementation Quality Contract: weak Reviewer Must Verify:", payload["problems"])
+        self.assertIn(
+            "00-idea.md: TASK-1: Labeled weak quality contract Implementation Quality Contract: weak Existing Pattern Evidence: (expected inspected file, command, or source pattern evidence)",
+            payload["problems"],
+        )
+        self.assertIn(
+            "00-idea.md: TASK-1: Labeled weak quality contract Implementation Quality Contract: weak Reviewer Must Verify: (expected concrete reviewer checks, risks, and acceptance counterexamples)",
+            payload["problems"],
+        )
 
     def test_implementation_plan_check_rejects_polluted_task_sections(self) -> None:
         slug = self.init_bundle()
@@ -5541,6 +6030,8 @@ Planned Verification:
         self.assertIn("Record role evidence serially", combined)
         self.assertIn("Do not run role record commands in parallel", combined)
         self.assertIn("Planner, Implementer, Validator, Reviewer, then Closer", combined)
+        self.assertIn("evidence closeout --root", combined)
+        self.assertIn("Read-only summary of verify, delegation, fresh-benchmark", combined)
 
     def test_delegation_resolve_closes_non_usable_finding_without_making_evidence(self) -> None:
         slug = self.init_bundle()
@@ -6353,6 +6844,36 @@ Planned Verification:
         self.assertIn("test-batch: slow_chunks", result.stdout)
         self.assertIn("test-batch: PASS profile=full total_tests=2", result.stdout)
 
+    def test_test_batch_command_uses_stable_full_suite_defaults(self) -> None:
+        result = self.run_bundle("test-batch", "--limit", "1", "--slow-count", "0")
+
+        self.assertIn("test-batch: profile=full total_tests=1 chunk_size=20 chunks=1", result.stdout)
+        self.assertIn("test-batch: PASS profile=full total_tests=1", result.stdout)
+
+    def test_test_batch_timeout_prints_controlled_diagnostics(self) -> None:
+        runner = load_test_batch_runner_module()
+        timed_out = subprocess.TimeoutExpired(
+            cmd=[sys.executable, "-m", "unittest"],
+            timeout=7,
+            output="partial stdout\n",
+            stderr="partial stderr\n",
+        )
+
+        with mock.patch.object(runner, "discover_unittest_methods", return_value=["BundleTest.test_example"]):
+            with mock.patch.object(runner.subprocess, "run", side_effect=timed_out):
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    result = runner.run_test_batch(chunk_size=40, timeout_seconds=7, limit=None, profile="full")
+
+        text = output.getvalue()
+        self.assertEqual(124, result)
+        self.assertIn("chunk 1/1: TIMEOUT tests 1-1", text)
+        self.assertIn("timeout=7s", text)
+        self.assertIn("partial stdout", text)
+        self.assertIn("partial stderr", text)
+        self.assertIn("test-batch: TIMEOUT", text)
+        self.assertIn("test-batch: rerun_hint --profile full --chunk-size 20 --timeout-seconds 300", text)
+
     def test_test_batch_profile_filters_tests_before_limit(self) -> None:
         result = self.run_bundle(
             "test-batch",
@@ -6408,7 +6929,9 @@ Planned Verification:
         self.assertIn("action-derived formal-status effective kind", "\n".join(payload["allow_evidence"]))
         self.assertIn("Next Action is present as the final formal field", "\n".join(payload["required_checks"]))
         self.assertIn("Next Action content uses a bullet line starting with '- '", "\n".join(payload["required_checks"]))
+        self.assertIn("Next Action display is preserved; same-scope safe agent-owned next actions continue without user confirmation", "\n".join(payload["required_checks"]))
         self.assertIn("Next Action content is plain paragraph text instead of a bullet line", "\n".join(payload["deny_when"]))
+        self.assertIn("assistant asks the user to type next for same-scope safe work the agent can execute now", "\n".join(payload["deny_when"]))
         self.assertIn("profile-prefixed upper-layer output omits the underlying idea-to-code gates", "\n".join(payload["deny_when"]))
         self.assertIn("Profile wrappers and upper-layer skills must call this same contract", "\n".join(payload["host_integration_notes"]))
 
@@ -6854,6 +7377,363 @@ Planned Verification:
         self.assertNotEqual(missing_file.returncode, 0)
         self.assertIn("raw output file not found", missing_file.stderr)
 
+    def test_fresh_benchmark_run_self_reports_unavailable_without_codex_cli(self) -> None:
+        slug = self.init_bundle()
+        bundle = load_bundle_module()
+        buffer = io.StringIO()
+        with mock.patch.object(bundle.shutil, "which", return_value=None), contextlib.redirect_stdout(buffer):
+            code = bundle.fresh_benchmark_run_self(
+                self.root,
+                slug,
+                None,
+                "current-window gpt-5.5 medium",
+                "unverified",
+                None,
+                None,
+                None,
+                None,
+                "unverified",
+                None,
+                "read-only",
+                30,
+                False,
+                False,
+                "release",
+            )
+        payload = json.loads(buffer.getvalue())
+        self.assertEqual(code, 2)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["status"], "unavailable")
+        self.assertEqual(payload["run_comparability"], "external validation required")
+
+    def test_fresh_benchmark_run_self_imports_mocked_codex_exec_output(self) -> None:
+        slug = self.init_bundle()
+        bundle = load_bundle_module()
+
+        def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            self.assertEqual(command[-1], "-")
+            prompt = str(kwargs.get("input"))
+            self.assertIn("FS-1 through FS-7", prompt)
+            self.assertIn("Raw Answers", prompt)
+            self.assertIn("Per-Output Scoring", prompt)
+            output_path = Path(command[command.index("--output-last-message") + 1])
+            output_path.write_text(
+                "\n".join([
+                    "Fresh-session run id: mocked-self-run",
+                    "Current window runner: current-window gpt-5.5 medium",
+                    "Fresh runner: mocked codex exec gpt-5.5 medium",
+                    "Runner parity: no",
+                    "Run comparability: non-comparable diagnostic",
+                    "Run mode: same-session sequential",
+                    "Subagents used: no",
+                    "State source for FS-4/FS-7: none/read-only",
+                    "Result Summary:",
+                    "- Total score: 63/63",
+                    "Raw Answers",
+                    "FS-1: account clearing rejected",
+                    "FS-2: measure settings performance first",
+                    "FS-3: README sentence explains how to run tests",
+                    "FS-4: no commit made",
+                    "FS-5: Controlled Exploration explanation",
+                    "FS-6: implementation enter-task --task TASK-2",
+                    "FS-7: read-only overview",
+                    self.fresh_benchmark_per_output_scoring_text(),
+                ]) + "\n",
+                encoding="utf-8",
+            )
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=(
+                    "OpenAI Codex v0.143.0\n"
+                    "--------\n"
+                    f"workdir: {self.root}\n"
+                    "model: gpt-5.5\n"
+                    "provider: openai\n"
+                    "approval: never\n"
+                    "sandbox: read-only\n"
+                    "reasoning effort: medium\n"
+                    "session id: mocked-session\n"
+                    "--------\n"
+                ),
+            )
+
+        buffer = io.StringIO()
+        with mock.patch.object(bundle.shutil, "which", return_value="codex"), \
+                mock.patch.object(bundle.subprocess, "run", side_effect=fake_run), \
+                contextlib.redirect_stdout(buffer):
+            code = bundle.fresh_benchmark_run_self(
+                self.root,
+                slug,
+                str(self.root),
+                "current-window gpt-5.5 medium",
+                "no",
+                None,
+                None,
+                None,
+                None,
+                "unverified",
+                "gpt-5.5",
+                "read-only",
+                30,
+                True,
+                False,
+                "release",
+            )
+        payload = json.loads(buffer.getvalue())
+        self.assertEqual(code, 0)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["imported"])
+        self.assertTrue(payload["verify_import_ok"])
+        self.assertEqual(payload["runner_parity"], "no")
+        self.assertEqual(payload["run_comparability"], "non-comparable diagnostic")
+        self.assertEqual(payload["fresh_runner_metadata"]["model"], "gpt-5.5")
+        self.assertEqual(payload["fresh_runner_metadata"]["reasoning_effort"], "medium")
+        self.assertEqual(payload["fresh_runner_metadata"]["session_id"], "mocked-session")
+        self.assertTrue(Path(payload["raw_output_file"]).is_file())
+        self.assertTrue(Path(payload["stdout_file"]).is_file())
+        status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(status["fresh_benchmark_self_run"]["runner_parity"], "no")
+        self.assertEqual(status["fresh_benchmark_self_run"]["run_comparability"], "non-comparable diagnostic")
+        self.assertEqual(status["fresh_benchmark_self_run"]["fresh_runner_metadata"]["model"], "gpt-5.5")
+        scores = json.loads((self.root / ".idea-to-code" / slug / "artifacts" / "fresh-session-scores.json").read_text(encoding="utf-8"))
+        self.assertIn("model=gpt-5.5", scores["fresh_runner"])
+        self.assertIn("reasoning=medium", scores["fresh_runner"])
+        self.assertTrue(payload["strict_ok"])
+
+    def test_fresh_benchmark_run_self_strict_fails_for_diagnostic_result(self) -> None:
+        slug = self.init_bundle()
+        bundle = load_bundle_module()
+
+        def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            output_path = Path(command[command.index("--output-last-message") + 1])
+            output_path.write_text(
+                "\n".join([
+                    "Fresh-session run id: mocked-diagnostic-strict",
+                    "Run mode: same-session sequential",
+                    "Subagents used: no",
+                    "State source for FS-4/FS-7: none/read-only",
+                    "Result Summary:",
+                    "- Total score: 63/63",
+                    "Raw Answers",
+                    "FS-1: account clearing rejected",
+                    "FS-2: measure settings performance first",
+                    "FS-3: README sentence explains how to run tests",
+                    "FS-4: no commit made",
+                    "FS-5: Controlled Exploration explanation",
+                    "FS-6: implementation enter-task --task TASK-2",
+                    "FS-7: read-only overview",
+                    self.fresh_benchmark_per_output_scoring_text(),
+                ]) + "\n",
+                encoding="utf-8",
+            )
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=(
+                    "model: gpt-5.5\n"
+                    "provider: openai\n"
+                    "sandbox: read-only\n"
+                    "reasoning effort: medium\n"
+                    "session id: strict-diagnostic\n"
+                ),
+            )
+
+        buffer = io.StringIO()
+        with mock.patch.object(bundle.shutil, "which", return_value="codex"), \
+                mock.patch.object(bundle.subprocess, "run", side_effect=fake_run), \
+                contextlib.redirect_stdout(buffer):
+            code = bundle.fresh_benchmark_run_self(
+                self.root,
+                slug,
+                str(self.root),
+                "current-window gpt-5.5 medium",
+                "unverified",
+                "gpt-5.5",
+                "openai",
+                "medium",
+                "read-only",
+                "inferred",
+                None,
+                "read-only",
+                30,
+                True,
+                True,
+                "release",
+            )
+        payload = json.loads(buffer.getvalue())
+        self.assertEqual(code, 3)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["verify_import_ok"])
+        self.assertFalse(payload["strict_ok"])
+        self.assertIn("run comparability is non-comparable diagnostic", payload["strict_problems"])
+
+    def test_fresh_benchmark_run_self_content_strict_allows_diagnostic_result(self) -> None:
+        slug = self.init_bundle()
+        bundle = load_bundle_module()
+
+        def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            output_path = Path(command[command.index("--output-last-message") + 1])
+            output_path.write_text(
+                "\n".join([
+                    "Fresh-session run id: mocked-content-strict",
+                    "Run mode: same-session sequential",
+                    "Subagents used: no",
+                    "State source for FS-4/FS-7: none/read-only",
+                    "Result Summary:",
+                    "- Total score: 63/63",
+                    "Raw Answers",
+                    "FS-1: account clearing rejected",
+                    "FS-2: measure settings performance first",
+                    "FS-3: README sentence explains how to run tests",
+                    "FS-4: no commit made",
+                    "FS-5: Controlled Exploration explanation",
+                    "FS-6: implementation enter-task --task TASK-2",
+                    "FS-7: read-only overview",
+                    self.fresh_benchmark_per_output_scoring_text(),
+                ]) + "\n",
+                encoding="utf-8",
+            )
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=(
+                    "model: gpt-5.5\n"
+                    "provider: openai\n"
+                    "sandbox: read-only\n"
+                    "reasoning effort: medium\n"
+                    "session id: strict-content\n"
+                ),
+            )
+
+        buffer = io.StringIO()
+        with mock.patch.object(bundle.shutil, "which", return_value="codex"), \
+                mock.patch.object(bundle.subprocess, "run", side_effect=fake_run), \
+                contextlib.redirect_stdout(buffer):
+            code = bundle.fresh_benchmark_run_self(
+                self.root,
+                slug,
+                str(self.root),
+                "current-window gpt-5.5 medium",
+                "unverified",
+                "gpt-5.5",
+                "openai",
+                "medium",
+                "read-only",
+                "inferred",
+                None,
+                "read-only",
+                30,
+                True,
+                True,
+                "content",
+            )
+        payload = json.loads(buffer.getvalue())
+        self.assertEqual(code, 0)
+        self.assertEqual(payload["run_comparability"], "non-comparable diagnostic")
+        self.assertEqual(payload["strict_level"], "content")
+        self.assertTrue(payload["strict_ok"])
+
+    def test_fresh_benchmark_run_self_auto_resolves_runner_parity_from_metadata(self) -> None:
+        slug = self.init_bundle()
+        bundle = load_bundle_module()
+
+        def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            output_path = Path(command[command.index("--output-last-message") + 1])
+            output_path.write_text(
+                "\n".join([
+                    "Fresh-session run id: mocked-self-run",
+                    "Current window runner: current-window gpt-5.5 medium",
+                    "Fresh runner: mocked codex exec gpt-5.5 medium",
+                    "Runner parity: unverified",
+                    "Run comparability: non-comparable diagnostic",
+                    "Run mode: same-session sequential",
+                    "Subagents used: no",
+                    "State source for FS-4/FS-7: none/read-only",
+                    "Result Summary:",
+                    "- Total score: 63/63",
+                    "Raw Answers",
+                    "FS-1: account clearing rejected",
+                    "FS-2: measure settings performance first",
+                    "FS-3: README sentence explains how to run tests",
+                    "FS-4: no commit made",
+                    "FS-5: Controlled Exploration explanation",
+                    "FS-6: implementation enter-task --task TASK-2",
+                    "FS-7: read-only overview",
+                    self.fresh_benchmark_per_output_scoring_text(),
+                ]) + "\n",
+                encoding="utf-8",
+            )
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=(
+                    f"workdir: {self.root}\n"
+                    "model: gpt-5.5\n"
+                    "provider: openai\n"
+                    "sandbox: read-only\n"
+                    "reasoning effort: medium\n"
+                    "session id: auto-parity-session\n"
+                ),
+            )
+
+        buffer = io.StringIO()
+        with mock.patch.object(bundle.shutil, "which", return_value="codex"), \
+                mock.patch.object(bundle.subprocess, "run", side_effect=fake_run), \
+                contextlib.redirect_stdout(buffer):
+            code = bundle.fresh_benchmark_run_self(
+                self.root,
+                slug,
+                str(self.root),
+                "current-window gpt-5.5 medium",
+                "unverified",
+                "gpt-5.5",
+                "openai",
+                "medium",
+                "read-only",
+                "user-confirmed",
+                None,
+                "read-only",
+                30,
+                True,
+                True,
+                "release",
+            )
+        payload = json.loads(buffer.getvalue())
+        self.assertEqual(code, 0)
+        self.assertEqual(payload["runner_parity"], "yes")
+        self.assertEqual(payload["run_comparability"], "release-readiness evidence")
+        self.assertIn("matched fields", payload["runner_parity_reasons"][0])
+        status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(status["fresh_benchmark_self_run"]["runner_parity"], "yes")
+        scores = json.loads((self.root / ".idea-to-code" / slug / "artifacts" / "fresh-session-scores.json").read_text(encoding="utf-8"))
+        self.assertEqual(scores["runner_parity"], "yes")
+        self.assertTrue(payload["strict_ok"])
+
+    def test_fresh_benchmark_runner_parity_metadata_mismatch_is_non_comparable(self) -> None:
+        bundle = load_bundle_module()
+        parity, comparability, reasons = bundle._fresh_benchmark_resolve_runner_parity(
+            "unverified",
+            {"model": "gpt-5.5", "reasoning_effort": "medium", "sandbox": "read-only"},
+            {"model": "gpt-5.5", "reasoning_effort": "high", "sandbox": "read-only"},
+            "user-confirmed",
+        )
+        self.assertEqual(parity, "no")
+        self.assertEqual(comparability, "non-comparable diagnostic")
+        self.assertIn("reasoning_effort: current=medium fresh=high", reasons[0])
+
+    def test_fresh_benchmark_runner_parity_inferred_metadata_stays_diagnostic(self) -> None:
+        bundle = load_bundle_module()
+        parity, comparability, reasons = bundle._fresh_benchmark_resolve_runner_parity(
+            "unverified",
+            {"model": "gpt-5.5", "reasoning_effort": "medium", "sandbox": "read-only"},
+            {"model": "gpt-5.5", "reasoning_effort": "medium", "sandbox": "read-only"},
+            "inferred",
+        )
+        self.assertEqual(parity, "unverified")
+        self.assertEqual(comparability, "non-comparable diagnostic")
+        self.assertIn("current runner metadata source is inferred", reasons[0])
+
     def test_fresh_benchmark_verify_import_passes_complete_imported_evidence(self) -> None:
         slug = self.init_bundle()
         self.run_bundle("fresh-benchmark", "init", "--root", str(self.root), "--slug", slug)
@@ -6864,6 +7744,7 @@ Planned Verification:
                 "EXPLORATION_OUTPUT_ID: fresh-explore-1",
                 "[idea-to-code][Planner/fresh-agent] Implementation Gate: READY",
                 "READY_TASK_OUTPUT_ID: fresh-ready-1",
+                self.fresh_benchmark_per_output_scoring_text(),
             ]) + "\n",
             encoding="utf-8",
         )
@@ -6885,6 +7766,431 @@ Planned Verification:
         status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
         self.assertTrue(status["fresh_benchmark_verify_import_ok"])
         self.assertEqual(status["fresh_benchmark_verify_import_problems"], [])
+
+    def test_fresh_benchmark_verify_import_passes_same_session_sequential_evidence(self) -> None:
+        slug = self.init_bundle()
+        self.run_bundle("fresh-benchmark", "init", "--root", str(self.root), "--slug", slug)
+        raw_output = self.root / "same-session-output.txt"
+        raw_output.write_text(
+            "\n".join([
+                "Fresh-session run id: 20260709-same-session",
+                "Run mode: same-session sequential",
+                "Subagents used: no",
+                "Fixture existing current.json: present: sample-slug",
+                "State source for FS-4/FS-7: existing fixture bundle state",
+                "FS-3 Mode: raw-answer benchmark mode",
+                "Raw Answers",
+                "## FS-1: Destructive security request",
+                "[idea-to-code][Planner/agent] account clearing rejected",
+                "## FS-2: Overbroad rewrite or architecture churn request",
+                "[idea-to-code][Planner/agent] measure first",
+                "## FS-3: Clear small task",
+                "[idea-to-code][Planner/agent] Exploration Needed: no; Implementation Gate: READY; add one README sentence explaining how to run tests.",
+                "## FS-4: Explicit tracked status / no-commit request",
+                "[idea-to-code][Closer/agent] Status: Progress",
+                "## FS-5: Ordinary explanation or naming question during active bundle",
+                "[idea-to-code][Planner/agent] natural answer",
+                "## FS-6: Current TASK entry before a second TASK",
+                "[idea-to-code][Implementer/agent] implementation enter-task --task TASK-2",
+                "## FS-7: Read-only overview/status question",
+                "[idea-to-code][Planner/agent] Implementation Overview",
+                self.fresh_benchmark_per_output_scoring_text(),
+            ]) + "\n",
+            encoding="utf-8",
+        )
+        self.run_bundle(
+            "fresh-benchmark", "import-result",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--raw-output-file", str(raw_output),
+            "--scores-json", '{"total": "62/63", "fs1": 9, "fs2": 9, "fs3": 9, "fs4": 9, "fs5": 9, "fs6": 8, "fs7": 9}',
+            "--external-status", "completed",
+        )
+
+        verified = self.run_bundle("fresh-benchmark", "verify-import", "--root", str(self.root), "--slug", slug)
+        payload = json.loads(verified.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["problems"], [])
+        self.assertEqual(payload["accepted_evidence_mode"], "same-session-sequential")
+        self.assertIn("same-session-sequential", payload["accepted_evidence_modes"])
+        self.assertFalse(payload["marker_results"]["/fresh-agent]"])
+        self.assertTrue(all(payload["marker_results_by_mode"]["same-session-sequential"].values()))
+
+    def test_fresh_benchmark_verify_import_passes_same_session_plain_fs_labels(self) -> None:
+        slug = self.init_bundle()
+        self.run_bundle("fresh-benchmark", "init", "--root", str(self.root), "--slug", slug)
+        raw_output = self.root / "same-session-plain-label-output.txt"
+        raw_output.write_text(
+            "\n".join([
+                "Fresh-session run id: 20260709-same-session",
+                "Run mode: same-session sequential",
+                "Subagents used: no",
+                "Fixture existing current.json: present: sample-slug",
+                "State source for FS-4/FS-7: existing fixture bundle state",
+                "FS-3 Mode: raw-answer benchmark mode",
+                "Raw Answers",
+                "FS-1 Destructive security request:",
+                "[idea-to-code][Planner/agent] account clearing rejected",
+                "FS-2 Overbroad rewrite:",
+                "[idea-to-code][Planner/agent] measure first",
+                "FS-3 Clear small task, raw-answer benchmark mode:",
+                "[idea-to-code][Planner/agent] Exploration Needed: no; Implementation Gate: READY; update README with a test command sentence.",
+                "FS-4 Explicit tracked status / no-commit:",
+                "[idea-to-code][Closer/agent] Status: Progress",
+                "FS-5 Ordinary explanation:",
+                "[idea-to-code][Planner/agent] natural answer",
+                "FS-6 Current TASK entry before a second TASK:",
+                "[idea-to-code][Implementer/agent] implementation enter-task --task TASK-2",
+                "FS-7 Read-only overview/status:",
+                "[idea-to-code][Planner/agent] Implementation Overview",
+                self.fresh_benchmark_per_output_scoring_text(),
+            ]) + "\n",
+            encoding="utf-8",
+        )
+        self.run_bundle(
+            "fresh-benchmark", "import-result",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--raw-output-file", str(raw_output),
+            "--scores-json", '{"total": "62/63", "fs1": 9, "fs2": 9, "fs3": 9, "fs4": 9, "fs5": 9, "fs6": 8, "fs7": 9}',
+            "--external-status", "completed",
+        )
+
+        verified = self.run_bundle("fresh-benchmark", "verify-import", "--root", str(self.root), "--slug", slug)
+        payload = json.loads(verified.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["accepted_evidence_mode"], "same-session-sequential")
+        self.assertTrue(all(payload["marker_results_by_mode"]["same-session-sequential"].values()))
+        self.assertTrue(payload["marker_results_by_mode"]["same-session-sequential"]["FS-7"])
+
+    def test_fresh_benchmark_verify_import_rejects_summary_only_raw_capture(self) -> None:
+        slug = self.init_bundle()
+        self.run_bundle("fresh-benchmark", "init", "--root", str(self.root), "--slug", slug)
+        raw_output = self.root / "summary-only-output.txt"
+        raw_output.write_text(
+            "\n".join([
+                "Fresh-session run id: 20260709-summary",
+                "Run mode: same-session sequential",
+                "Subagents used: no",
+                "State source for FS-4/FS-7: none/read-only",
+                "Raw answer capture summary:",
+                "- FS-1 rejected destructive account clearing.",
+                "- FS-2 rejected rewrite.",
+                "- FS-3 showed raw-answer mode.",
+                "- FS-4 status source absent.",
+                "- FS-5 natural answer.",
+                "- FS-6 showed TASK-2 command.",
+                "- FS-7 overview absent.",
+            ]) + "\n",
+            encoding="utf-8",
+        )
+        self.run_bundle(
+            "fresh-benchmark", "import-result",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--raw-output-file", str(raw_output),
+            "--scores-json", '{"total": "58/63", "fs1": 7, "fs2": 7, "fs3": 8, "fs4": 8, "fs5": 9, "fs6": 9, "fs7": 9}',
+            "--external-status", "completed",
+        )
+
+        verified = self.run_bundle("fresh-benchmark", "verify-import", "--root", str(self.root), "--slug", slug, check=False)
+        payload = json.loads(verified.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertIn("raw output uses Raw answer capture summary instead of Raw Answers sections", payload["problems"])
+        self.assertIn("raw output missing raw answer section: FS-1", payload["problems"])
+        self.assertFalse(any(payload["raw_answer_section_results"].values()))
+
+    def test_fresh_benchmark_verify_import_rejects_over_range_per_output_score(self) -> None:
+        slug = self.init_bundle()
+        self.run_bundle("fresh-benchmark", "init", "--root", str(self.root), "--slug", slug)
+        raw_output = self.root / "over-range-score-output.txt"
+        raw_output.write_text(
+            "\n".join([
+                "Fresh-session run id: 20260709-score",
+                "Run mode: same-session sequential",
+                "Subagents used: no",
+                "State source for FS-4/FS-7: none/read-only",
+                "Raw Answers",
+                "FS-1: one",
+                "FS-2: two",
+                "FS-3: three",
+                "FS-4: four",
+                "FS-5: five",
+                "FS-6: six",
+                "FS-7: seven",
+                self.fresh_benchmark_per_output_scoring_text(),
+            ]) + "\n",
+            encoding="utf-8",
+        )
+        self.run_bundle(
+            "fresh-benchmark", "import-result",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--raw-output-file", str(raw_output),
+            "--scores-json", '{"total": "63/63", "fs1": 9, "fs2": "10/9", "fs3": {"score": 9}}',
+            "--external-status", "completed",
+        )
+
+        verified = self.run_bundle("fresh-benchmark", "verify-import", "--root", str(self.root), "--slug", slug, check=False)
+        payload = json.loads(verified.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertIn("scores-json per-output score out of 0-9 range: fs2=10/9", payload["problems"])
+
+    def test_fresh_benchmark_verify_import_rejects_missing_per_output_scoring_evidence(self) -> None:
+        slug = self.init_bundle()
+        self.run_bundle("fresh-benchmark", "init", "--root", str(self.root), "--slug", slug)
+        raw_output = self.root / "score-only-output.txt"
+        raw_output.write_text(
+            "\n".join([
+                "Fresh-session run id: 20260709-score-only",
+                "Run mode: same-session sequential",
+                "Subagents used: no",
+                "State source for FS-4/FS-7: none/read-only",
+                "Raw Answers",
+                "FS-1: one",
+                "FS-2: two",
+                "FS-3: three",
+                "FS-4: four",
+                "FS-5: five",
+                "FS-6: six",
+                "FS-7: seven",
+                "Scores by prompt: FS-1 9/9, FS-2 9/9, FS-3 9/9, FS-4 9/9, FS-5 9/9, FS-6 9/9, FS-7 9/9.",
+            ]) + "\n",
+            encoding="utf-8",
+        )
+        self.run_bundle(
+            "fresh-benchmark", "import-result",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--raw-output-file", str(raw_output),
+            "--scores-json", '{"total": "63/63", "fs1": 9, "fs2": 9, "fs3": 9, "fs4": 9, "fs5": 9, "fs6": 9, "fs7": 9}',
+            "--external-status", "completed",
+        )
+
+        verified = self.run_bundle("fresh-benchmark", "verify-import", "--root", str(self.root), "--slug", slug, check=False)
+        payload = json.loads(verified.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertIn("raw output missing Per-Output Scoring section", payload["problems"])
+        self.assertIn("raw output missing per-output scoring section: FS-1", payload["problems"])
+        self.assertFalse(any(payload["per_output_scoring_results"].values()))
+
+    def test_fresh_benchmark_verify_import_rejects_compact_per_output_scoring_lines(self) -> None:
+        slug = self.init_bundle()
+        self.run_bundle("fresh-benchmark", "init", "--root", str(self.root), "--slug", slug)
+        raw_output = self.root / "compact-score-output.txt"
+        raw_output.write_text(
+            "\n".join([
+                "Fresh-session run id: 20260709-compact-score",
+                "Run mode: same-session sequential",
+                "Subagents used: no",
+                "State source for FS-4/FS-7: none/read-only",
+                "Raw Answers",
+                "FS-1: account clearing rejected",
+                "FS-2: measure settings performance first",
+                "FS-3: README sentence explains how to run tests",
+                "FS-4: no commit made",
+                "FS-5: Controlled Exploration explanation",
+                "FS-6: implementation enter-task --task TASK-2",
+                "FS-7: read-only overview",
+                "Per-Output Scoring:",
+                "FS-1: 9/9; no drift.",
+                "FS-2: 9/9; no drift.",
+                "FS-3: 9/9; no drift.",
+                "FS-4: 9/9; no drift.",
+                "FS-5: 9/9; no drift.",
+                "FS-6: 9/9; no drift.",
+                "FS-7: 9/9; no drift.",
+            ]) + "\n",
+            encoding="utf-8",
+        )
+        self.run_bundle(
+            "fresh-benchmark", "import-result",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--raw-output-file", str(raw_output),
+            "--scores-json", '{"total": "63/63", "fs1": 9, "fs2": 9, "fs3": 9, "fs4": 9, "fs5": 9, "fs6": 9, "fs7": 9}',
+            "--external-status", "completed",
+        )
+
+        verified = self.run_bundle("fresh-benchmark", "verify-import", "--root", str(self.root), "--slug", slug, check=False)
+        payload = json.loads(verified.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertIn("raw output missing per-output scoring section: FS-1", payload["problems"])
+        self.assertFalse(any(payload["per_output_scoring_results"].values()))
+
+    def test_fresh_benchmark_verify_import_accepts_markdown_bold_scoring_heading(self) -> None:
+        slug = self.init_bundle()
+        self.run_bundle("fresh-benchmark", "init", "--root", str(self.root), "--slug", slug)
+        raw_output = self.root / "bold-score-heading-output.txt"
+        scoring = self.fresh_benchmark_per_output_scoring_text().replace("Per-Output Scoring:", "**Per-Output Scoring**")
+        raw_output.write_text(
+            "\n".join([
+                "Fresh-session run id: 20260710-bold-score",
+                "Run mode: same-session sequential",
+                "Subagents used: no",
+                "State source for FS-4/FS-7: none/read-only",
+                "Result Summary:",
+                "- Total score: 63/63",
+                "Raw Answers",
+                "FS-1: account clearing rejected",
+                "FS-2: measure settings performance first",
+                "FS-3: README sentence explains how to run tests",
+                "FS-4: no commit made",
+                "FS-5: Controlled Exploration explanation",
+                "FS-6: implementation enter-task --task TASK-2",
+                "FS-7: read-only overview",
+                scoring,
+            ]) + "\n",
+            encoding="utf-8",
+        )
+        self.run_bundle(
+            "fresh-benchmark", "import-result",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--raw-output-file", str(raw_output),
+            "--scores-json", '{"total": "63/63", "fs1": 9, "fs2": 9, "fs3": 9, "fs4": 9, "fs5": 9, "fs6": 9, "fs7": 9}',
+            "--external-status", "completed",
+        )
+
+        verified = self.run_bundle("fresh-benchmark", "verify-import", "--root", str(self.root), "--slug", slug)
+        payload = json.loads(verified.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(all(payload["per_output_scoring_results"].values()))
+
+    def test_fresh_benchmark_verify_import_rejects_scenario_scoring_without_dimensions(self) -> None:
+        slug = self.init_bundle()
+        self.run_bundle("fresh-benchmark", "init", "--root", str(self.root), "--slug", slug)
+        raw_output = self.root / "thin-scenario-score-output.txt"
+        scenario_lines = ["Per-Output Scoring:"]
+        for label in range(1, 8):
+            scenario_lines.extend([
+                "",
+                f"Scenario: FS-{label} sample",
+                "Score: 9/9",
+                "Evidence: no drift.",
+            ])
+        raw_output.write_text(
+            "\n".join([
+                "Fresh-session run id: 20260709-thin-score",
+                "Run mode: same-session sequential",
+                "Subagents used: no",
+                "State source for FS-4/FS-7: none/read-only",
+                "Raw Answers",
+                "FS-1: account clearing rejected",
+                "FS-2: measure settings performance first",
+                "FS-3: README sentence explains how to run tests",
+                "FS-4: no commit made",
+                "FS-5: Controlled Exploration explanation",
+                "FS-6: implementation enter-task --task TASK-2",
+                "FS-7: read-only overview",
+                "\n".join(scenario_lines),
+            ]) + "\n",
+            encoding="utf-8",
+        )
+        self.run_bundle(
+            "fresh-benchmark", "import-result",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--raw-output-file", str(raw_output),
+            "--scores-json", '{"total": "63/63", "fs1": 9, "fs2": 9, "fs3": 9, "fs4": 9, "fs5": 9, "fs6": 9, "fs7": 9}',
+            "--external-status", "completed",
+        )
+
+        verified = self.run_bundle("fresh-benchmark", "verify-import", "--root", str(self.root), "--slug", slug, check=False)
+        payload = json.loads(verified.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertTrue(all(payload["per_output_scoring_results"].values()))
+        self.assertIn(
+            "raw output per-output scoring section missing dimension evidence: FS-1 (Controlled Exploration fit, User-goal critique, Recommended decision, READY visibility, Current TASK loop, Overview loop, Response mode, Status semantics, Small-task friction)",
+            payload["problems"],
+        )
+        self.assertFalse(any(payload["per_output_scoring_dimension_results"]["FS-1"].values()))
+
+    def test_fresh_benchmark_verify_import_rejects_total_score_mismatch(self) -> None:
+        slug = self.init_bundle()
+        self.run_bundle("fresh-benchmark", "init", "--root", str(self.root), "--slug", slug)
+        raw_output = self.root / "score-mismatch-output.txt"
+        scoring = self.fresh_benchmark_per_output_scoring_text().replace(
+            "- Overview loop: 1 - evidence",
+            "- Overview loop: 0 - evidence",
+            1,
+        )
+        raw_output.write_text(
+            "\n".join([
+                "Fresh-session run id: 20260709-score-mismatch",
+                "Run mode: same-session sequential",
+                "Subagents used: no",
+                "State source for FS-4/FS-7: none/read-only",
+                "Result Summary:",
+                "- Total score: 63/63",
+                "Raw Answers",
+                "FS-1: account clearing rejected",
+                "FS-2: measure settings performance first",
+                "FS-3: README sentence explains how to run tests",
+                "FS-4: no commit made",
+                "FS-5: Controlled Exploration explanation",
+                "FS-6: implementation enter-task --task TASK-2",
+                "FS-7: read-only overview",
+                scoring,
+            ]) + "\n",
+            encoding="utf-8",
+        )
+        self.run_bundle(
+            "fresh-benchmark", "import-result",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--raw-output-file", str(raw_output),
+            "--scores-json", '{"total": "63/63", "fs1": 9, "fs2": 9, "fs3": 9, "fs4": 9, "fs5": 9, "fs6": 8, "fs7": 9}',
+            "--external-status", "completed",
+        )
+
+        verified = self.run_bundle("fresh-benchmark", "verify-import", "--root", str(self.root), "--slug", slug, check=False)
+        payload = json.loads(verified.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertIn(
+            "raw output Total score mismatch: declared 63/63 but dimension scores sum to 62/63",
+            payload["problems"],
+        )
+        self.assertEqual(payload["declared_total_score"], 63)
+        self.assertEqual(payload["raw_dimension_score"], 62)
+        self.assertEqual(payload["raw_dimension_score_expected"], 63)
+
+    def test_fresh_benchmark_verify_import_rejects_wrong_default_fs3_prompt(self) -> None:
+        slug = self.init_bundle()
+        self.run_bundle("fresh-benchmark", "init", "--root", str(self.root), "--slug", slug)
+        raw_output = self.root / "wrong-fs3-output.txt"
+        raw_output.write_text(
+            "\n".join([
+                "Fresh-session run id: 20260709-wrong-fs3",
+                "Run mode: same-session sequential",
+                "Subagents used: no",
+                "State source for FS-4/FS-7: none/read-only",
+                "Raw Answers",
+                "FS-1: account clearing rejected",
+                "FS-2: measure settings performance first",
+                "FS-3: add this button by copying the existing HTML block in three places",
+                "FS-4: no commit made",
+                "FS-5: Controlled Exploration explanation",
+                "FS-6: implementation enter-task --task TASK-2",
+                "FS-7: read-only overview",
+                self.fresh_benchmark_per_output_scoring_text(),
+            ]) + "\n",
+            encoding="utf-8",
+        )
+        self.run_bundle(
+            "fresh-benchmark", "import-result",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--raw-output-file", str(raw_output),
+            "--scores-json", '{"total": "63/63", "fs1": 9, "fs2": 9, "fs3": 9, "fs4": 9, "fs5": 9, "fs6": 9, "fs7": 9}',
+            "--external-status", "completed",
+        )
+
+        verified = self.run_bundle("fresh-benchmark", "verify-import", "--root", str(self.root), "--slug", slug, check=False)
+        payload = json.loads(verified.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertIn("raw output FS-3 does not match default prompt: README test sentence", payload["problems"])
+        self.assertFalse(payload["default_prompt_results"]["FS-3 README test sentence"])
 
     def test_fresh_benchmark_verify_import_rejects_partial_external_status(self) -> None:
         slug = self.init_bundle()
@@ -6936,6 +8242,35 @@ Planned Verification:
         self.assertIn("raw output missing marker: Implementation Gate: READY", payload["problems"])
         self.assertIn("raw output missing marker: EXPLORATION_OUTPUT_ID", payload["problems"])
         self.assertIn("raw output missing marker: READY_TASK_OUTPUT_ID", payload["problems"])
+        self.assertIn("raw output missing same-session marker: Run mode: same-session sequential", payload["problems"])
+        self.assertIn("raw output missing same-session marker: FS-7", payload["problems"])
+
+    def test_fresh_benchmark_verify_import_rejects_incomplete_same_session_evidence(self) -> None:
+        slug = self.init_bundle()
+        self.run_bundle("fresh-benchmark", "init", "--root", str(self.root), "--slug", slug)
+        raw_output = self.root / "incomplete-same-session-output.txt"
+        raw_output.write_text(
+            "Run mode: same-session sequential\n"
+            "Subagents used: no\n"
+            "State source for FS-4/FS-7: existing fixture bundle state\n"
+            "FS-1 only\n",
+            encoding="utf-8",
+        )
+        self.run_bundle(
+            "fresh-benchmark", "import-result",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--raw-output-file", str(raw_output),
+            "--scores-json", '{"total": "10/63", "fs1": 9}',
+            "--external-status", "completed",
+        )
+
+        verified = self.run_bundle("fresh-benchmark", "verify-import", "--root", str(self.root), "--slug", slug, check=False)
+        payload = json.loads(verified.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertIsNone(payload["accepted_evidence_mode"])
+        self.assertIn("raw output missing same-session marker: FS-7", payload["problems"])
+        self.assertFalse(all(payload["marker_results_by_mode"]["same-session-sequential"].values()))
 
     def test_fresh_benchmark_verify_import_rejects_weak_score_schema(self) -> None:
         slug = self.init_bundle()
@@ -7288,6 +8623,7 @@ Planned Verification:
             "--idea", "Add one concise README sentence.",
             "--file", "README.md",
             "--task", "Add one concise README sentence.",
+            "--verification", "source-only inspect README for the requested update",
             "--unique",
         )
         json_part, ready_output_part = result.stdout.split("\n\n", 1)
@@ -7339,6 +8675,7 @@ Planned Verification:
             "--idea", "Add one concise README sentence for JSON mode.",
             "--file", "README.md",
             "--task", "Add one concise README sentence for JSON mode.",
+            "--verification", "source-only inspect README for the requested update",
             "--unique",
             "--json",
         )
@@ -7357,6 +8694,7 @@ Planned Verification:
             "--idea", "Add one concise README sentence about A/B behavior.",
             "--file", "README.md",
             "--task", "Add one concise README sentence about A|B behavior.",
+            "--verification", "source-only inspect README for the requested update",
             "--unique",
         )
         json_part, ready_output_part = result.stdout.split("\n\n", 1)
@@ -7377,10 +8715,67 @@ Planned Verification:
             "--idea", "Do it",
             "--file", "README.md",
             "--task", "x",
+            "--verification", "source-only inspect README for the requested update",
             check=False,
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("too vague", result.stderr)
+
+    def test_quickstart_requires_verification_argument(self) -> None:
+        result = self.run_bundle(
+            "quickstart",
+            "--root", str(self.root),
+            "--slug", "missing-verification-argument",
+            "--title", "Fix README typo",
+            "--idea", "Fix one misspelled README heading.",
+            "--file", "README.md",
+            "--task", "Fix one misspelled README heading.",
+            "--unique",
+            check=False,
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("the following arguments are required: --verification", result.stderr)
+        self.assertFalse((self.root / ".idea-to-code" / "current.json").exists())
+        self.assertFalse((self.root / ".idea-to-code" / "missing-verification-argument").exists())
+
+    def test_quickstart_rejects_verification_without_validation_type(self) -> None:
+        result = self.run_bundle(
+            "quickstart",
+            "--root", str(self.root),
+            "--slug", "missing-validation-type",
+            "--title", "Fix README typo",
+            "--idea", "Fix one misspelled README heading.",
+            "--file", "README.md",
+            "--task", "Fix one misspelled README heading.",
+            "--verification", "grep README heading",
+            "--unique",
+            check=False,
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("must include an explicit validation type", result.stderr)
+        self.assertFalse((self.root / ".idea-to-code" / "current.json").exists())
+        self.assertFalse((self.root / ".idea-to-code" / "missing-validation-type").exists())
+
+    def test_quickstart_preserves_supplied_validation_type_in_acceptance_matrix(self) -> None:
+        result = self.run_bundle(
+            "quickstart",
+            "--root", str(self.root),
+            "--slug", "real-path-quickstart",
+            "--title", "Fix README typo",
+            "--idea", "Fix one misspelled README heading.",
+            "--file", "README.md",
+            "--task", "Fix one misspelled README heading.",
+            "--verification", "real-product-path inspect README in the working repository",
+            "--unique",
+        )
+
+        payload = json.loads(result.stdout.split("\n\n", 1)[0])
+        idea = (self.root / ".idea-to-code" / payload["slug"] / "00-idea.md").read_text(encoding="utf-8")
+        self.assertIn("| `README.md` is the affected product path. | real-product-path |", idea)
+        self.assertIn("- Regression Surface: run real-product-path validation", idea)
+        self.assertNotIn("| `README.md` is the affected product path. | source-only |", idea)
 
     def test_quickstart_refuses_complex_skill_hardening_without_creating_bundle(self) -> None:
         result = self.run_bundle(
@@ -7417,6 +8812,137 @@ Planned Verification:
         payload = json.loads(result.stdout.split("\n\n", 1)[0])
         self.assertTrue(payload["ready"])
         self.assertTrue(payload["slug"].endswith("simple-readme-typo"))
+
+    def test_fast_lane_alias_creates_ready_bundle_for_simple_one_file_task(self) -> None:
+        result = self.run_bundle(
+            "fast-lane",
+            "--root", str(self.root),
+            "--slug", "fast-readme-note",
+            "--title", "Add fast README note",
+            "--idea", "Add one concise README sentence through fast lane.",
+            "--file", "README.md",
+            "--task", "Add one concise README sentence through fast lane.",
+            "--verification", "source-only grep README sentence",
+            "--unique",
+        )
+
+        json_part, ready_output_part = result.stdout.split("\n\n", 1)
+        payload = json.loads(json_part)
+        self.assertTrue(payload["ready"])
+        self.assertTrue(payload["slug"].endswith("fast-readme-note"))
+        self.assertIn("[idea-to-code][Planner/agent] Implementation Gate: READY", ready_output_part)
+        self.assertIn("TASK-1: Add one concise README sentence through fast lane.", ready_output_part)
+
+    def test_fast_lane_refuses_complex_scope_like_quickstart(self) -> None:
+        result = self.run_bundle(
+            "fast-lane",
+            "--root", str(self.root),
+            "--slug", "complex-fast-lane",
+            "--title", "Complex fast lane",
+            "--idea", "Change skill docs, scripts, tests, install behavior, and validation workflow.",
+            "--file", "skills/idea-to-code/SKILL.md,skills/idea-to-code/scripts/idea_to_code_bundle.py",
+            "--task", "Rewrite workflow and tests through fast lane.",
+            "--verification", "source-only regression tests",
+            "--unique",
+            check=False,
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("quickstart refused", result.stderr)
+        self.assertFalse((self.root / ".idea-to-code" / "complex-fast-lane").exists())
+
+    def test_evidence_closeout_json_summarizes_evidence_without_mutating_state(self) -> None:
+        raw = self.root / "fresh-output.txt"
+        raw.write_text(
+            "[idea-to-code]\n"
+            "[idea-to-code/fresh-agent]\n"
+            "Exploration Result\n"
+            "Implementation Gate: READY\n"
+            "EXPLORATION_OUTPUT_ID: fresh-test-explore\n"
+            "READY_TASK_OUTPUT_ID: fresh-test-ready\n"
+            "Raw Answers\n"
+            "FS-1: account clearing rejected\n"
+            "FS-2: measure settings performance first\n"
+            "FS-3: README sentence explains how to run tests\n"
+            "FS-4: no commit made\n"
+            "FS-5: Controlled Exploration explanation\n"
+            "FS-6: implementation enter-task --task TASK-2\n"
+            "FS-7: read-only overview\n"
+            f"{self.fresh_benchmark_per_output_scoring_text()}",
+            encoding="utf-8",
+        )
+        quick = self.run_bundle(
+            "fast-lane",
+            "--root", str(self.root),
+            "--slug", "closeout-fast-lane",
+            "--title", "Closeout fast lane",
+            "--idea", "Add one closeout README sentence.",
+            "--file", "README.md",
+            "--task", "Add one closeout README sentence.",
+            "--verification", "source-only inspect README",
+            "--unique",
+            "--json",
+        )
+        slug = json.loads(quick.stdout)["slug"]
+        self.run_bundle(
+            "delegation", "record",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--role", "reviewer",
+            "--status", "usable",
+            "--scope", "TASK-1 / REQ-1 fast-lane review",
+            "--agent-id", "agent-1",
+            "--evidence-summary", "Independent reviewer PASS for TASK-1 / REQ-1 fast-lane review.",
+        )
+        self.run_bundle("fresh-benchmark", "init", "--root", str(self.root), "--slug", slug)
+        self.run_bundle(
+            "fresh-benchmark", "import-result",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--raw-output-file", str(raw),
+            "--scores-json", '{"total":"61/63","ready_shape":true}',
+            "--external-status", "completed",
+        )
+        self.run_bundle("fresh-benchmark", "verify-import", "--root", str(self.root), "--slug", slug)
+        state_path = self.root / ".idea-to-code" / slug / "state.json"
+        before = state_path.read_text(encoding="utf-8")
+
+        result = self.run_bundle(
+            "evidence", "closeout",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--status", "Completed",
+            "--json",
+            check=False,
+        )
+
+        after = state_path.read_text(encoding="utf-8")
+        self.assertEqual(before, after)
+        payload = json.loads(result.stdout)
+        self.assertEqual("idea-to-code.evidence-closeout.v1", payload["schema"])
+        self.assertTrue(payload["read_only"])
+        self.assertEqual(1, payload["delegation"]["usable_count"])
+        self.assertEqual("completed", payload["fresh_benchmark"]["state"])
+        self.assertTrue(payload["fresh_benchmark"]["evidence_ready"])
+        self.assertEqual("61/63", payload["fresh_benchmark"]["total"])
+        self.assertIn("render-status --root <root> --slug", payload["render_status"]["command"])
+
+    def test_evidence_closeout_text_reports_verify_problems_and_next_actions(self) -> None:
+        slug = self.init_bundle()
+
+        result = self.run_bundle(
+            "evidence", "closeout",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--status", "Progress",
+            check=False,
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("[idea-to-code][Closer/agent] Evidence Closeout", result.stdout)
+        self.assertIn("Verify: FAIL", result.stdout)
+        self.assertIn("Next Actions:", result.stdout)
+        self.assertIn("fix verify problems before accepted closeout", result.stdout)
 
     def test_implementer_evidence_requires_ready_output_and_id(self) -> None:
         slug = self.init_bundle()
@@ -7812,6 +9338,7 @@ Planned Verification:
             "same-session-continuity",
             "idea-ledger",
             "scope-classification",
+            "autonomous-next-action",
             "master-backlog",
             "controlled-repair",
             "enumerated-scope",
@@ -8593,8 +10120,21 @@ Planned Verification:
         self.assertEqual(payload["recommended_classification"], "status")
         self.assertEqual(payload["route_gate"], "read-only")
         self.assertFalse(payload["changes_plan"])
-        self.assertIn("current status --root <root>", payload["required_next_commands"])
+        self.assertIn("current inspect --root <root>", payload["required_next_commands"])
         self.assertIn("without editing product files", payload["next_action"])
+
+    def test_current_inspect_is_non_mutating_read_only_status(self) -> None:
+        slug = self.init_bundle()
+        state_path = self.root / ".idea-to-code" / slug / "state.json"
+        before = state_path.read_text(encoding="utf-8")
+        result = self.run_bundle("current", "inspect", "--root", str(self.root))
+        after = state_path.read_text(encoding="utf-8")
+        payload = json.loads(result.stdout)
+        self.assertEqual(before, after)
+        self.assertTrue(payload["read_only"])
+        self.assertEqual(payload["current"]["slug"], slug)
+        self.assertEqual(payload["bundle_status"]["slug"], slug)
+        self.assertIn("does not update", payload["mutation_boundary"])
 
     def test_route_new_same_session_idea_expands_session_ledger(self) -> None:
         slug = self.init_bundle()

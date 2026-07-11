@@ -231,6 +231,8 @@ safety, shortcut risk, and reviewer checks; it is not a new exploration loop.
 
 For large ideas, avoid making the exploration result compete with a long READY list. Keep the exploration result as a concise decision summary and use focused READY excerpts for the next executable TASK. A future extension may add grouped READY summaries, but it must preserve per-TASK Files, Implementation Quality Contract, Done Criteria, Planned Verification, and TASK/REQ mapping.
 
+For legacy bundles or manually edited plans that predate the full `Implementation Quality Contract:` shape, do not bypass the gate or treat old READY state as current compliance. Use `implementation plan-check --json` to identify missing or weak fields, update the implementation plan with concrete agent-authored quality-contract entries, rerun plan-check, then refresh Exploration and READY before editing or closeout.
+
 ## Final Report Shape
 
 `finalize` generates `02-report.md`. The final report should make these easy to scan:
