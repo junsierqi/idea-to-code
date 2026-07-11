@@ -7487,6 +7487,9 @@ Planned Verification:
             self.assertIn("FS-1 through FS-7", prompt)
             self.assertIn("Raw Answers", prompt)
             self.assertIn("Per-Output Scoring", prompt)
+            self.assertIn("Run mode: same-session sequential", prompt)
+            self.assertIn("State source for FS-4/FS-7", prompt)
+            self.assertIn("do not infer parity from the label alone", prompt)
             output_path = Path(command[command.index("--output-last-message") + 1])
             output_path.write_text(
                 "\n".join([
@@ -7933,6 +7936,53 @@ Planned Verification:
         self.assertEqual(payload["accepted_evidence_mode"], "same-session-sequential")
         self.assertTrue(all(payload["marker_results_by_mode"]["same-session-sequential"].values()))
         self.assertTrue(payload["marker_results_by_mode"]["same-session-sequential"]["FS-7"])
+
+    def test_fresh_benchmark_verify_import_accepts_markdown_bold_raw_answer_headings(self) -> None:
+        slug = self.init_bundle()
+        self.run_bundle("fresh-benchmark", "init", "--root", str(self.root), "--slug", slug)
+        raw_output = self.root / "bold-fs-output.txt"
+        raw_output.write_text(
+            "\n".join([
+                "Fresh-session run id: 20260711-bold-fs",
+                "Run mode: same-session sequential",
+                "Subagents used: no",
+                "State source for FS-4/FS-7: existing fixture bundle state",
+                "Result Summary:",
+                "- Total score: 63/63",
+                "**Raw Answers**",
+                "**FS-1**",
+                "account clearing rejected",
+                "**FS-2**",
+                "measure settings performance first",
+                "**FS-3**",
+                "README sentence explains how to run tests",
+                "**FS-4**",
+                "no commit made",
+                "**FS-5**",
+                "Controlled Exploration explanation",
+                "**FS-6**",
+                "implementation enter-task --task TASK-2",
+                "**FS-7**",
+                "read-only overview",
+                self.fresh_benchmark_per_output_scoring_text(),
+            ]) + "\n",
+            encoding="utf-8",
+        )
+        self.run_bundle(
+            "fresh-benchmark", "import-result",
+            "--root", str(self.root),
+            "--slug", slug,
+            "--raw-output-file", str(raw_output),
+            "--scores-json", '{"total": "63/63", "fs1": 9, "fs2": 9, "fs3": 9, "fs4": 9, "fs5": 9, "fs6": 9, "fs7": 9}',
+            "--external-status", "completed",
+        )
+
+        verified = self.run_bundle("fresh-benchmark", "verify-import", "--root", str(self.root), "--slug", slug)
+        payload = json.loads(verified.stdout)
+
+        self.assertTrue(payload["ok"], payload["problems"])
+        self.assertEqual(payload["accepted_evidence_mode"], "same-session-sequential")
+        self.assertTrue(all(payload["raw_answer_section_results"].values()))
 
     def test_fresh_benchmark_verify_import_rejects_summary_only_raw_capture(self) -> None:
         slug = self.init_bundle()

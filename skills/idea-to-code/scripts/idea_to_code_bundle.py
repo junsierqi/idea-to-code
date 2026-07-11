@@ -8526,7 +8526,7 @@ def _fresh_benchmark_template_text() -> str:
 def _fresh_benchmark_same_session_results(raw_text: str) -> dict[str, bool]:
     results = {marker: marker in raw_text for marker in FRESH_BENCHMARK_SAME_SESSION_MARKERS}
     for label in FRESH_BENCHMARK_FS_LABELS:
-        results[label] = bool(re.search(rf"^\s*(?:#+\s*)?{re.escape(label)}\b", raw_text, flags=re.MULTILINE))
+        results[label] = bool(re.search(rf"^\s*(?:#+\s*)?(?:\*\*)?{re.escape(label)}\b", raw_text, flags=re.MULTILINE))
     return results
 
 
@@ -8535,19 +8535,19 @@ def _fresh_benchmark_raw_answer_results(raw_text: str) -> dict[str, bool]:
         return {label: False for label in FRESH_BENCHMARK_FS_LABELS}
     raw_section = raw_text.split("Raw Answers", 1)[1] if "Raw Answers" in raw_text else raw_text
     return {
-        label: bool(re.search(rf"^\s*(?:#+\s*)?{re.escape(label)}\b", raw_section, flags=re.MULTILINE))
+        label: bool(re.search(rf"^\s*(?:#+\s*)?(?:\*\*)?{re.escape(label)}\b", raw_section, flags=re.MULTILINE))
         for label in FRESH_BENCHMARK_FS_LABELS
     }
 
 
 def _fresh_benchmark_raw_answer_section(raw_text: str, label: str) -> str:
     raw_section = raw_text.split("Raw Answers", 1)[1] if "Raw Answers" in raw_text else raw_text
-    start = re.search(rf"^\s*(?:#+\s*)?{re.escape(label)}\b.*$", raw_section, flags=re.MULTILINE)
+    start = re.search(rf"^\s*(?:#+\s*)?(?:\*\*)?{re.escape(label)}\b.*$", raw_section, flags=re.MULTILINE)
     if not start:
         return ""
     next_label_number = int(label.split("-", 1)[1]) + 1
     section_with_heading = raw_section[start.start():]
-    end = re.search(rf"^\s*(?:#+\s*)?FS-{next_label_number}\b.*$", section_with_heading[start.end() - start.start():], flags=re.MULTILINE)
+    end = re.search(rf"^\s*(?:#+\s*)?(?:\*\*)?FS-{next_label_number}\b.*$", section_with_heading[start.end() - start.start():], flags=re.MULTILINE)
     if not end:
         return section_with_heading
     offset = start.end() - start.start()
@@ -8645,14 +8645,18 @@ Do not spawn subagents; answer the default FS-1 through FS-7 benchmark prompts s
 Before FS-4 and FS-7, check whether `.idea-to-code/current.json` already exists. When answering status/overview prompts, state whether the status comes from existing fixture bundle state, benchmark-produced temporary state, or no active/read-only state.
 Capture raw answers for each prompt. Do not edit files unless the specific benchmark prompt asks for an edit.
 Use FS-3 raw-answer benchmark mode unless I explicitly ask for execution benchmark mode.
+Your final answer must include these exact protocol lines near the top:
+- Run mode: same-session sequential
+- Subagents used: no
+- State source for FS-4/FS-7: <existing fixture bundle state | benchmark-produced temporary state | no active/read-only state>
 
 Runner parity fields:
 - Current window runner: {current_window_runner}
 - Fresh runner: report the runner/model/reasoning/session metadata visible to this session.
-- Runner parity: yes only if the fresh runner matches the current window runner; otherwise no or unverified.
+- Runner parity: yes only if exact current-window model/provider/reasoning/sandbox metadata is provided and matches the fresh runner. If the current runner is only a label such as "current Codex window", write unverified; do not infer parity from the label alone.
 - Run comparability: {run_comparability}
 
-Your final answer must include `Raw Answers` with FS-1 through FS-7 sections and `Per-Output Scoring` with `Scenario: FS-1` through `Scenario: FS-7` sections. The declared `Total score` must equal the sum of all 63 per-dimension 0|1 score lines.
+Your final answer must include `Raw Answers` with FS-1 through FS-7 sections and `Per-Output Scoring` with `Scenario: FS-1` through `Scenario: FS-7` sections. Prefer raw answer headings like `FS-1:` through `FS-7:`. The declared `Total score` must equal the sum of all 63 per-dimension 0|1 score lines.
 """
 
 
