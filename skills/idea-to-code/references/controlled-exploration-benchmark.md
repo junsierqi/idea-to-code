@@ -188,15 +188,23 @@ python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" release
   --strict
 ```
 
-Use `--mode source` for deterministic repo-enforced release-quality evidence. It scores the installed guidance, gates, and rubrics for three publish-readiness areas: fresh-session behavior checks, RT real-task sweep coverage, and decision-quality effect evidence. Use `--mode live` only when a Codex CLI fresh session should be sampled; live mode is stronger evidence for observed model behavior but still must not claim host-level runner parity or native host interception.
+Use `--mode source` for deterministic repo-enforced scaffold/readiness evidence. It checks that the installed guidance, gates, and rubrics exist for three publish-readiness areas, but it does not observe a fresh Codex session, generate RT outputs, or measure decision-quality effects. Source mode must not mark the release-quality items complete.
 
-The runner completes the repo-achievable parts of:
+Use `--mode live` when a Codex CLI fresh session should be sampled. Live mode records a read-only transcript and scores that transcript with this runner, so its evidence type is `live-self-scored-transcript`. It is stronger than source scaffold evidence, but it is still not independent reviewer evidence and must not claim host-level runner parity, native host interception, or exact current-window isolation.
+
+Completion evidence has three boundaries:
+
+- source scaffold: rules, prompts, dimensions, and gates are present; release-quality items remain incomplete;
+- live self-scored transcript: one Codex CLI transcript is observed and scored by the runner; useful behavior evidence, but not independent review;
+- external independent review: a separate subagent/fresh-agent reviewer inspects raw outputs and returns usable evidence; record this separately from the runner artifact.
+
+The release-quality items are:
 
 - real fresh-session behavior regression: `Next Action` display, autonomous same-scope continuation, Decision adequacy, and obvious better alternative review checks;
 - real-task sweep / RT-runner automation: RT-1 through RT-8 scored against the real-task quality dimensions below;
 - decision-quality effect evidence: user-goal fit, risk/cost reduction, constraint preservation, verifiability, and decision closure.
 
-It does not complete host-required enforcement such as physical native edit interception, send-time final-response blocking, or exact current-window/fresh-session isolation proof.
+The runner does not complete host-required enforcement such as physical native edit interception, send-time final-response blocking, or exact current-window/fresh-session isolation proof.
 
 Real-task sweep prompts:
 

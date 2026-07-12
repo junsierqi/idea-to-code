@@ -9323,6 +9323,8 @@ def _release_quality_payload_from_sections(
         "mode": mode,
         "evidence_type": evidence_type,
         "evidence_boundary": evidence_boundary,
+        "completion_evidence_ready": not problems,
+        "independent_reviewer_evidence": False,
         "live_status": live_status,
         "completed_items": completed_items,
         "scores": {
@@ -9337,75 +9339,170 @@ def _release_quality_payload_from_sections(
         "problems": problems,
         "raw_output_artifact": raw_output_artifact,
         "residual_risks": [
+            "live transcript scoring is self-scored unless an independent reviewer artifact is recorded",
             "host-level current-window/fresh-session parity is not repo-enforced",
             "native edit interception and final-response send-time blocking remain host-required",
         ],
     }
 
 
-def _release_quality_source_payload() -> dict:
+def _release_quality_marker_result(root: Path, relative_path: str, markers: list[str]) -> dict:
+    path = root / relative_path
+    missing: list[str] = []
+    if not path.is_file():
+        return {
+            "ok": False,
+            "file": relative_path,
+            "present_marker_count": 0,
+            "required_marker_count": len(markers),
+            "missing_markers": markers,
+            "evidence": f"{relative_path} missing",
+        }
+    text = path.read_text(encoding="utf-8").lower()
+    for marker in markers:
+        if marker.lower() not in text:
+            missing.append(marker)
+    return {
+        "ok": not missing,
+        "file": relative_path,
+        "present_marker_count": len(markers) - len(missing),
+        "required_marker_count": len(markers),
+        "missing_markers": missing,
+        "evidence": f"{relative_path} contains required markers" if not missing else f"{relative_path} missing required markers",
+    }
+
+
+def _release_quality_marker_score(check: dict) -> str:
+    return f"{check.get('present_marker_count', 0)}/{check.get('required_marker_count', 0)} markers"
+
+
+def _release_quality_source_payload(root: Path) -> dict:
+    marker_checks = {
+        "fresh_behavior_checks_defined": _release_quality_marker_result(root, "skills/idea-to-code/SKILL.md", [
+            "Autonomous Next-Action SOP",
+            "Next Action",
+            "Decision adequacy",
+            "obvious better alternative",
+        ]),
+        "real_task_dimensions_defined": _release_quality_marker_result(root, "skills/idea-to-code/references/controlled-exploration-benchmark.md", [
+            "RT-1 Small documentation edit",
+            "RT-8 Existing-code compatibility",
+            "User outcome fit",
+            "Completion honesty",
+        ]),
+        "decision_quality_checks_defined": _release_quality_marker_result(root, "skills/idea-to-code/references/controlled-exploration-benchmark.md", [
+            "decision-quality effect evidence",
+            "user-goal fit",
+            "Risk/cost reduction",
+            "Decision closure",
+        ]),
+        "source_completion_guard_test_defined": _release_quality_marker_result(root, "skills/idea-to-code/scripts/test_idea_to_code_bundle.py", [
+            "test_release_quality_source_run_records_scaffold_without_completion",
+            "source-scaffold",
+            "completion_evidence_ready",
+        ]),
+    }
+    scaffold_ready = all(check.get("ok") for check in marker_checks.values())
     fresh_results = {
         "Next Action display": {
-            "ok": True,
-            "evidence": "Autonomous Next-Action SOP keeps Next Action visible and requires execution without waiting when same-scope work is safe.",
+            "ok": False,
+            "scaffold_present": bool(marker_checks["fresh_behavior_checks_defined"]["ok"]),
+            "evidence": "Autonomous Next-Action SOP text exists, but source mode does not observe a fresh-session response.",
         },
         "Autonomous same-scope continuation": {
-            "ok": True,
-            "evidence": "Autonomous Next-Action SOP classifies same-IDEA actions as agent-owned until completed or truly blocked.",
+            "ok": False,
+            "scaffold_present": bool(marker_checks["fresh_behavior_checks_defined"]["ok"]),
+            "evidence": "Autonomous Next-Action SOP text exists, but source mode does not observe continuation behavior.",
         },
         "Decision adequacy": {
-            "ok": True,
-            "evidence": "Controlled Exploration requires Alternatives checked, selected-path rationale, and Not-proven-optimal boundary for exploration-needed work.",
+            "ok": False,
+            "scaffold_present": bool(marker_checks["decision_quality_checks_defined"]["ok"]),
+            "evidence": "Decision adequacy rules exist, but source mode does not observe a complex-task decision.",
         },
         "Reviewer obvious better alternative": {
-            "ok": True,
-            "evidence": "Reviewer Must Verify and role evidence gates require obvious better alternative checks.",
+            "ok": False,
+            "scaffold_present": bool(marker_checks["fresh_behavior_checks_defined"]["ok"]),
+            "evidence": "Reviewer rules exist, but source mode does not observe reviewer behavior.",
         },
     }
     rt_results = []
     for rt_id, name, prompt in RELEASE_QUALITY_RT_PROMPTS:
-        dimensions = {dimension: True for dimension in RELEASE_QUALITY_RT_DIMENSIONS}
+        dimensions = {dimension: False for dimension in RELEASE_QUALITY_RT_DIMENSIONS}
         rt_results.append({
             "id": rt_id,
             "name": name,
             "prompt": prompt,
-            "score": len(RELEASE_QUALITY_RT_DIMENSIONS),
+            "score": 0,
             "max_score": len(RELEASE_QUALITY_RT_DIMENSIONS),
             "dimensions": dimensions,
-            "failure_categories": [],
+            "scaffold_dimensions": {dimension: bool(marker_checks["real_task_dimensions_defined"]["ok"]) for dimension in RELEASE_QUALITY_RT_DIMENSIONS},
+            "failure_categories": ["not-run"],
         })
     decision_results = {
         "User-goal fit improvement": {
-            "ok": True,
-            "evidence": "Decision adequacy checks the selected path against the real user outcome, not only the requested implementation.",
+            "ok": False,
+            "scaffold_present": bool(marker_checks["decision_quality_checks_defined"]["ok"]),
+            "evidence": "Decision adequacy checks are defined, but source mode does not measure effect on a real task.",
         },
         "Risk/cost reduction": {
-            "ok": True,
-            "evidence": "Decision adequacy and Reviewer checks require lower-risk/lower-cost alternatives to be considered and surfaced.",
+            "ok": False,
+            "scaffold_present": bool(marker_checks["decision_quality_checks_defined"]["ok"]),
+            "evidence": "Risk/cost checks are defined, but source mode does not measure reduced rework or risk.",
         },
         "Constraint and non-goal preservation": {
-            "ok": True,
-            "evidence": "Acceptance Matrix and Decision adequacy keep constraints and non-goal boundaries visible.",
+            "ok": False,
+            "scaffold_present": bool(marker_checks["decision_quality_checks_defined"]["ok"]),
+            "evidence": "Constraint checks are defined, but source mode does not measure preservation across task outputs.",
         },
         "Verifiability improvement": {
-            "ok": True,
-            "evidence": "Each selected path must name a verification path and validation type before READY.",
+            "ok": False,
+            "scaffold_present": bool(marker_checks["decision_quality_checks_defined"]["ok"]),
+            "evidence": "Verification checks are defined, but source mode does not measure stronger validation on outputs.",
         },
         "Decision closure": {
-            "ok": True,
-            "evidence": "Reviewer and validation compare the selected decision reason with actual evidence and record residual risks.",
+            "ok": False,
+            "scaffold_present": bool(marker_checks["decision_quality_checks_defined"]["ok"]),
+            "evidence": "Decision closure checks are defined, but source mode does not observe closure behavior.",
         },
     }
-    return _release_quality_payload_from_sections(
+    payload = _release_quality_payload_from_sections(
         "source",
-        "source-only",
-        "repo-enforced scoring over installed guidance, references, and gates",
+        "source-scaffold",
+        "repo-enforced scaffold/readiness inspection only; not behavior evidence",
         fresh_results,
         rt_results,
         decision_results,
         None,
         None,
     )
+    payload["completion_evidence_ready"] = False
+    payload["completed_items"] = {
+        "item_1_real_fresh_behavior_regression": False,
+        "item_2_real_task_sweep_runner": False,
+        "item_3_decision_quality_effect_evidence": False,
+    }
+    payload["source_scaffold_ready"] = scaffold_ready
+    payload["source_marker_checks"] = marker_checks
+    payload["problems"] = [
+        "source mode is scaffold/readiness evidence only; run live or external reviewer evidence before marking release-quality items complete",
+        "fresh-session behavior was not observed",
+        "real-task sweep outputs were not generated or independently scored",
+        "decision-quality effect was not measured against task outputs",
+    ]
+    for name, check in marker_checks.items():
+        if not check.get("ok"):
+            payload["problems"].append(f"source scaffold marker check failed: {name}")
+    payload["ok"] = False
+    payload["scores"] = {
+        "fresh_behavior": "0/4",
+        "real_task_sweep": "0/64",
+        "decision_quality": "0/5",
+    }
+    payload["scaffold_scores"] = {
+        name: _release_quality_marker_score(check)
+        for name, check in marker_checks.items()
+    }
+    return payload
 
 
 def _release_quality_live_prompt() -> str:
@@ -9414,6 +9511,7 @@ def _release_quality_live_prompt() -> str:
 
 Do not edit files. Do not spawn subagents. Continue through all sections in this same response without asking the user to type next.
 Answer in one final report with these exact sections and include a final `Next Action` field.
+For `Next Action display`, score pass when the final report visibly includes that `Next Action` field; do not require separate commentary updates inside this single read-only probe.
 
 Fresh Behavior Checks:
 - Next Action display: pass|fail - evidence
@@ -9424,6 +9522,11 @@ Fresh Behavior Checks:
 Real-Task Sweep:
 For each RT-1 through RT-8, include one section headed `RT-N:` and score all dimensions as `1` or `0`:
 {", ".join(RELEASE_QUALITY_RT_DIMENSIONS)}
+
+Scoring guidance:
+- For ambiguous, risky, destructive, or performance prompts, `User outcome fit` and `Implementation path` should score `1` when the answer rejects the weak literal request and gives a concrete safer or measurement-backed path that satisfies the durable user goal.
+- Do not score a security prompt down merely because the literal destructive request is refused; score it down only if no safe concrete alternative is given.
+- Every `0` score should identify the missing behavior briefly.
 
 RT prompts:
 {rt_lines}
@@ -9449,7 +9552,7 @@ def _release_quality_bool_from_text(raw_text: str, label: str) -> bool:
 
 
 def _release_quality_score_line_present(text: str, label: str) -> bool:
-    return bool(re.search(rf"^\s*(?:-\s*)?{re.escape(label)}:\s*1\b", text, flags=re.IGNORECASE | re.MULTILINE))
+    return bool(re.search(rf"(?:^|[,;]\s*)(?:-\s*)?{re.escape(label)}:\s*1\b", text, flags=re.IGNORECASE | re.MULTILINE))
 
 
 def _release_quality_score_live_output(raw_text: str) -> dict:
@@ -9468,7 +9571,7 @@ def _release_quality_score_live_output(raw_text: str) -> dict:
     rt_results = []
     for rt_id, name, prompt in RELEASE_QUALITY_RT_PROMPTS:
         section_match = re.search(
-            rf"^\s*(?:#+\s*)?{re.escape(rt_id)}\b(?P<section>.*?)(?=^\s*(?:#+\s*)?RT-\d+\b|^\s*(?:#+\s*)?Decision-Quality Effect\b|\Z)",
+            rf"^\s*(?:#+\s*)?\**{re.escape(rt_id)}\b\**:?(?P<section>.*?)(?=^\s*(?:#+\s*)?\**RT-\d+\b\**:?|^\s*(?:#+\s*)?\**Decision-Quality Effect\**:?|\Z)",
             raw_text,
             flags=re.IGNORECASE | re.MULTILINE | re.DOTALL,
         )
@@ -9495,8 +9598,8 @@ def _release_quality_score_live_output(raw_text: str) -> dict:
     }
     return _release_quality_payload_from_sections(
         "live",
-        "live-fresh-session",
-        "codex exec read-only fresh session; host parity not inferred",
+        "live-self-scored-transcript",
+        "codex exec read-only transcript scored by this runner; not independent reviewer evidence; host parity not inferred",
         fresh_results,
         rt_results,
         decision_results,
@@ -9508,7 +9611,7 @@ def _release_quality_score_live_output(raw_text: str) -> dict:
 def release_quality_run(root: Path, slug: str, mode: str, fixture_root: str | None, sandbox: str, timeout_seconds: int, strict: bool) -> int:
     target = ensure_active_bundle(root, slug, allow_blocked=True)
     if mode == "source":
-        payload = _release_quality_source_payload()
+        payload = _release_quality_source_payload(root)
     else:
         codex = shutil.which("codex")
         if not codex:
@@ -9516,8 +9619,10 @@ def release_quality_run(root: Path, slug: str, mode: str, fixture_root: str | No
                 "schema": "idea-to-code.release-quality.v1",
                 "ok": False,
                 "mode": mode,
-                "evidence_type": "live-fresh-session",
+                "evidence_type": "live-self-scored-transcript",
                 "evidence_boundary": "codex CLI unavailable",
+                "completion_evidence_ready": False,
+                "independent_reviewer_evidence": False,
                 "live_status": "unavailable",
                 "completed_items": {
                     "item_1_real_fresh_behavior_regression": False,
@@ -9563,8 +9668,10 @@ def release_quality_run(root: Path, slug: str, mode: str, fixture_root: str | No
                     "schema": "idea-to-code.release-quality.v1",
                     "ok": False,
                     "mode": mode,
-                    "evidence_type": "live-fresh-session",
+                    "evidence_type": "live-self-scored-transcript",
                     "evidence_boundary": "codex exec timed out",
+                    "completion_evidence_ready": False,
+                    "independent_reviewer_evidence": False,
                     "live_status": "partial",
                     "completed_items": {
                         "item_1_real_fresh_behavior_regression": False,
@@ -9585,6 +9692,10 @@ def release_quality_run(root: Path, slug: str, mode: str, fixture_root: str | No
         status["release_quality_mode"] = mode
         status["release_quality_ok"] = payload.get("ok")
         status["release_quality_scores"] = payload.get("scores")
+        status["release_quality_evidence_type"] = payload.get("evidence_type")
+        status["release_quality_evidence_boundary"] = payload.get("evidence_boundary")
+        status["release_quality_completion_evidence_ready"] = payload.get("completion_evidence_ready")
+        status["release_quality_independent_reviewer_evidence"] = payload.get("independent_reviewer_evidence")
         status["release_quality_completed_items"] = payload.get("completed_items")
         status["release_quality_problems"] = payload.get("problems")
         status["release_quality_event_sequence"] = _next_event_sequence(status)
@@ -9609,6 +9720,10 @@ def release_quality_status(root: Path, slug: str) -> int:
         "ok": status.get("release_quality_ok"),
         "mode": status.get("release_quality_mode"),
         "scores": status.get("release_quality_scores"),
+        "evidence_type": status.get("release_quality_evidence_type"),
+        "evidence_boundary": status.get("release_quality_evidence_boundary"),
+        "completion_evidence_ready": status.get("release_quality_completion_evidence_ready"),
+        "independent_reviewer_evidence": status.get("release_quality_independent_reviewer_evidence"),
         "completed_items": status.get("release_quality_completed_items"),
         "problems": status.get("release_quality_problems") or ([] if artifact_path.is_file() else ["release-quality run has not been recorded"]),
     }

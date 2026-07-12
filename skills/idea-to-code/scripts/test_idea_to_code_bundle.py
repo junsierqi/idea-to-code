@@ -6962,7 +6962,7 @@ Planned Verification:
     def test_changed_surface_profile_includes_release_quality_tests(self) -> None:
         runner = load_test_batch_runner_module()
         tests = [
-            "test_idea_to_code_bundle.BundleTest.test_release_quality_source_run_completes_items_1_2_3_and_writes_artifact",
+            "test_idea_to_code_bundle.BundleTest.test_release_quality_source_run_records_scaffold_without_completion",
             "test_idea_to_code_bundle.BundleTest.test_unrelated_example",
         ]
 
@@ -8324,30 +8324,82 @@ Planned Verification:
         self.assertIn("raw output FS-3 does not match default prompt: README test sentence", payload["problems"])
         self.assertFalse(payload["default_prompt_results"]["FS-3 README test sentence"])
 
-    def test_release_quality_source_run_completes_items_1_2_3_and_writes_artifact(self) -> None:
+    def test_release_quality_source_run_records_scaffold_without_completion(self) -> None:
         slug = self.init_bundle()
+        skill_file = self.root / "skills/idea-to-code/SKILL.md"
+        benchmark_file = self.root / "skills/idea-to-code/references/controlled-exploration-benchmark.md"
+        test_file = self.root / "skills/idea-to-code/scripts/test_idea_to_code_bundle.py"
+        skill_file.parent.mkdir(parents=True, exist_ok=True)
+        benchmark_file.parent.mkdir(parents=True, exist_ok=True)
+        test_file.parent.mkdir(parents=True, exist_ok=True)
+        skill_file.write_text("Autonomous Next-Action SOP\nNext Action\nDecision adequacy\nobvious better alternative\n", encoding="utf-8")
+        benchmark_file.write_text(
+            "RT-1 Small documentation edit\nRT-8 Existing-code compatibility\nUser outcome fit\n"
+            "Completion honesty\ndecision-quality effect evidence\nuser-goal fit\nRisk/cost reduction\nDecision closure\n",
+            encoding="utf-8",
+        )
+        test_file.write_text(
+            "test_release_quality_source_run_records_scaffold_without_completion\nsource-scaffold\ncompletion_evidence_ready\n",
+            encoding="utf-8",
+        )
 
-        result = self.run_bundle("release-quality", "run", "--root", str(self.root), "--slug", slug, "--mode", "source", "--strict")
+        result = self.run_bundle("release-quality", "run", "--root", str(self.root), "--slug", slug, "--mode", "source", check=False)
         payload = json.loads(result.stdout)
 
-        self.assertTrue(payload["ok"], payload["problems"])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(payload["ok"])
         self.assertEqual(payload["schema"], "idea-to-code.release-quality.v1")
         self.assertEqual(payload["mode"], "source")
-        self.assertEqual(payload["scores"]["fresh_behavior"], "4/4")
-        self.assertEqual(payload["scores"]["real_task_sweep"], "64/64")
-        self.assertEqual(payload["scores"]["decision_quality"], "5/5")
-        self.assertTrue(payload["completed_items"]["item_1_real_fresh_behavior_regression"])
-        self.assertTrue(payload["completed_items"]["item_2_real_task_sweep_runner"])
-        self.assertTrue(payload["completed_items"]["item_3_decision_quality_effect_evidence"])
+        self.assertEqual(payload["evidence_type"], "source-scaffold")
+        self.assertFalse(payload["completion_evidence_ready"])
+        self.assertFalse(payload["independent_reviewer_evidence"])
+        self.assertEqual(payload["scores"]["fresh_behavior"], "0/4")
+        self.assertEqual(payload["scores"]["real_task_sweep"], "0/64")
+        self.assertEqual(payload["scores"]["decision_quality"], "0/5")
+        self.assertEqual(payload["scaffold_scores"]["fresh_behavior_checks_defined"], "4/4 markers")
+        self.assertEqual(payload["scaffold_scores"]["real_task_dimensions_defined"], "4/4 markers")
+        self.assertEqual(payload["scaffold_scores"]["decision_quality_checks_defined"], "4/4 markers")
+        self.assertEqual(payload["source_marker_checks"]["fresh_behavior_checks_defined"]["present_marker_count"], 4)
+        self.assertEqual(payload["source_marker_checks"]["fresh_behavior_checks_defined"]["required_marker_count"], 4)
+        self.assertTrue(payload["source_scaffold_ready"])
+        self.assertTrue(payload["source_marker_checks"]["fresh_behavior_checks_defined"]["ok"])
+        self.assertFalse(payload["completed_items"]["item_1_real_fresh_behavior_regression"])
+        self.assertFalse(payload["completed_items"]["item_2_real_task_sweep_runner"])
+        self.assertFalse(payload["completed_items"]["item_3_decision_quality_effect_evidence"])
+        self.assertIn("source mode is scaffold/readiness evidence only", payload["problems"][0])
 
-        status = self.run_bundle("release-quality", "status", "--root", str(self.root), "--slug", slug)
+        strict = self.run_bundle("release-quality", "run", "--root", str(self.root), "--slug", slug, "--mode", "source", "--strict", check=False)
+        self.assertEqual(strict.returncode, 3)
+
+        status = self.run_bundle("release-quality", "status", "--root", str(self.root), "--slug", slug, check=False)
         status_payload = json.loads(status.stdout)
         self.assertTrue(status_payload["exists"])
-        self.assertTrue(status_payload["ok"])
+        self.assertFalse(status_payload["ok"])
+        self.assertEqual(status_payload["evidence_type"], "source-scaffold")
+        self.assertFalse(status_payload["completion_evidence_ready"])
+        self.assertFalse(status_payload["independent_reviewer_evidence"])
         artifact = self.root / ".idea-to-code" / slug / status_payload["artifact"]
         self.assertTrue(artifact.is_file())
         artifact_payload = json.loads(artifact.read_text(encoding="utf-8"))
         self.assertEqual(artifact_payload["scores"], payload["scores"])
+
+    def test_release_quality_source_run_reports_missing_scaffold_markers(self) -> None:
+        slug = self.init_bundle()
+        skill_file = self.root / "skills/idea-to-code/SKILL.md"
+        skill_file.parent.mkdir(parents=True, exist_ok=True)
+        skill_file.write_text("Autonomous Next-Action SOP\nNext Action\n", encoding="utf-8")
+
+        result = self.run_bundle("release-quality", "run", "--root", str(self.root), "--slug", slug, "--mode", "source", check=False)
+        payload = json.loads(result.stdout)
+
+        self.assertFalse(payload["ok"])
+        self.assertFalse(payload["source_scaffold_ready"])
+        self.assertFalse(payload["source_marker_checks"]["fresh_behavior_checks_defined"]["ok"])
+        self.assertIn("Decision adequacy", payload["source_marker_checks"]["fresh_behavior_checks_defined"]["missing_markers"])
+        self.assertIn("source scaffold marker check failed: fresh_behavior_checks_defined", payload["problems"])
+        self.assertEqual(payload["source_marker_checks"]["fresh_behavior_checks_defined"]["present_marker_count"], 2)
+        self.assertEqual(payload["source_marker_checks"]["fresh_behavior_checks_defined"]["required_marker_count"], 4)
+        self.assertEqual(payload["scaffold_scores"]["fresh_behavior_checks_defined"], "2/4 markers")
 
     def test_release_quality_status_fails_before_run(self) -> None:
         slug = self.init_bundle()
@@ -8377,9 +8429,14 @@ Planned Verification:
                 "Real-Task Sweep:",
             ]
             for index in range(1, 9):
-                lines.append(f"RT-{index}: mocked")
-                for dimension in bundle.RELEASE_QUALITY_RT_DIMENSIONS:
-                    lines.append(f"- {dimension}: 1 - evidence")
+                if index % 2:
+                    lines.append(f"**RT-{index}:** mocked")
+                    for dimension in bundle.RELEASE_QUALITY_RT_DIMENSIONS:
+                        lines.append(f"- {dimension}: 1 - evidence")
+                else:
+                    lines.append(f"RT-{index}: mocked")
+                    separator = "; " if index == 2 else ", "
+                    lines.append(separator.join(f"{dimension}: 1" for dimension in bundle.RELEASE_QUALITY_RT_DIMENSIONS))
             lines.append("Decision-Quality Effect:")
             for effect in bundle.RELEASE_QUALITY_DECISION_EFFECTS:
                 lines.append(f"- {effect}: 1 - evidence")
@@ -8396,6 +8453,10 @@ Planned Verification:
         self.assertEqual(code, 0)
         self.assertTrue(payload["ok"], payload["problems"])
         self.assertEqual(payload["mode"], "live")
+        self.assertEqual(payload["evidence_type"], "live-self-scored-transcript")
+        self.assertTrue(payload["completion_evidence_ready"])
+        self.assertFalse(payload["independent_reviewer_evidence"])
+        self.assertIn("not independent reviewer evidence", payload["evidence_boundary"])
         self.assertEqual(payload["scores"]["fresh_behavior"], "4/4")
         self.assertEqual(payload["scores"]["real_task_sweep"], "64/64")
         self.assertEqual(payload["scores"]["decision_quality"], "5/5")
