@@ -21,6 +21,17 @@ TEST_BATCH_PROFILE_KEYWORDS: dict[str, tuple[str, ...]] = {
         "install_parity",
         "test_batch",
     ),
+    "maintainer-fast": (
+        "skill_reference_links_exist",
+        "reference_ownership_map",
+        "skill_entry_contract",
+        "skill_description",
+        "branch_map_command_outputs",
+        "lifecycle_audit",
+        "output_compliance_self_test",
+        "install_parity_checklist",
+        "maintainer_fast_profile",
+    ),
     "output": (
         "output_compliance",
         "visible_output",
@@ -30,6 +41,7 @@ TEST_BATCH_PROFILE_KEYWORDS: dict[str, tuple[str, ...]] = {
         "transcript_audit",
     ),
     "lifecycle": (
+        "test_delivery_evidence.",
         "lifecycle",
         "branch_map",
         "implementation_ready",
@@ -43,6 +55,7 @@ TEST_BATCH_PROFILE_KEYWORDS: dict[str, tuple[str, ...]] = {
         "next_action",
     ),
     "changed-surface": (
+        "test_delivery_evidence.",
         "host_hook",
         "guarded_apply",
         "quality_contract",
@@ -68,6 +81,13 @@ def discover_unittest_methods(test_script: Path) -> list[str]:
         for item in node.body:
             if isinstance(item, ast.FunctionDef) and item.name.startswith("test_"):
                 methods.append(f"{module_name}.{node.name}.{item.name}")
+    return methods
+
+
+def discover_unittest_suite(directory: Path) -> list[str]:
+    methods: list[str] = []
+    for test_script in sorted(directory.glob("test_*.py")):
+        methods.extend(discover_unittest_methods(test_script))
     return methods
 
 
@@ -97,15 +117,15 @@ def run_test_batch(
         raise SystemExit("test-batch refused - --profile must be one of: " + ", ".join(TEST_BATCH_PROFILE_KEYWORDS))
     if slow_count < 0:
         raise SystemExit("test-batch refused - --slow-count must be zero or greater.")
-    test_script = Path(__file__).with_name("test_idea_to_code_bundle.py")
-    discovered = discover_unittest_methods(test_script)
+    test_directory = Path(__file__).parent
+    discovered = discover_unittest_suite(test_directory)
     tests = filter_tests_by_profile(discovered, profile)
     if limit is not None:
         if limit <= 0:
             raise SystemExit("test-batch refused - --limit must be greater than zero.")
         tests = tests[:limit]
     if not tests:
-        raise SystemExit(f"test-batch refused - no unittest methods discovered for profile {profile} in {test_script}.")
+        raise SystemExit(f"test-batch refused - no unittest methods discovered for profile {profile} in {test_directory}.")
     chunks = [tests[index:index + chunk_size] for index in range(0, len(tests), chunk_size)]
     print(f"test-batch: profile={profile} total_tests={len(tests)} chunk_size={chunk_size} chunks={len(chunks)}")
     timings: list[tuple[float, int, int, int]] = []
@@ -118,7 +138,7 @@ def run_test_batch(
         try:
             result = subprocess.run(
                 command,
-                cwd=test_script.parent,
+                cwd=test_directory,
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,

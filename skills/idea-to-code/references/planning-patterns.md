@@ -173,6 +173,20 @@ task-only plan look complete.
 
 For multi-issue repair work, use `MB-*` as the stable issue-list index before READY. Each `MB-*` item must map to a `REQ-*`/`TASK-*` path or to an explicit deferred, skipped, blocked, rejected, partial, or carryover decision. Do not let a user-provided issue list exist only as prose once implementation begins.
 
+### Complete scope and design rehearsal
+
+Before implementation, enumerate the requested changes as `1.`, `2.`, `3.` and map them to stable REQ/TASK IDs. Preserve this list across interruptions. Identify dependencies before choosing execution order; do not lose an earlier outcome while pursuing a later improvement. The whole assignment is accepted only when every required item has its applicable evidence.
+
+For each item, inspect the real entrypoints, callers, authoritative data, external effects, failure recovery and user-visible result. Record what may change and what must remain. Rehearse applicable positive cases, counterexamples and boundary states against the existing behavior before READY. Mark irrelevant states with a reason; do not require every possible environment for every task. Unknown critical behavior requires a bounded read-only investigation or isolated experiment, not an unsupported implementation assumption.
+
+Compare meaningful alternatives, including reuse of the existing design. Challenge the preferred proposal: which requirement would refute it, which failure leaves ambiguous state, and whether a simpler proposal satisfies the same cases. Reject proposals based on evidence and constraints, not because they differ from the first implementation. Do not promise that a finite review proves zero future defects.
+
+A design defect means the required contract, ownership, state or acceptance boundary is inadequate. Preserve the observation, stop dependent implementation, reconsider the affected design and dependent tasks together, and rehearse the revised proposal before implementation. An implementation defect means the approved design can express the intended result but the code does not achieve it: correct the implementation and rerun affected acceptance. Neither classification automatically requires discarding unrelated validated work. Redesign is a consequence of an invalid design, not a routine discovery technique or a punishment mechanism in the skill.
+
+Declare acceptance cases using `delivery record --action acceptance-declare` (schema in verification-and-evidence.md). Name each affected object and verification layer: testing one member of a declared family does not cover the others. Each case needs an expected outcome grounded in the requirement or observed baseline. Review both directions: every modification maps to cases, and every requirement maps to implementation and evidence. Source inspection, fixtures, real services and user-visible behavior remain distinct claims.
+
+Honor the user's resource-retention requirements. Keep resources reserved for user inspection until that acceptance; clean only resources whose lifecycle permits cleanup. A temporary test fixture is not a substitute for the real user flow when that flow is required.
+
 During Controlled Repair, the loop unit is the current `TASK-*`, not the whole issue list and not a newly invented derived-task ID. Derived work follows this policy:
 
 - blocking: record under the current TASK, fix only what is needed to complete or verify the parent TASK, then return to the parent TASK;

@@ -31,6 +31,7 @@ VERIFICATION_MD = REFERENCES_DIR / "verification-and-evidence.md"
 PRODUCT_CHARTER_MD = REFERENCES_DIR / "product-charter.md"
 CONTROLLED_EXPLORATION_BENCHMARK_MD = REFERENCES_DIR / "controlled-exploration-benchmark.md"
 ALLOWED_REFERENCES = {
+    "evolution-candidates.md",
     "controlled-exploration-benchmark.md",
     "planning-patterns.md",
     "product-charter.md",
@@ -294,6 +295,8 @@ class BundleTest(unittest.TestCase):
 
     def test_reference_ownership_map_guides_first_read_routing(self) -> None:
         text = SKILL_MD.read_text(encoding="utf-8")
+        workflow_text = WORKFLOW_MD.read_text(encoding="utf-8")
+        verification_text = VERIFICATION_MD.read_text(encoding="utf-8")
         self.assertIn("### Reference Ownership Map", text)
         expected_rows = {
             "references/product-charter.md": "product target, anti-goals, drift signals, corrective actions",
@@ -301,12 +304,17 @@ class BundleTest(unittest.TestCase):
             "references/planning-patterns.md": "intake, Controlled Exploration, TASK/REQ plan shape, milestone and report patterns",
             "references/roles-and-state.md": "role responsibilities, role execution mode, delegation healthcheck, role evidence, task states, acceptance matrix, trace coverage",
             "references/verification-and-evidence.md": "validation types, evidence quality, acceptance checks, READY/Exploration visibility checks, `render-status`, installed parity",
-            "references/controlled-exploration-benchmark.md": "prompt-level and fresh-session benchmark scenarios, scoring, protocol, and copyable result template",
+            "references/controlled-exploration-benchmark.md": "prompt-level and fresh-session benchmark scenarios, scoring, protocol",
         }
         for reference, owner_text in expected_rows.items():
-            self.assertIn(f"| `{reference}` | {owner_text}", text)
+            self.assertIn(f"| `{reference}` |", text)
+            self.assertIn(owner_text, text)
         self.assertIn("Use this map before opening references or adding new rules", text)
         self.assertIn("runtime rule authority or fixed answer templates", text)
+        self.assertIn("Ownership boundary: this file owns lifecycle order", workflow_text)
+        self.assertIn("Evidence strength, acceptance semantics, final response compliance", workflow_text)
+        self.assertIn("Ownership boundary: this file owns validation types", verification_text)
+        self.assertIn("Lifecycle command order, bundle routing, branch closure", verification_text)
 
     def test_reference_file_addition_requires_evidence_over_existing_docs(self) -> None:
         text = SKILL_MD.read_text(encoding="utf-8")
@@ -326,6 +334,7 @@ class BundleTest(unittest.TestCase):
 
     def test_current_reference_filenames_match_document_ownership(self) -> None:
         expected = {
+            "evolution-candidates.md",
             "controlled-exploration-benchmark.md",
             "planning-patterns.md",
             "product-charter.md",
@@ -336,42 +345,55 @@ class BundleTest(unittest.TestCase):
         actual = {path.name for path in REFERENCES_DIR.glob("*.md")}
         self.assertEqual(expected, actual)
         skill_text = SKILL_MD.read_text(encoding="utf-8")
-        for name in expected:
+        for name in expected - {"evolution-candidates.md"}:
             self.assertIn(f"`references/{name}`", skill_text)
 
+        # Experimental proposals are routed only by the maintenance workflow.
+        self.assertNotIn("references/evolution-candidates.md", skill_text)
+        workflow_text = WORKFLOW_MD.read_text(encoding="utf-8")
+        self.assertIn("[evolution-candidates.md](evolution-candidates.md)", workflow_text)
+        self.assertIn("Ordinary business tasks do not load it", workflow_text)
+        candidate_text = (REFERENCES_DIR / "evolution-candidates.md").read_text(encoding="utf-8")
+        self.assertIn("non-normative register", candidate_text)
+        self.assertIn("[workflow.md](workflow.md#evidence-backed-workflow-improvement)", candidate_text)
+
     def test_architecture_flow_diagram_guides_agent_orientation(self) -> None:
-        text = SKILL_MD.read_text(encoding="utf-8")
-        self.assertIn("Architecture Flow:", text)
-        self.assertIn("```mermaid", text)
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        workflow_text = WORKFLOW_MD.read_text(encoding="utf-8")
+        text = "\n".join([skill_text, workflow_text])
+        self.assertIn("Normal flow:", skill_text)
+        self.assertIn("Reference Ownership Map", skill_text)
         for required in [
-            "User idea / follow-up",
-            "SKILL.md first-read contract",
-            "Reference Ownership Map",
-            "Bundle: 00-idea.md + 01-progress.md + state.json",
-            "Planning: Intake + Controlled Exploration + REQ/TASK",
-            "Implementation Gate: READY",
-            "Execution: enter-task + lease + visible-output record + pre-edit + edit",
-            "Validation: validation type + evidence",
-            "Review: scope fit + risks + branch closure",
-            "Closeout: checkpoint + verify + finalize + final verify",
-            "User response: render-status for formal handoff",
+            "route/current -> init/resume bundle -> intake gate -> controlled exploration",
+            "requirements/REQs -> acceptance matrix -> design -> TASK plan",
+            "exploration render -> implementation ready -> enter-task -> visible-output record -> lease -> pre-edit",
+            "scoped edit -> validate -> review -> checkpoint/close-task",
+            "pre-close verify -> closer/finalize -> final verify -> render-status",
+            "lifecycle order, bundle contract, routing, branch closure, context boundary, command flow",
         ]:
             self.assertIn(required, text)
         self.assertLess(
-            text.index("B[Bundle: 00-idea.md + 01-progress.md + state.json]"),
-            text.index("P[Planning: Intake + Controlled Exploration + REQ/TASK]"),
+            text.index("init/resume bundle"),
+            text.index("implementation ready"),
         )
+        normal_flow = skill_text.split("Normal flow:", 1)[1].split("Read `references/workflow.md`", 1)[0]
+        self.assertLess(normal_flow.index("visible-output record"), normal_flow.index("pre-edit"))
 
     def test_role_handoff_overlay_shows_owner_and_recipient(self) -> None:
-        text = SKILL_MD.read_text(encoding="utf-8")
-        self.assertIn("Role Handoff Overlay:", text)
+        text = (REFERENCES_DIR / "roles-and-state.md").read_text(encoding="utf-8")
+        self.assertIn("## Role Order", text)
+        self.assertIn("## Role Responsibilities", text)
         for required in [
-            "User[User] -->|idea, corrections, acceptance signals| Planner[Planner]",
-            "Planner -->|Intake, Exploration, REQ/TASK plan, READY| Implementer[Implementer]",
-            "Implementer -->|scoped diff plus PRE_EDIT_OK_ID evidence| Validator[Validator]",
-            "Validator -->|validation type, commands, observed evidence| Reviewer[Reviewer]",
-            "Reviewer -->|scope fit, risks, non-goals, branch closure| Closer[Closer]",
-            "Closer -->|finalize, final verify, formal handoff| User",
+            "Planner",
+            "Implementer",
+            "Validator",
+            "Reviewer",
+            "Closer",
+            "Planner: produces `00-idea.md` content",
+            "Implementer: makes scoped changes inside the current TASK",
+            "Validator: records validation type",
+            "Reviewer: reconciles requested scope",
+            "Closer: runs after pre-close verify",
         ]:
             self.assertIn(required, text)
 
@@ -432,11 +454,20 @@ class BundleTest(unittest.TestCase):
 
     def test_skill_points_role_record_flow_to_checklist_helper(self) -> None:
         text = SKILL_MD.read_text(encoding="utf-8")
-        self.assertIn("Role Evidence Checklist", text)
-        self.assertIn("role explain --role <role>", text)
-        self.assertIn("does not change state", text)
-        self.assertIn("does not replace `role record`", text)
-        self.assertIn("if `role record` rejects evidence", text)
+        for required in [
+            "Read `references/roles-and-state.md` for role responsibilities",
+        ]:
+            self.assertIn(required, text)
+
+        text = ROLES_STATE_MD.read_text(encoding="utf-8")
+        for required in [
+            "Role Evidence Checklist",
+            "If `role record` rejects evidence",
+            "role explain --role <planner|implementer|validator|reviewer|closer>",
+            "not a state transition",
+            "not a replacement for `role record`",
+        ]:
+            self.assertIn(required, text)
 
     def test_grouped_files_guard_guidance_is_documented(self) -> None:
         combined = "\n".join([
@@ -591,17 +622,26 @@ class BundleTest(unittest.TestCase):
 
     def test_skill_entry_contract_orients_fresh_agents(self) -> None:
         text = SKILL_MD.read_text(encoding="utf-8")
+        line_count = len(text.splitlines())
+        self.assertGreaterEqual(line_count, 300)
+        self.assertLessEqual(line_count, 500)
         for required in [
             "Core Operating Contract",
-            "turn an idea into a verified software change",
+            "Turn an idea into a verified software change",
             "not through chat memory",
-            "This skill can:",
-            "Standard flow:",
-            "route/current -> init/resume bundle -> intake gate -> controlled exploration -> requirements/REQs -> acceptance matrix -> design -> TASK plan",
-            "-> Exploration Visibility Gate -> implementation ready -> enter-task -> lease -> visible-output record -> pre-edit",
-            "-> controlled repair -> validate -> review -> checkpoint or close-task -> pre-close verify -> closer/finalize -> final verify -> render-status -> structured closeout response",
-            "Tool-owned gates are not optional",
-            "does not narrow ordinary coding capability",
+            "Direct Trigger Behavior",
+            "Normal flow:",
+            "route/current -> init/resume bundle -> intake gate -> controlled exploration",
+            "-> exploration render -> implementation ready -> enter-task -> visible-output record -> lease -> pre-edit",
+            "Runtime Start Checklist",
+            "Edit Gate Checklist",
+            "Branch Boundaries",
+            "Reference Ownership Map",
+            "fresh-session benchmark runs: read `references/controlled-exploration-benchmark.md`",
+            "preserve the complete `Fresh-Session Reporting Format`",
+            "accurate `External run status`",
+            "small-task friction failures, severe failures, decision",
+            "per-scenario `Instruction drift` plus next-change notes for FS-1 through FS-7",
         ]:
             self.assertIn(required, text)
         self.assertNotIn("Exploration Visibility Gate -> bundle", text)
@@ -618,13 +658,13 @@ class BundleTest(unittest.TestCase):
         combined = "\n".join([skill_text, workflow_text])
 
         for required in [
-            "persistent recovery and audit ledgers",
-            "not default repository context",
-            "Do not scan every historical bundle",
+            "directories persist so a user or agent can explicitly resume, inspect, verify, or audit a known task",
+            "old bundle files must not be scanned as ordinary repository context",
+            "Do not infer a current bundle by scanning historical `.idea-to-code/<slug>/` directories",
             "Read a historical bundle only when",
-            "current.json` points to that slug",
-            "user explicitly asks to resume or inspect that slug",
-            "If `current.json` is missing, do not infer context by reading all bundle directories",
+            "`current.json` points to it",
+            "the user explicitly names the slug or asks to inspect history",
+            "If `current.json` is missing, do not infer the current task by reading every bundle directory",
         ]:
             self.assertIn(required, combined)
 
@@ -635,14 +675,14 @@ class BundleTest(unittest.TestCase):
         combined = "\n".join([skill_text, workflow_text, planning_text])
 
         for required in [
-            "a slug is a session ledger",
-            "one continuous conversation/cooperation context may contain multiple ideas",
-            "IDEA/REQ/TASK units inside the same slug",
-            "Same conversation session",
-            "new idea in the same session becomes a new IDEA-scoped unit",
-            "do not create one slug per user utterance or per idea by default",
-            "New chat session or explicitly separate task/session",
-            "Follow-up to an earlier idea inside the same session",
+            "Use the chat session as the default ledger boundary",
+            "One session slug can contain multiple IDEA scopes",
+            "new IDEA-scoped unit with its own REQ/TASK rows",
+            "same conversation session",
+            "add a new IDEA-scoped unit with its own REQ/TASK rows for a new idea in the same session",
+            "Do not create one slug per user utterance or per idea by default",
+            "Archive and start a new bundle for a new chat session or explicitly separate session/task",
+            "Continue same session slug and add an IDEA-1 follow-up TASK/REQ",
             "Related Session",
             "Related IDEA",
             "Use the chat session as the default ledger boundary",
@@ -683,11 +723,11 @@ class BundleTest(unittest.TestCase):
         combined = "\n".join([skill_text, workflow_text, planning_text])
 
         for required in [
-            "Follow-up to an earlier idea inside the same session",
-            "keep the same session slug",
+            "Same chat: user reports a defect in delivered `idea1` after `idea2` completed",
+            "Continue same session slug and add an IDEA-1 follow-up TASK/REQ",
             "IDEA-1 follow-up",
-            "Follow-up to a prior session",
-            "start a new session slug",
+            "Later session: user reports a defect in prior-session `idea1`",
+            "Initialize a new session slug and reference the old session/IDEA",
             "Related Session",
             "Related IDEA",
         ]:
@@ -700,16 +740,16 @@ class BundleTest(unittest.TestCase):
         combined = "\n".join([skill_text, workflow_text, roles_text])
 
         for required in [
-            "Multi-agent ledger ownership",
-            "Same session ledger, parallel agents",
-            "disjoint IDEA/TASK/REQ ownership and file/module write boundaries",
-            "Different chat sessions, parallel agents",
-            "use separate slugs",
-            "Validator or Reviewer subagents",
-            "Record their evidence under the parent implementation slug",
-            "Worker subagents implementing disjoint slices",
-            "re-check `.idea-to-code/current.json`",
-            "reroute instead of writing to the previously assumed slug",
+            "Multi-Agent Ledger Ownership",
+            "Same session: one shared slug",
+            "explicit IDEA/TASK/REQ ownership and disjoint file/module write boundaries before edits",
+            "Different live chat sessions: separate slugs",
+            "even if work happens in the same repository or same wall-clock window",
+            "Validator/Reviewer subagents: record evidence in the parent slug",
+            "do not start a new slug for review-only or validation-only work",
+            "Worker subagents: use the parent slug only for disjoint implementation slices of the same session/IDEA scope",
+            "each agent must re-read `current status` or `.idea-to-code/current.json`",
+            "stop and reroute instead of writing to stale state",
             "current pointer conflict",
         ]:
             self.assertIn(required, combined)
@@ -720,8 +760,8 @@ class BundleTest(unittest.TestCase):
             "same visible IDEA/TASK/REQ set",
             "Scope: IDEA-2 / TASK-4 / REQ-7",
             "whenever multiple ideas exist",
-            "every IDEA/TASK/REQ in that response's stated scope",
-            "does not claim the whole session ledger is finalized",
+            "every TASK/REQ in that response's stated scope is implemented and validated; for multi-idea ledgers, also map the relevant IDEA scope",
+            "does not claim the whole bundle is finalized",
         ]:
             self.assertIn(required, verification_text)
 
@@ -731,7 +771,7 @@ class BundleTest(unittest.TestCase):
             for path in [SKILL_MD, *sorted(REFERENCES_DIR.glob("*.md"))]
         )
         script_text = SCRIPT.read_text(encoding="utf-8")
-        self.assertIn("Parallel sessions use separate slugs", combined)
+        self.assertIn("Different live chat sessions: separate slugs", combined)
         self.assertNotIn(".idea-to-code/sessions/", combined)
         self.assertNotIn("/claims/", combined)
         self.assertNotIn("separate delivery scope", script_text)
@@ -891,14 +931,14 @@ class BundleTest(unittest.TestCase):
 
         for required in [
             "Mixed-response split rule",
-            "combines a tracked status check with ordinary review",
-            "do not let the fixed field contract swallow the whole answer",
-            "Answer the tracked status part first in one concise status sentence",
-            "Then answer the review or discussion part naturally in the user's language",
-            "Current strengths",
-            "Current gaps",
-            "Suggested TODO",
-            "Do not introduce a second fixed response template",
+            "asks both a tracked status question and an ordinary review/evaluation question in the same message",
+            "Do not run or paste full `render-status` fields for the review portion",
+            "The status portion should be one concise sentence with relevant TASK/REQ IDs, validation/install state, and `No commit made` when relevant",
+            "The review portion should be natural prose in the user's language",
+            "current strengths",
+            "current gaps",
+            "suggested TODO",
+            "do not add a second fixed response template",
             "Mixed tracked status plus ordinary review/evaluation",
             "Response Scenario P: Mixed Status And Review Split",
             "mixed-status-review",
@@ -922,11 +962,11 @@ class BundleTest(unittest.TestCase):
 
         for required in [
             "Review-discovered TODO capture rule",
-            "when a review, weakness list, architecture assessment, or mixed-response review identifies a `new gap`",
-            "state whether that gap should enter TODO/REQ/backlog, be deferred, or be rejected",
-            "Do not silently drop a `new gap`",
-            "do not describe it as completed unless a TASK/REQ with validation evidence already covers it",
-            "convert accepted TODO candidates into tracked REQ/TASK scope before editing",
+            "when natural review or formal review identifies a `new gap`",
+            "the response must say whether it is a suggested TODO, a proposed REQ/TASK for the next bundle, deferred, or rejected",
+            "A `new gap` cannot disappear from the next planning step",
+            "it cannot be counted as completed unless a tracked TASK/REQ and validation evidence cover it",
+            "convert accepted TODO candidates into explicit REQ/TASK scope before implementation",
             "Reviewer output captures every review-discovered `new gap` as a TODO candidate, deferred item, or rejected item",
             "must not mention a `new gap` once and then drop it from follow-up planning",
             "suggested TODO, a proposed REQ/TASK for the next bundle, deferred, or rejected",
@@ -991,7 +1031,7 @@ class BundleTest(unittest.TestCase):
             "Status labels describe the scope of the current user-visible response",
             "Use `Completed` when every TASK/REQ in that response's stated scope is implemented and validated",
             "If `Incomplete Items` is `none` for the stated response scope and validation passed, default to `Status: Completed`",
-            "do not downgrade to `Progress` only because the bundle remains open, no commit was made, fresh-session retest remains external, or user acceptance has not been separately collected",
+            "do not downgrade to `Progress` only because the session ledger remains open, no commit was made, fresh-session retest remains external, or user acceptance has not been separately collected",
             "Do not use `Completed` to claim final accepted closeout for the whole bundle",
             "`Incomplete Items` must contain only unfinished in-scope TASK/REQ work",
             "Do not list `No commit made`, `bundle not finalized`, `awaiting user review`, or fresh-session/user acceptance retest as incomplete",
@@ -1048,14 +1088,14 @@ class BundleTest(unittest.TestCase):
             "recommended decision",
             "implementation ready",
             "Default to `Exploration Needed: no`",
-            "Use `yes` only for a real fork or risk",
+            "Use `Exploration Needed: yes` only for real user-visible, architecture, API, cross-module, security, data, cost, migration, destructive-action, ambiguity, failure-cause, verification, or meaningful risk forks",
             "treat it as a candidate path",
             "recommend a better default path",
             "no-fork",
             "option-comparison",
             "role-sweep",
-            "not \"all medium uncertainty\"",
-            "Role-sweep candidate findings must not directly become TASKs",
+            "Use `role-sweep` only when the input is broad enough that a single option comparison would likely miss material problem classes",
+            "Role-sweep findings are candidate findings, not implementation scope. They must pass through `Synthesis`",
             "Synthesis",
             "not a new lifecycle phase",
             "not a hard visible-output template",
@@ -1255,7 +1295,7 @@ class BundleTest(unittest.TestCase):
             "Why selected path is better under current constraints",
             "Not-proven-optimal boundary",
             "Do not invent fake A/B/C options for clear `no-fork` tasks",
-            "the selected option's `Decision reason` and `Verification path` held up",
+            "After execution, compare the recorded Decision reason and Verification path to the observed result, including counterexamples and any remaining limitations",
             "decision reason and verification path held up",
             "Recommendation quality checks",
             "user-goal fit",
@@ -1380,7 +1420,7 @@ class BundleTest(unittest.TestCase):
             "Stop reason",
             "Fresh-Session Reporting Format",
             "Copyable Fresh-Session Result Template",
-            "The copyable template below is part of this benchmark reference",
+            "It is part of this benchmark reference",
             "Fresh-session run id",
             "Run mode: same-session sequential",
             "Subagents used: no",
@@ -1430,133 +1470,98 @@ class BundleTest(unittest.TestCase):
             self.assertIn(required, combined)
 
     def test_need_confirmation_no_still_requires_user_visible_ready_task_list(self) -> None:
-        skill_text = SKILL_MD.read_text(encoding="utf-8")
-        verification_text = (REFERENCES_DIR / "verification-and-evidence.md").read_text(encoding="utf-8")
-        combined = "\n".join([skill_text, verification_text])
-
+        text = VERIFICATION_MD.read_text(encoding="utf-8")
         for required in [
-            "`Need Confirmation: no` skips the approval wait",
-            "does not skip exploration and task-list visibility",
-            "before any product-file edit",
-            "`implementation ready` prints the generated",
+            "For `Need Confirmation: no`, the output must be `Exploration Result`",
+            "It must not ask for routine approval",
+            "Before product-file edits, the READY task list must be visible to the user in a normal assistant message",
             "EXPLORATION_OUTPUT_ID",
             "READY_TASK_OUTPUT_ID",
-            "[idea-to-code][Planner/agent] Implementation Gate: READY",
+            "Exploration Visibility Check",
+            "Plan-level READY",
+            "Execution-level READY",
+            "default user-visible execution display to the current TASK's focused READY excerpt, not the full long TASK list",
+            "before moving from one TASK to the next, show the next TASK's focused READY excerpt",
+            "Every current TASK transition needs visible task info for that TASK before edits begin",
+            "Focused READY output is for user visibility only. It does not change bundle scope, requirements, gate state, or role evidence expectations",
+            "hard excerpt contract",
+            "covered `REQ-*`",
+            "covered REQ hint",
             "Files",
             "Execution Details",
             "Done Criteria",
             "Planned Verification",
-            "transparency, not an approval request",
-            "Command stdout, tool output, or a folded transcript is not enough by itself",
-            "Tool stdout or folded command transcripts are not enough for READY visibility",
-            "send a normal assistant message",
-            "Exploration Visibility Check",
-            "Plan-level READY",
-            "Execution-level READY",
-            "For multi-task work, default the user-visible execution message to the current TASK",
-            "not the entire long task list",
-            "Every current TASK transition needs visible task info for that TASK",
-            "focused READY TASK excerpt",
-            "--task TASK-N",
-            "Focused READY output is for user visibility only",
-            "hard contract",
-            "covered REQ hint",
-            "covered `REQ-*`",
-            "If any of those fields are missing, the READY output is invalid",
+            "If generated READY output omits any of these fields, it is invalid",
             "same visible Exploration Visibility Gate output plus TASK/REQ set",
-            "Before moving from TASK-1 to TASK-2, show the TASK-2 focused READY excerpt",
             "each result bullet maps to the focused execution-level READY excerpt shown before that TASK",
             "must not introduce unshown or unmapped work",
-            "Before product-file edits, the READY task list must be visible to the user in a normal assistant message",
-            "Implementer evidence must cite the generated READY output id",
-            "Use `implementation show-ready` to reprint or refresh",
-            "Use `quickstart --json` or `fast-lane --json` only for automation",
+            "Tool stdout, folded transcripts, internal notes, `EXPLORATION_OUTPUT_ID`, or `READY_TASK_OUTPUT_ID` alone do not prove the user saw the scope",
         ]:
-            self.assertIn(required, combined)
+            self.assertIn(required, text)
+
+        text = WORKFLOW_MD.read_text(encoding="utf-8")
+        for required in [
+            "`implementation ready`",
+            "`implementation show-ready`",
+            "Implementer evidence",
+            "READY_TASK_OUTPUT_ID",
+        ]:
+            self.assertIn(required, text)
+
+        roles = ROLES_STATE_MD.read_text(encoding="utf-8")
+        self.assertIn("[idea-to-code][Planner/agent] Implementation Gate: READY", roles)
 
     def test_tracked_work_compliance_checklist_is_documented(self) -> None:
-        skill_text = SKILL_MD.read_text(encoding="utf-8")
-        workflow_text = (REFERENCES_DIR / "workflow.md").read_text(encoding="utf-8")
-        roles_text = (REFERENCES_DIR / "roles-and-state.md").read_text(encoding="utf-8")
-        verification_text = (REFERENCES_DIR / "verification-and-evidence.md").read_text(encoding="utf-8")
-        benchmark_text = (REFERENCES_DIR / "controlled-exploration-benchmark.md").read_text(encoding="utf-8")
-        combined = "\n".join([skill_text, workflow_text, roles_text, verification_text, benchmark_text])
-
+        text = SKILL_MD.read_text(encoding="utf-8")
         for required in [
             "Tracked Work Compliance Checklist",
-            "mandatory, not style preferences",
-            "Autonomous Next-Action SOP",
-            "Same-IDEA safe next actions are agent-owned work",
-            "This does not remove or hide `Next Action`",
-            "Keep the original result template and keep displaying `Next Action`",
-            "displaying an agent-owned `Next Action` is not a stopping point",
-            "Do not end a turn by asking or implying that the user should type `next`, `下一步`, or `continue`",
-            "User-required stop conditions",
-            "display it as the next action and execute it in the same turn instead of waiting for another user message",
-            "Autonomous next-action SOP rule",
-            "Keep the original result template and `Next Action` display",
-            "Rule loading",
-            "must read `SKILL.md` as the behavior authority",
-            "Do not rely on partial snippets, old chat memory, or historical bundle ledgers",
-            "Non-bypassable pre-edit self-check",
-            "immediately before calling any file-editing tool for tracked work",
-            "the focused READY TASK excerpt for the exact TASK/REQ and files about to be edited",
-            "If that visible excerpt is missing, do not edit",
-            "Before any tracked repository or artifact edit",
-            "implementation show-ready --task <TASK-ID>",
-            "paste the relevant READY TASK excerpt in a normal assistant message",
-            "code, docs, tests, config, scripts, and tracked bundle artifacts",
-            "Reusing a prior READY result still requires showing the relevant excerpt again",
-            "Tool stdout, folded transcripts, and internal notes do not satisfy this requirement",
-            "Late READY rule",
-            "printing READY after edits have already started is remediation only",
-            "does not make earlier edits compliant",
-            "Action boundary for this checklist",
-            "`tracked-edit`",
-            "`plan-correction`",
-            "`read-only-status`",
-            "`ordinary-answer`",
-            "`formal-tracked-handoff`",
-            "This branch is selected by the actions actually performed in the turn, not only by the initial user prompt",
-            "do not run pre-edit READY because no edit is starting",
-            "do not run READY only for the answer",
-            "Before final tracked handoff",
-            "Response Mode Escalation Rule",
-            "Response mode is action-derived, not prompt-derived",
-            "If a turn starts as ordinary analysis but performs tracked edits, install, verify, validation, checkpoint, finalize, or tracked status delivery",
-            "install, validation, commit, delivery, blocked, review, keep/revise/rollback, or final status",
-            "run `render-status` first",
-            "If `render-status` is unavailable or fails, state that reason",
-            "Mapping rule",
-            "must map to the visible Exploration Visibility Gate output and READY TASK/REQ excerpt",
-            "Stable enumeration traceability rule",
-            "Same-session continuity rule",
-            "Master backlog rule",
-            "record them as stable master backlog IDs such as `MB-1..MB-N` before implementation",
-            "run `backlog sync`",
-            "do not claim \"all done\" while any MB item is pending, active, blocked, or uncovered",
-            "`multi-issue-master-backlog`",
-            "within one conversation session, related ideas, corrections, numbered lists, scope decisions, and completion claims must remain traceable and consistent across turns",
-            "`related-session-follow-up`",
-            "First audit the related scope and state whether it is `same scope`, `scope correction`, `new related scope`, or `unrelated ordinary answer`",
-            "Unrelated questions may stay ordinary concise answers",
-            "numbered issue lists are stable scope IDs",
-            "Previous ID",
-            "Current ID",
-            "Change Reason",
-            "Do not create a fresh unrelated 1-7 list",
-            "`enumerated-scope-reference`",
-            "Preserves the meaning of prior numbered issue lists",
-            "Noncompliance rule",
-            "say so plainly, correct the process",
-            "Multi-role regression rule",
-            "Planner, Implementer, Validator, Reviewer, and Closer expectations",
-            "ordinary untracked explanations, naming discussions, or lightweight commentary updates",
-            "Command stdout, folded transcript output, internal notes, subagent-only output, or a READY message printed after edits have already started are not compliant for same-agent edits",
-            "`--display-channel main-chat` and the assertion are mandatory",
-            "subagent or external transcript display is separate evidence and cannot satisfy same-agent main-chat display",
+            "For tracked work, these are mandatory",
+            "Safe same-IDEA next actions are agent-owned work",
+            "Do not stop by asking the user to type `next`, `下一步`, or `continue`",
+            "Stop only for explicit pause/status-only/review-only requests",
+            "missing product decisions, missing credentials/tools/permissions",
+            "record assistant-visible output, lease, and `PRE_EDIT_OK_ID` before tracked file edits",
+            "Planner, Implementer, Validator, Reviewer, Closer",
         ]:
-            self.assertIn(required, combined)
+            self.assertIn(required, text)
+
+        text = WORKFLOW_MD.read_text(encoding="utf-8")
+        for required in [
+            "Each delegated role loads the current SKILL.md and the references required for its assigned work",
+            "Chat summaries and old ledger text provide task context; they do not replace the current skill instructions",
+            "Before any tracked repository or artifact edit",
+            "visible Exploration Visibility Gate output and focused READY exist for the exact TASK/REQ and files before the edit tool runs",
+            "code, docs, tests, config, scripts, and tracked bundle artifacts",
+            "Reusing READY still requires showing the relevant excerpt again",
+            "Command stdout, folded transcript output, internal notes, subagent-only output, or a READY message printed after edits have already started are not compliant for same-agent edits",
+            "late READY or late pre-edit is recorded as noncompliant remediation and is not counted as proof the earlier edit followed the rule",
+            "Plan-correction branch: correcting bundle planning files is allowed only to make READY accurate; implementation edits wait for refreshed visible READY",
+            "Read-only status branch: no pre-edit READY is required because no file edit starts",
+            "Ordinary-answer branch: no pre-edit READY and no fixed status template",
+            "Formal tracked handoff branch: selected by the actions actually performed in the turn, not only by the initial prompt type",
+            "`render-status` runs first, or the response states why it could not and then uses the fixed fields manually",
+            "does not remove the `Next Action` field or change the formal result template",
+            "display the next action normally, then continue into it without waiting for the user",
+            "assign stable `MB-*` IDs and run `backlog sync` before READY",
+            "accepted closeout is refused while master backlog items remain incomplete",
+            "audit the prior related scope before answering, planning, or claiming completion",
+            "State whether the message is `same scope`, `scope correction`, `new related scope`, or `unrelated ordinary answer`",
+            "numbered issue lists are stable scope IDs",
+            "mapping table with `Previous ID`, `Current ID`, and `Change Reason`",
+            "Open events must appear in `implementation status`, `verify`, and `render-status`",
+        ]:
+            self.assertIn(required, text)
+
+        text = VERIFICATION_MD.read_text(encoding="utf-8")
+        for required in [
+            "For same-agent work, the record must declare `--display-channel main-chat` and a `--display-assertion`",
+            "Subagent or external transcript display can be recorded as separate evidence, but it does not satisfy same-agent main-chat visibility",
+            "same visible Exploration Visibility Gate output plus TASK/REQ set",
+        ]:
+            self.assertIn(required, text)
+
+        owner_text = ROLES_STATE_MD.read_text(encoding="utf-8")
+        self.assertIn("Planner, Implementer, Validator, Reviewer, and Closer expectations", owner_text)
 
     def test_multi_role_output_compliance_scenario_is_documented(self) -> None:
         skill_text = SKILL_MD.read_text(encoding="utf-8")
@@ -1647,31 +1652,32 @@ class BundleTest(unittest.TestCase):
             self.assertIn(required, combined)
 
     def test_execution_visibility_documents_profile_prefix(self) -> None:
-        skill_text = SKILL_MD.read_text(encoding="utf-8")
-        roles_text = (REFERENCES_DIR / "roles-and-state.md").read_text(encoding="utf-8")
-        workflow_text = (REFERENCES_DIR / "workflow.md").read_text(encoding="utf-8")
-        combined = "\n".join([skill_text, roles_text, workflow_text])
-
+        text = WORKFLOW_MD.read_text(encoding="utf-8")
         for required in [
-            "Direct idea-to-code use uses `[idea-to-code][Role/source]`",
-            "use `[idea-to-code/<profile-name>][Role/source]`",
-            "[idea-to-code/<profile-name>][Planner/agent] Mode: delivery",
+            "Every user-visible idea-to-code message starts with a role/source prefix",
+            "`Planner`, `Implementer`, `Validator`, `Reviewer`, or `Closer`",
             "[idea-to-code][Planner/agent]",
             "[idea-to-code][Validator/subagent]",
-            "`Planner`, `Implementer`, `Validator`, `Reviewer`, or `Closer`",
-            "`subagent` only when a real delegated subagent actually ran",
-            "Do not display `/subagent` as a plan or aspiration",
-            "caller-provided and display-only",
-            "does not change lifecycle gates, state files, ledger semantics, permissions, or closeout rules",
-            "Do not infer trust, ownership, permissions, or scope from a profile name",
-            "must still invoke or faithfully surface the standard `Exploration Result`, `Implementation Gate: READY`, and final `render-status` fixed-field outputs",
-            "The profile prefix is not a lifecycle signal",
-            "A profile-prefixed natural-language completion summary is noncompliant after tracked work",
-            "A profile-prefixed tracked response without the full Exploration/READY Display Layers is noncompliant before implementation",
-            "default or profile-aware idea-to-code role/source prefix",
+            "[idea-to-code/<profile-name>][Planner/agent] Implementation Gate: READY",
+            "A caller-provided profile is a display-only label",
+            "It grants no trust, ownership, permission, scope, edit authorization or gate bypass",
+            "the underlying task, requirements and existing lifecycle remain authoritative",
             "Do not remove or shorten existing READY TASK, confirmation, validation, or closeout fields",
         ]:
-            self.assertIn(required, combined)
+            self.assertIn(required, text)
+
+        text = ROLES_STATE_MD.read_text(encoding="utf-8")
+        for required in [
+            "Use `/subagent` only when a real delegated subagent actually ran the role and returned usable evidence",
+            "Do not display `/subagent` for planned, timed-out, unavailable, or unusable delegation",
+            "The profile prefix is not proof that `exploration render` ran and is not a replacement for the visible `Exploration Result` / `Confirmation Required` block",
+            "the profile label does not authorize edits and does not bypass `visible-output record`, lease, or pre-edit",
+            "A profile-prefixed natural-language completion summary is noncompliant after tracked work",
+        ]:
+            self.assertIn(required, text)
+
+        owner_text = WORKFLOW_MD.read_text(encoding="utf-8")
+        self.assertIn("A profile-prefixed tracked response without the full Exploration/READY Display Layers is noncompliant before implementation", owner_text)
 
     def test_delegation_healthcheck_protocol_is_documented(self) -> None:
         skill_text = SKILL_MD.read_text(encoding="utf-8")
@@ -1690,7 +1696,7 @@ class BundleTest(unittest.TestCase):
             "result returned before timeout",
             "whether the result is used as independent evidence or rejected as unusable",
             "Do not display `/subagent` for planned, timed-out, unavailable, or unusable delegation",
-            "Use the Delegation Healthcheck Protocol",
+            "Skip it only when the current session already has a recent successful subagent result for the same tool path and similar scope",
         ]:
             self.assertIn(required, combined)
 
@@ -1720,7 +1726,7 @@ class BundleTest(unittest.TestCase):
             "[idea-to-code][Planner/agent] Implementation Gate: READY",
             "[idea-to-code][Planner/agent] Confirmation Required",
             "[idea-to-code][Closer/agent] Status: Completed | Progress | Blocked",
-            "[idea-to-code/<profile-name>][Planner/agent] Mode: delivery",
+            "[idea-to-code/<profile-name>][Planner/agent] Implementation Gate: READY",
         ]:
             self.assertIn(expected, combined)
 
@@ -1782,10 +1788,10 @@ class BundleTest(unittest.TestCase):
         combined = "\n".join([skill_text, workflow_text, roles_text, benchmark_text])
 
         for required in [
-            "Response Mode Escalation Rule",
+            "Actions override prompt wording",
             "Response mode is action-derived, not prompt-derived",
-            "A message can begin as an ordinary explanation or architecture question, but once the assistant performs tracked repository/skill/artifact edits, install, validation, checkpoint, finalize, or tracked status delivery in that turn",
-            "This branch is selected by the actions actually performed in the turn, not only by the initial user prompt",
+            "If the turn performed tracked edits, validation, install, checkpoint, finalize, commit, render-status, or tracked status delivery, the final response is formal tracked handoff unless a blocker makes it blocked handoff",
+            "Closer chooses this branch from the actions actually performed in the turn, not only from the initial user prompt",
             "selected by the actions actually performed in the turn, not only by the initial prompt type",
             "Reviewer output flags action-derived response-mode failures",
             "Closer chooses this branch from the actions actually performed in the turn, not only from the initial user prompt",
@@ -1804,11 +1810,11 @@ class BundleTest(unittest.TestCase):
 
         for required in [
             "These are planning/READY Display Layers",
-            "They do not replace the final tracked handoff Display Layer",
+            "they do not replace the final tracked handoff Display Layer",
             "The Exploration Visibility Gate is a planning/READY Display Layer",
             "`render-status` is the final tracked handoff Display Layer",
             "Role-sweep findings do not replace `render-status`",
-            "For broad ideas, preserves the separation: `Exploration Result` and role-sweep synthesis are planning/READY Display Layers, while `render-status` is the final tracked handoff Display Layer",
+            "For broad ideas, preserve the separation: `Exploration Result` and role-sweep synthesis are planning/READY Display Layers, while `render-status` is the final tracked handoff Display Layer",
         ]:
             self.assertIn(required, combined)
 
@@ -2178,17 +2184,60 @@ class BundleTest(unittest.TestCase):
         self.assertIn("MB-3", payload["backlog_hits"])
         self.assertIn("MB-4", payload["backlog_hits"])
 
-    def test_output_compliance_transcript_audit_rejects_real_design_to_code_failure_when_available(self) -> None:
-        transcript = Path(r"D:\projects\fff.txt")
-        if not transcript.exists():
-            self.skipTest("real design-to-code transcript fixture is not available on this machine")
+    def test_output_compliance_transcript_audit_rejects_synthetic_incomplete_handoff(self) -> None:
+        # Deterministic representative of missing visible gates and incomplete
+        # delivery accounting. This is synthetic evidence, not a live transcript.
+        transcript = """
+\u203a use idea-to-code to implement and validate a public interface change
+
+\u2022 Ran python idea_to_code_bundle.py current inspect --root .
+  \u2514 {"current": null}
+
+\u2022 [idea-to-code][Planner/agent] I will update the public interface now.
+
+\u2022 Ran python idea_to_code_bundle.py implementation ready --root . --slug sample
+  \u2514 [idea-to-code][Planner/agent] Exploration Result | Bundle: sample
+    Display Layer: Exploration Result
+    Required Now: TASK-1 / REQ-1
+    Deferred: none
+    Selected Option: Option A
+    What READY Will Cover: TASK-1
+    [idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: sample
+    Display Layer: READY Focus
+    READY_TASK_OUTPUT_ID: sample-ready
+    EXPLORATION_OUTPUT_ID: sample-explore
+    Files:
+    - module.py
+    Execution Details:
+    - Update the public interface.
+    Done Criteria:
+    - The interface preserves the required behavior.
+    Planned Verification:
+    - source-only interface regression tests
+
+\u2022 Edited module.py
+
+\u2022 Ran python idea_to_code_bundle.py render-status --root . --slug sample --status Completed
+  \u2514 [idea-to-code][Closer/agent] Status: Completed
+
+\u2022 [idea-to-code][Closer/agent] Status: Completed
+
+  Changes:
+  - Updated the interface and verified it.
+
+  Validation Results:
+  - Tests passed.
+"""
         bundle = load_bundle_module()
 
-        payload = bundle.audit_transcript_output(transcript.read_text(encoding="utf-8"))
+        payload = bundle.audit_transcript_output(transcript)
 
         self.assertFalse(payload["ok"])
+        self.assertTrue(payload["hard_output_seen"]["tracked_delivery_action"])
+        self.assertEqual(payload["response_classification"]["response_kind"], "formal-tracked-handoff")
         for mb_id in ("MB-1", "MB-2", "MB-3", "MB-4", "MB-5"):
             self.assertIn(mb_id, payload["backlog_hits"])
+        self.assertTrue(any(problem["kind"] == "formal-status-visible-body" for problem in payload["problems"]))
 
     def test_output_compliance_transcript_audit_rejects_profile_prefix_without_gates(self) -> None:
         bad_profile_transcript = f"""
@@ -2854,7 +2903,7 @@ class BundleTest(unittest.TestCase):
             "Formal tracked status MUST use render-status generated fields when `render-status` is available",
             "Formal tracked status MUST use render-status generated fields when the helper is available",
             "must not omit, rename, reorder, or hand-invent the fixed field set",
-            "do not omit, rename, reorder, or hand-invent the fixed field set",
+            "must not omit, rename, reorder, or hand-invent the fixed field set",
             "do not remove fixed fields, rename them, reorder them, or hand-invent them",
             "omits any fixed field",
             "drops TASK/REQ mapping from `Changes`, `Completed Items`, `Incomplete Items`, or `Validation Results`",
@@ -2983,7 +3032,7 @@ class BundleTest(unittest.TestCase):
         combined = "\n".join([skill_text, roles_text, verification_text])
 
         for required in [
-            "user-intent acceptance",
+            "Treat user-intent fit as first-class evidence",
             "restated user goal",
             "observable user outcome",
             "acceptance examples",
@@ -2996,7 +3045,7 @@ class BundleTest(unittest.TestCase):
             "Non-Goal Boundaries",
             "technically working but solves a different problem",
             "Command success is not enough for acceptance",
-            "result fits the user's intended outcome",
+            "result fits the user's intended observable outcome",
         ]:
             self.assertIn(required, combined)
 
@@ -3011,7 +3060,7 @@ class BundleTest(unittest.TestCase):
             "same-agent",
             "hybrid-team",
             "independent-team",
-            "Check visible tool availability",
+            "Check real tool availability first",
             "independent Validator or Reviewer",
             "same-agent review",
             "fallback reason",
@@ -3028,7 +3077,7 @@ class BundleTest(unittest.TestCase):
         combined = "\n".join([skill_text, roles_text, verification_text])
 
         for required in [
-            "bounded delegation health check",
+            "Confirm delegation health with a bounded ping or recent successful subagent result",
             "recent successful subagent result",
             "one role, one question, one file set",
             "clear output shape",
@@ -3046,10 +3095,10 @@ class BundleTest(unittest.TestCase):
         combined = "\n".join([skill_text, roles_text, verification_text])
 
         for required in [
-            "Do not guess delegation failure causes",
-            "classify the cause only from observed data",
-            "bounded comparison tests",
-            "ping, scoped file review",
+            "Do not infer the cause of a timeout from convenience",
+            "Record only observed results",
+            "run comparison tests such as ping, scoped review, and broader review",
+            "ping, scoped review",
             "broader review",
             "root cause `unverified`",
             "Do not turn fallback into root-cause proof",
@@ -3067,13 +3116,42 @@ class BundleTest(unittest.TestCase):
 
         for text in (skill, workflow, roles, verification):
             self.assertIn("intelligent, controllable", text)
-        self.assertIn("use idea-to-code to improve idea-to-code", skill)
-        self.assertIn("delegation resolve", skill)
+        self.assertIn("Use idea-to-code to improve idea-to-code", workflow)
+        self.assertIn("delegation resolve", roles)
         self.assertIn("delegation resolve", verification)
         self.assertIn("delegation resolve", benchmark)
         self.assertIn("every tracked implementation edit", workflow)
         self.assertIn("finalize closes any remaining active leases", workflow)
         self.assertIn("Negated disclosures", roles)
+
+    def test_global_closure_audit_is_documented_and_required(self) -> None:
+        verification = VERIFICATION_MD.read_text(encoding="utf-8")
+        self.assertIn("Legacy narrative records are retained but do not become structured proof", verification)
+        module = load_bundle_module()
+        narrative = {
+            "id": "R-GLOBAL-CLOSURE-AUDIT",
+            "text": "source branches contract fields adapter constructors failure matrix persistent acceptance resources disposition",
+        }
+        status = {
+            "requirements": [{"id": "REQ-1"}],
+            "local_records": [narrative],
+        }
+        # Old records remain readable; this is not an acceptance result.
+        self.assertEqual(module.acceptance_problems(self.root, status), [])
+        declaration = module.build_record(self.root, status, "acceptance-declare", {
+            "id": "CASE-1",
+            "task_id": "TASK-1",
+            "requirement_ids": ["REQ-1"],
+            "object_id": "public-interface",
+            "validation_type": "real-product-path",
+            "candidate_files": ["implementation.py"],
+            "expected": "All affected implementations preserve the declared interface behavior.",
+            "expected_basis": "The public interface requirement applies to each implementation.",
+            "polarity": "positive",
+        }, ["TASK-1"])
+        status["local_records"].append(declaration)
+        self.assertEqual(module.acceptance_problems(self.root, status), ["CASE-1: missing acceptance evidence"])
+        self.assertEqual(status["local_records"][0], narrative)
 
     def test_fact_hypothesis_decision_verification_contract_is_documented(self) -> None:
         skill_text = SKILL_MD.read_text(encoding="utf-8")
@@ -3084,10 +3162,10 @@ class BundleTest(unittest.TestCase):
             "Fact / Hypothesis / Decision / Verification",
             "`Fact`: observed evidence only",
             "`Hypothesis`: possible explanation",
-            "Hypotheses are allowed",
+            "Controlled Exploration may use brainstorming hypotheses when the plan has real uncertainty",
             "`Decision`: the next action",
             "`Verification`: evidence that proves",
-            "cannot use an unverified Hypothesis as if it were a Fact",
+            "do not present a hypothesis as a conclusion, do not use it as accepted evidence",
             "do not present a hypothesis as a conclusion",
             "Unverified Items",
             "Residual Risks",
@@ -4958,6 +5036,254 @@ Planned Verification:
         status = json.loads((self.root / ".idea-to-code" / slug / "state.json").read_text(encoding="utf-8"))
         self.assertEqual(status["task_closure_records"][-1]["task_id"], "TASK-1")
         self.assertEqual(status["task_closure_records"][-1]["status"], "verified")
+
+    def test_render_status_projects_task_history_without_mutating_scope_state(self) -> None:
+        slug = self.init_bundle()
+        path = self.root / ".idea-to-code" / slug / "state.json"
+        original = json.loads(path.read_text(encoding="utf-8"))
+        bundle = load_bundle_module()
+        scenarios = [
+            ("same task recovered", [("TASK-1", "partial"), ("TASK-1", "verified")], False),
+            ("unrelated task passed", [("TASK-1", "partial"), ("TASK-2", "verified")], True),
+            ("later failure", [("TASK-1", "verified"), ("TASK-1", "failed")], True),
+            ("current partial", [("TASK-1", "partial")], True),
+        ]
+        for name, history, unresolved in scenarios:
+            with self.subTest(name=name):
+                status = dict(original)
+                status["task_closure_records"] = [
+                    {"task_id": task, "status": result, "event_sequence": index, "entry_event_sequence": 1,
+                     "reason": "Observed task outcome", "next": "Complete remaining acceptance"}
+                    for index, (task, result) in enumerate(history, start=1)
+                ]
+                status["current_task_id"] = history[-1][0]
+                status["current_task_status"] = history[-1][1]
+                status["current_task_event_sequence"] = 1
+                status["current_task_closure_event_sequence"] = len(history)
+                path.write_text(json.dumps(status), encoding="utf-8")
+                before = path.read_bytes()
+                carryover = bundle._scope_override_carryover_snapshot(status)
+                rendered = self.run_bundle("render-status", "--root", str(self.root), "--slug", slug)
+                incomplete = rendered.stdout.split("Incomplete Items:\n", 1)[1].split("\n\nValidation Results:", 1)[0].strip()
+                self.assertEqual(incomplete != "- none", unresolved)
+                self.assertEqual("User decision needed" in rendered.stdout, name == "unrelated task passed")
+                self.assertEqual(before, path.read_bytes())
+                self.assertEqual(carryover, bundle._scope_override_carryover_snapshot(status))
+
+    def test_render_status_projects_explicit_dependencies_and_current_continuation(self) -> None:
+        slug = self.init_bundle()
+        path = self.root / ".idea-to-code" / slug / "state.json"
+        original = json.loads(path.read_text(encoding="utf-8"))
+        bundle = load_bundle_module()
+        old = {"task_id": "TASK-1", "status": "partial", "event_sequence": 2,
+               "entry_event_sequence": 1, "reason": "Historical acceptance remains", "next": "Historical next step"}
+        current = {"task_id": "TASK-2", "status": "partial", "event_sequence": 4,
+                   "entry_event_sequence": 3, "reason": "Current acceptance remains", "next": "Run remaining current acceptance"}
+        block = {"reason": "REQ-1 external test dependency unavailable", "need": "Restore isolated test dependency"}
+        override = {"id": "OVR-1", "status": "open", "requested_item": "REQ-1 scoped repair"}
+        scenarios = [
+            ("active partial", "partial", [], [], "Run remaining current acceptance"),
+            ("explicit block", "partial", [block], [], block["need"]),
+            ("block and override", "partial", [block], [override], block["need"]),
+            ("override", "partial", [], [override], "Resolve Scope Override OVR-1"),
+            ("resolved block", "in_progress", [{**block, "resolved_at_utc": "2026-01-01"}], [], "Resume or close TASK-2"),
+            ("multiple blocks", "partial", [block, {"reason": "REQ-1 second dependency", "need": "Restore second dependency"}], [], "Restore second dependency"),
+            ("resolved latest", "partial", [block, {"reason": "Old second dependency", "need": "Old need", "resolved_at_utc": "2026-01-01"}], [], block["need"]),
+            ("current failed", "failed", [], [], "Run remaining current acceptance"),
+            ("current blocked", "blocked", [], [], "Run remaining current acceptance"),
+            ("current replan", "replan", [], [], "Run remaining current acceptance"),
+            ("deferred carryover", "deferred", [], [], "deferred"),
+            ("skipped carryover", "skipped", [], [], "skipped"),
+        ]
+        for name, outcome, blocks, overrides, expected in scenarios:
+            with self.subTest(name=name):
+                status = {**original, "state": "blocked" if any("resolved_at_utc" not in b for b in blocks) else "in_progress",
+                          "current_task_id": "TASK-2", "current_task_status": outcome,
+                          "current_task_event_sequence": 3, "current_task_closure_event_sequence": 4,
+                          "task_closure_records": [old, {**current, "status": outcome}],
+                          "blocks": blocks, "scope_override_records": overrides}
+                if outcome == "in_progress":
+                    status["task_closure_records"] = [old]
+                    status["current_task_closure_event_sequence"] = None
+                path.write_text(json.dumps(status), encoding="utf-8")
+                before = path.read_bytes()
+                carryover = bundle._scope_override_carryover_snapshot(status)
+                rendered = self.run_bundle("render-status", "--root", str(self.root), "--slug", slug)
+                next_action = rendered.stdout.split("Next Action:\n", 1)[1]
+                self.assertIn(expected, next_action)
+                self.assertNotIn("User decision needed", next_action)
+                self.assertIn("TASK-1 partial", rendered.stdout)
+                if overrides:
+                    self.assertIn("Scope Override open: OVR-1", rendered.stdout)
+                for dependency in blocks:
+                    if "resolved_at_utc" not in dependency:
+                        self.assertIn(dependency["reason"], rendered.stdout)
+                        self.assertIn(dependency["need"], rendered.stdout.split("Unverified Items:\n", 1)[1])
+                self.assertEqual(before, path.read_bytes())
+                self.assertEqual(carryover, bundle._scope_override_carryover_snapshot(status))
+
+    def test_render_status_refuses_completed_with_registered_block(self) -> None:
+        slug = self.init_bundle()
+        path = self.root / ".idea-to-code" / slug / "state.json"
+        original = json.loads(path.read_text(encoding="utf-8"))
+        for typed in (False, True):
+            with self.subTest(typed=typed):
+                status = {**original, "state": "completed", "decision": "accepted", "last_verify_ok": True,
+                          "blocks": [{"reason": "REQ-1 external dependency", "need": "Restore dependency"}]}
+                if typed:
+                    status["local_records"] = [{"kind": "ACCEPTANCE", "id": "CASE-1", "data": {}}]
+                path.write_text(json.dumps(status), encoding="utf-8")
+                before = path.read_bytes()
+                rendered = self.run_bundle("render-status", "--root", str(self.root), "--slug", slug, "--status", "Completed", check=False)
+                self.assertNotEqual(rendered.returncode, 0)
+                self.assertIn("unresolved blocker", rendered.stderr)
+                self.assertEqual(before, path.read_bytes())
+
+    def test_render_status_preserves_actionable_backlog_before_closed_task_carryover(self) -> None:
+        slug = self.init_bundle()
+        path = self.root / ".idea-to-code" / slug / "state.json"
+        original = json.loads(path.read_text(encoding="utf-8"))
+        for outcome in ("deferred", "skipped", "partial"):
+            for backlog_status in ("pending", "active"):
+                with self.subTest(outcome=outcome, backlog_status=backlog_status):
+                    status = {**original, "current_task_id": "TASK-1", "current_task_status": outcome,
+                              "current_task_event_sequence": 1, "current_task_closure_event_sequence": 2,
+                              "task_closure_records": [{"task_id": "TASK-1", "status": outcome,
+                                                        "entry_event_sequence": 1, "event_sequence": 2,
+                                                        "next": "Resume deferred acceptance later"}],
+                              "master_backlog": [{"id": "MB-2", "status": backlog_status}]}
+                    path.write_text(json.dumps(status), encoding="utf-8")
+                    before = path.read_bytes()
+                    rendered = self.run_bundle("render-status", "--root", str(self.root), "--slug", slug)
+                    self.assertIn("Continue with MB-2", rendered.stdout.split("Next Action:\n", 1)[1])
+                    self.assertIn(f"TASK-1 {outcome}", rendered.stdout)
+                    self.assertEqual(before, path.read_bytes())
+
+    def test_render_status_multiline_record_cli_preserves_scoped_output(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        text = "First compatibility concern\n- Second compatibility concern"
+        self.run_bundle("record", "add", "--root", str(self.root), "--slug", slug,
+                        "--id", "R-MULTILINE", "--kind", "R", "--text", text, "--covers", "REQ-1")
+        path = self.root / ".idea-to-code" / slug / "state.json"
+        status = json.loads(path.read_text(encoding="utf-8"))
+        status["milestones"] = [{"name": "TASK-1 outcome", "covers": ["REQ-1"],
+                                 "delivered": "TASK-1 result", "verified": "source-only CLI evidence"}]
+        path.write_text(json.dumps(status), encoding="utf-8")
+        before = path.read_bytes()
+        rendered = self.run_bundle("render-status", "--root", str(self.root), "--slug", slug)
+        self.assertIn("First compatibility concern", rendered.stdout)
+        self.assertIn("Second compatibility concern", rendered.stdout)
+        self.assertEqual([], load_bundle_module().validate_formal_status_visible_output(rendered.stdout, rendered.stdout))
+        self.assertEqual(before, path.read_bytes())
+
+    def test_render_status_uses_recorded_risk_assessments_without_inventing_resolution(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        path = self.root / ".idea-to-code" / slug / "state.json"
+        report = path.parent / "02-report.md"
+        original = json.loads(path.read_text(encoding="utf-8"))
+        bundle = load_bundle_module()
+        record = {"id": "R-1", "kind": "R", "text": "Historical compatibility concern",
+                  "covers": ["REQ-1"], "plan_revision": original["plan_revision"] - 1}
+        scenarios = [
+            ("planning", False, False, None, "not recorded"),
+            ("active observation", False, True, None, record["text"]),
+            ("accepted risk", True, False, "- Compatibility remains untested", "Compatibility remains untested"),
+            ("accepted multiline", True, False, "- First known risk\n- Second known risk", "Second known risk"),
+            ("accepted none with history", True, True, "- none", "- none"),
+            ("accepted missing report", True, False, None, "not recorded"),
+            ("accepted missing section", True, False, "", "not recorded"),
+            ("accepted directory report", True, False, "directory", "unavailable"),
+            ("accepted malformed report", True, False, "malformed", "unavailable"),
+            ("reopened", False, False, "- Stale final risk", "not recorded"),
+        ]
+        for name, accepted, has_record, risks, expected in scenarios:
+            with self.subTest(name=name):
+                status = {**original, "current_task_id": "TASK-1", "current_task_status": "verified",
+                          "current_task_event_sequence": 1, "current_task_closure_event_sequence": 2,
+                          "task_closure_records": [{"task_id": "TASK-1", "status": "verified",
+                                                    "entry_event_sequence": 1, "event_sequence": 2}],
+                          "milestones": [{"name": "TASK-1 outcome", "covers": ["REQ-1"],
+                                          "delivered": "TASK-1 result", "verified": "source-only CLI evidence"}],
+                          "local_records": [record] if has_record else []}
+                if accepted:
+                    status.update({"state": "completed", "decision": "accepted", "phase": "accepted",
+                                   "finalized_at_utc": "2026-01-01", "last_verify_ok": True,
+                                   "last_verified_plan_revision": status["plan_revision"],
+                                   "closeout_status": {"final_verify_ok": True}})
+                if report.is_dir():
+                    report.rmdir()
+                if risks == "directory":
+                    report.unlink(missing_ok=True)
+                    report.mkdir()
+                elif risks == "malformed":
+                    report.write_bytes(b"\xff\xfe\xfa")
+                elif risks is None:
+                    report.unlink(missing_ok=True)
+                elif risks:
+                    report.write_text("# Final Report\n\n## Risks And Follow-Up\n\n" + risks + "\n", encoding="utf-8")
+                else:
+                    report.write_text("# Final Report\n", encoding="utf-8")
+                path.write_text(json.dumps(status), encoding="utf-8")
+                before = path.read_bytes()
+                rendered = self.run_bundle("render-status", "--root", str(self.root), "--slug", slug)
+                risk_section = rendered.stdout.split("Residual Risks:\n", 1)[1].split("\n\nKey Technical Details:", 1)[0]
+                self.assertIn(expected, risk_section)
+                if not accepted:
+                    self.assertIn("not recorded", rendered.stdout.split("Unverified Items:\n", 1)[1])
+                    self.assertNotIn("Stale final risk", risk_section)
+                if has_record:
+                    self.assertIn(record["text"], rendered.stdout)
+                    self.assertIn("recorded", rendered.stdout.lower())
+                self.assertEqual([], bundle._residual_risk_scope_problems(risk_section))
+                self.assertEqual([], bundle.validate_formal_status_visible_output(rendered.stdout, rendered.stdout))
+                self.assertEqual(before, path.read_bytes())
+
+    def test_render_status_accepted_history_is_not_a_new_user_decision(self) -> None:
+        slug = self.init_bundle()
+        path = self.root / ".idea-to-code" / slug / "state.json"
+        status = json.loads(path.read_text(encoding="utf-8"))
+        status.update({
+            "state": "completed", "phase": "accepted", "decision": "accepted",
+            "finalized_at_utc": "2026-09-20T00:00:00+00:00",
+            "last_verify_ok": True, "last_verified_plan_revision": status["plan_revision"],
+            "closeout_status": {"final_verify_ok": True},
+            "current_task_id": "TASK-3", "current_task_status": "verified",
+            "current_task_event_sequence": 3, "current_task_closure_event_sequence": 4,
+            "task_closure_records": [
+                {"task_id": "TASK-1", "status": "partial", "event_sequence": 1,
+                 "next": "Resume historical work"},
+                {"task_id": "TASK-3", "status": "partial", "event_sequence": 2},
+                {"task_id": "TASK-3", "status": "verified", "event_sequence": 4, "entry_event_sequence": 3},
+            ],
+        })
+        path.write_text(json.dumps(status), encoding="utf-8")
+        before = path.read_bytes()
+        rendered = self.run_bundle("render-status", "--root", str(self.root), "--slug", slug)
+        self.assertIn("Status: Completed", rendered.stdout)
+        self.assertIn("Incomplete Items:\n- none", rendered.stdout)
+        self.assertNotIn("User decision needed", rendered.stdout)
+        self.assertIn("TASK-1=partial", rendered.stdout)
+        self.assertIn("TASK-3=partial, TASK-3=verified", rendered.stdout)
+        self.assertEqual(before, path.read_bytes())
+
+        invalid_states = [
+            {"last_verify_ok": False},
+            {"last_verified_plan_revision": status["plan_revision"] - 1},
+            {"current_task_status": "partial"},
+            {"current_task_status": "in_progress"},
+            {"master_backlog": [{"id": "MB-1", "status": "pending"}]},
+            {"scope_override_records": [{"id": "OVR-1", "status": "open"}]},
+        ]
+        for changed in invalid_states:
+            with self.subTest(changed=changed):
+                path.write_text(json.dumps({**status, **changed}), encoding="utf-8")
+                before = path.read_bytes()
+                rendered = self.run_bundle("render-status", "--root", str(self.root), "--slug", slug, check=False)
+                self.assertNotEqual(rendered.returncode, 0)
+                self.assertIn("render-status refused", rendered.stderr)
+                self.assertEqual(before, path.read_bytes())
 
     def test_render_status_ignores_replan_closure_after_later_verified_task_supersedes_it(self) -> None:
         slug = self.init_bundle()
@@ -6875,8 +7201,9 @@ Planned Verification:
         self.assertIn("Idea ledger: IDEA-1=active", rendered.stdout)
         self.assertNotIn("summarize the user-visible or workflow change", rendered.stdout)
         self.assertIn("Incomplete Items:\n- none", rendered.stdout)
-        self.assertIn("Unverified Items:\n- none", rendered.stdout)
-        self.assertIn("Residual Risks:\n- none", rendered.stdout)
+        # Requesting Completed is not a recorded verification/risk assessment.
+        self.assertIn("verification gap assessment not recorded", rendered.stdout)
+        self.assertIn("risk assessment not recorded", rendered.stdout)
         self.assertNotIn("none | <", rendered.stdout)
 
     def test_render_status_defaults_to_completed_for_accepted_bundle(self) -> None:
@@ -6921,6 +7248,28 @@ Planned Verification:
         self.assertIn("test-batch: profile=full total_tests=1 chunk_size=20 chunks=1", result.stdout)
         self.assertIn("test-batch: PASS profile=full total_tests=1", result.stdout)
 
+    def test_test_batch_discovers_additional_test_modules(self) -> None:
+        runner = load_test_batch_runner_module()
+        directory = self.root / "suite"
+        directory.mkdir()
+        body = "class Cases:\n    def test_contract(self):\n        pass\n"
+        (directory / "test_original.py").write_text(body, encoding="utf-8")
+        (directory / "test_additional.py").write_text(body, encoding="utf-8")
+        (directory / "helper.py").write_text(body, encoding="utf-8")
+        (directory / "test_runner.py").write_text("def main(): pass\n", encoding="utf-8")
+
+        self.assertEqual(
+            ["test_additional.Cases.test_contract", "test_original.Cases.test_contract"],
+            runner.discover_unittest_suite(directory),
+        )
+
+    def test_test_batch_profiles_include_delivery_evidence(self) -> None:
+        runner = load_test_batch_runner_module()
+        tests = ["test_delivery_evidence.Cases.test_stale", "test_other.Cases.test_example"]
+        for profile in ("lifecycle", "changed-surface"):
+            with self.subTest(profile=profile):
+                self.assertEqual(tests[:1], runner.filter_tests_by_profile(tests, profile))
+
     def test_test_batch_timeout_prints_controlled_diagnostics(self) -> None:
         runner = load_test_batch_runner_module()
         timed_out = subprocess.TimeoutExpired(
@@ -6930,7 +7279,7 @@ Planned Verification:
             stderr="partial stderr\n",
         )
 
-        with mock.patch.object(runner, "discover_unittest_methods", return_value=["BundleTest.test_example"]):
+        with mock.patch.object(runner, "discover_unittest_suite", return_value=["BundleTest.test_example"]):
             with mock.patch.object(runner.subprocess, "run", side_effect=timed_out):
                 output = io.StringIO()
                 with contextlib.redirect_stdout(output):
@@ -6969,6 +7318,21 @@ Planned Verification:
         selected = runner.filter_tests_by_profile(tests, "changed-surface")
 
         self.assertEqual([tests[0]], selected)
+
+    def test_maintainer_fast_profile_selects_smoke_surface(self) -> None:
+        runner = load_test_batch_runner_module()
+        tests = [
+            "test_idea_to_code_bundle.BundleTest.test_skill_reference_links_exist",
+            "test_idea_to_code_bundle.BundleTest.test_reference_ownership_map_guides_first_read_routing",
+            "test_idea_to_code_bundle.BundleTest.test_lifecycle_audit_passes_and_rejects_missing_invariants",
+            "test_idea_to_code_bundle.BundleTest.test_output_compliance_self_test_reports_all_hard_output_scenarios",
+            "test_idea_to_code_bundle.BundleTest.test_changed_surface_profile_includes_release_quality_tests",
+            "test_idea_to_code_bundle.BundleTest.test_unrelated_example",
+        ]
+
+        selected = runner.filter_tests_by_profile(tests, "maintainer-fast")
+
+        self.assertEqual(tests[:4], selected)
 
     def test_test_batch_rejects_negative_slow_count(self) -> None:
         result = self.run_bundle(
@@ -7130,7 +7494,7 @@ Planned Verification:
         verification = VERIFICATION_MD.read_text(encoding="utf-8")
         roles = ROLES_STATE_MD.read_text(encoding="utf-8")
 
-        self.assertIn("### Protocol Glossary / Do-Not-Translate List", skill)
+        self.assertIn("Protocol Glossary / Do-Not-Translate List", skill)
         self.assertIn("canonical maintenance point", skill)
         self.assertIn("Add, remove, or rename entries here when the protocol changes", skill)
         self.assertIn("Do not scatter new do-not-translate terms only in prose", skill)
@@ -7198,8 +7562,8 @@ Planned Verification:
             "`repo-enforced`",
             "`skill-enforced`",
             "`host-required`",
-            "native pre-edit hook",
-            "external fresh-session runner",
+            "native edit-tool interception",
+            "unavailable fresh-session runners",
             "must not be repeatedly turned into repo-only TODOs",
             "must not be reopened as a repo-only TODO",
         ]:
@@ -9698,7 +10062,7 @@ Planned Verification:
         combined = "\n".join([skill, workflow, verification])
 
         for required in [
-            "Branch Coverage Map",
+            "Branch coverage map:",
             "branch-map --json",
             "id",
             "entry",
@@ -9714,7 +10078,7 @@ Planned Verification:
             "closeout_surface",
             "enforcement_boundary",
             "mirrors the branch closure checks",
-            "observability and self-check aid",
+            "observability/self-check contract",
             "not proof that a live agent followed the branch",
             "live compliance still requires actual bundle state",
             "Branch coverage map branch",

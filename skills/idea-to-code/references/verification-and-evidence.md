@@ -4,9 +4,17 @@
 
 Use this reference when validating behavior, recording evidence, collecting screenshots or runtime artifacts, reviewing acceptance, or closing a task.
 
+Ownership boundary: this file owns validation types, evidence quality, acceptance checks, user-visible output compliance, final response compliance, `render-status`, installed parity, and screenshot/runtime artifact evidence. Lifecycle command order, bundle routing, branch closure, edit sequencing, and context boundaries live in `workflow.md`. Benchmark prompts and scoring live in `controlled-exploration-benchmark.md`; use them as evaluation scenarios, not runtime authority.
+
 ## Acceptance Philosophy
 
 Validation is evidence that the skill stayed intelligent, controllable, and evidence-backed, not merely that a command exited zero. For idea-to-code itself, accepted changes must show that the user's idea was understood, improved where useful, executed through visible TASK/REQ scope, and closed without orphaned branches, contradictory numbering, or unverified independent-agent claims. The durable evidence must be recoverable from the installed skill guidance and bundle state.
+
+### Consumer and preservation evidence
+
+For a field or contract change, trace affected semantics through normalization, persistence, compatibility and fallback paths to the consumers that own the observable result. Verify those endpoints, including multiple consumers when they implement the affected behavior. Producer or database equality alone does not prove correct consumption. Exercise distinctions such as absent, null, false and zero when they have different meaning in that contract; do not invent distinctions or expand testing to unrelated consumers.
+
+A lossless transformation claim needs a reference independent of the transformation being assessed: for example, original stored values with their identity, precision and unknown state, or original source bytes where byte preservation is promised. Comparing before and after through the same potentially lossy reader or projection proves consistency of that view, not preservation. Choose checks for the promised invariant, including values the view could erase; independence concerns the evidence path, not a requirement for a different model, tool or person. When an independent reference is unavailable, narrow the claim and record what remains unverified.
 
 ## Validation Types
 
@@ -57,6 +65,18 @@ Use these categories when diagnosing failures, explaining causes, choosing exper
 - `Verification`: evidence that proves, disproves, or narrows a hypothesis or acceptance claim.
 
 Controlled Exploration may use brainstorming hypotheses when the plan has real uncertainty. The rule is separation: do not present a hypothesis as a conclusion, do not use it as accepted evidence, and do not hide unresolved hypotheses. If a hypothesis matters to acceptance, verify it first. If it remains unverified, record it under `Unverified Items`, `Residual Risks`, or next experiment plan.
+
+## Failure reassessment before blocking
+
+Apply the fact/hypothesis distinction when a failed operation may prevent delivery:
+
+- Bound the observation to the actual object, entry point, environment and time exercised. A failed attempt proves that attempt failed; it does not by itself establish the cause or the availability of other paths.
+- Check that the run used the intended implementation and effective configuration. Within existing authorization and an overall effort/time bound, choose a comparison or retry only when it can distinguish plausible explanations; record checks that cannot be performed and why. Do not substitute a convenient probe for the affected product path, or treat its success as end-to-end acceptance.
+- Before marking the whole bundle blocked, distinguish the affected acceptance item from work that can proceed independently. Keep the missing evidence explicit and continue safe authorized work where possible. For a genuine external blocker, record the observations, relevant checks, remaining uncertainty and concrete dependency needed to resume in the existing bundle evidence and block reason/need.
+- Reassess the current conclusion when new evidence or a user correction challenges it; retain earlier observations and record the revised interpretation. Confirmed counterevidence withdraws the affected pass or completion claim; an unresolved contradiction makes that claim unverified pending investigation. Link the affected TASK/REQ, evidence, revised status and next action in existing records, using acceptance amendment or new evidence when applicable. Preserve unrelated valid results and the original delivery goal. A recovered dependency is no longer an active blocker; a disproven acceptance claim is no longer an active pass. Diagnose whether an existing rule was missed before proposing another rule.
+
+This is evidence guidance, not a mandatory retry count or a new permission gate. Missing credentials or permissions, explicit user pause, unsafe actions and other established stop conditions need no artificial probes. The block command records agent-supplied statements; it cannot establish their truth. Documentation review and CLI tests do not prove future agents will follow this guidance.
+
 
 ## Evidence Capture
 
@@ -179,6 +199,10 @@ Each weakness must also state the enforcement boundary:
 Reviewer output that repeats a prior weakness without one of these labels is ambiguous. Before turning such a weakness into a new TASK, map it to the earlier evidence or mark it as a new gap with a concrete reason.
 
 ## Console Response Check
+
+`render-status` projects recorded facts; it does not resolve lifecycle records. Unresolved `block` reasons and needs take precedence for the next action, including when a Scope Override remains open. Resolved blockers stay historical. Current partial, failed, blocked or replan closures show their recorded next step without inventing a user approval request; deferred/skipped closures show carryover conditions. Other unfinished tasks remain visible until an authoritative closure resolves them; plan prose alone does not transfer or complete them.
+
+Risk observations (`record --kind R`) have no resolution state. Display them with their recorded scope and plan revision, without inferring whether they remain active. A trusted current accepted closeout uses the exact `Risks And Follow-Up` assessment written by `finalize --risks` in `02-report.md`; earlier observations remain historical and do not contradict an explicit final assessment of `none`. Missing assessment is not evidence of no risk. Unverified items expose explicit unresolved dependencies and existing review/override gaps; absent assessment outside accepted closeout is reported as not recorded. No outstanding recorded gaps at accepted closeout is not a guarantee of external or future-session behavior.
 
 Formal tracked handoff validation treats the final assistant message as the artifact under test. The command output that generated `render-status` is supporting evidence only. A closeout is noncompliant when `tool_stdout` contains a valid `render-status` block but `assistant_visible_body` omits it, summarizes it casually, or drops fixed fields.
 
@@ -370,21 +394,21 @@ Language boundary: entries from `SKILL.md#Protocol Glossary / Do-Not-Translate L
 - `Key Technical Details`
 - `Next Action`
 
-Before sending formal tracked delivery status, run the read-only `render-status` helper whenever it is available:
+Before sending formal tracked delivery status, run the read-only render helper before writing the response whenever the helper is available:
 
 ```bash
 python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" render-status --root "$(pwd)" --slug <slug> --status Completed|Progress|Blocked
 ```
 
-The helper does not finalize, verify, or mutate the bundle. It emits a fixed-field skeleton with TASK/REQ placeholders, `EXPLORATION_OUTPUT_ID`, `READY_TASK_OUTPUT_ID`, default no-commit placement under `Key Technical Details`, and final `Next Action`. When milestone, IDEA ledger, backlog, session, scope, delegation, or noncompliance evidence exists, the helper should surface that evidence directly and keep placeholders only where evidence is genuinely missing. Formal tracked status MUST use render-status generated fields when the helper is available: replace placeholders with actual evidence before sending, but do not omit, rename, reorder, or hand-invent the fixed field set. If `render-status` is unavailable or fails, state that reason and manually use the same fixed fields. Do not omit fields, do not drop concrete `EXPLORATION_OUTPUT_ID` or `READY_TASK_OUTPUT_ID` from `Key Technical Details`, do not leave `<EXPLORATION_OUTPUT_ID>` or `<READY_TASK_OUTPUT_ID>` placeholders in a final body, do not drop TASK/REQ mapping from `Changes`, `Completed Items`, `Incomplete Items`, or `Validation Results`, do not drop IDEA/TASK/REQ mapping when multiple ideas exist in the session ledger, do not write free-floating `Residual Risks`, every non-`none` residual risk bullet must name concrete `TASK-N`, `REQ-N`, `MB-N`, or `IDEA-N` scope, `Next Action` must be the final formal field, must use a `- ` bullet line, and must name the next recommended action or say no unresolved task remains, and do not move no-commit state into `Incomplete Items`. Do not use it for ordinary untracked answers.
+The helper does not finalize, verify, or mutate the bundle. The helper prints the fixed field skeleton with TASK/REQ placeholders, `EXPLORATION_OUTPUT_ID`, `READY_TASK_OUTPUT_ID`, default no-commit placement under `Key Technical Details`, and final `Next Action`. When milestone, IDEA ledger, backlog, session, scope, delegation, or noncompliance evidence exists, the helper should surface that evidence directly and keep placeholders only where evidence is genuinely missing. Formal tracked status MUST use render-status generated fields when the helper is available: replace placeholders with actual evidence before sending, but do not remove fixed fields, rename them, reorder them, or hand-invent them. If `render-status` is unavailable or fails, state that reason and manually use the same fixed fields. Do not omit fields, do not drop concrete `EXPLORATION_OUTPUT_ID` or `READY_TASK_OUTPUT_ID` from `Key Technical Details`, do not leave `<EXPLORATION_OUTPUT_ID>` or `<READY_TASK_OUTPUT_ID>` placeholders in a final body, do not drop TASK/REQ mapping from `Changes`, `Completed Items`, `Incomplete Items`, or `Validation Results`, do not drop IDEA/TASK/REQ mapping when multiple ideas exist in the session ledger, do not write free-floating `Residual Risks`, every non-`none` residual risk bullet must name concrete `TASK-N`, `REQ-N`, `MB-N`, or `IDEA-N` scope, `Next Action` must be the final formal field, must use a `- ` bullet line, and must name the next recommended action or say no unresolved task remains, and do not move no-commit state into `Incomplete Items`. Do not use it for ordinary untracked answers.
 
 READY refresh traceability is part of closeout evidence. `READY_TASK_OUTPUT_ID` is the current latest ID, while bounded `ready_task_output_history` records prior READY/show-ready refreshes. `implementation status` exposes the raw history and `render-status` summarizes it as `READY_TASK_OUTPUT_HISTORY` under `Key Technical Details`. Use historical IDs for audit context only; current pre-edit and role evidence must still cite the latest applicable `READY_TASK_OUTPUT_ID`.
 
-Allowed status labels are `Completed`, `Progress`, and `Blocked`. Status labels describe the scope of the current user-visible response. In session-ledger mode, state or imply the active scope, such as `Scope: IDEA-2 / TASK-4 / REQ-7`, whenever multiple ideas exist. Use `Completed` when every IDEA/TASK/REQ in that response's stated scope is implemented and validated. If `Incomplete Items` is `none` for the stated response scope and validation passed, default to `Status: Completed`; do not downgrade to `Progress` only because the session ledger remains open, no commit was made, fresh-session retest remains external, or user acceptance has not been separately collected. For an interim IDEA/TASK/REQ slice, `Completed` does not claim the whole session ledger is finalized, accepted, committed, or published; disclose those facts under `Key Technical Details` or `Unverified Items`. Use `Progress` when at least one in-scope IDEA/TASK/REQ is still being implemented or validated. Use `Blocked` when in-scope work cannot continue without an external dependency or decision. If there are no incomplete items, unverified items, or residual risks, write `none` under those fields instead of omitting them.
+Allowed status labels are `Completed`, `Progress`, and `Blocked`. Status labels describe the scope of the current user-visible response. In session-ledger mode, state or imply the active scope, such as `Scope: IDEA-2 / TASK-4 / REQ-7`, whenever multiple ideas exist. Use `Completed` when every TASK/REQ in that response's stated scope is implemented and validated; for multi-idea ledgers, also map the relevant IDEA scope. If `Incomplete Items` is `none` for the stated response scope and validation passed, default to `Status: Completed`; do not downgrade to `Progress` only because the session ledger remains open, no commit was made, fresh-session retest remains external, or user acceptance has not been separately collected. For an interim TASK/REQ slice, `Completed` does not claim the whole bundle is finalized, accepted, committed, or published; disclose those facts under `Key Technical Details` or `Unverified Items`. Use `Progress` when at least one in-scope TASK/REQ is still being implemented or validated. Use `Blocked` when in-scope work cannot continue without an external dependency or decision. If there are no incomplete items, unverified items, or residual risks, write `none` under those fields instead of omitting them.
 
 Do not use `Completed` to claim final accepted closeout for the whole bundle until accepted closeout is supported by current role evidence, pre-close verify, finalize, and final verify.
 
-For formal tracked `Progress`, validation, install, or status responses, require concrete TASK/REQ mapping in the user-visible bullets. Placeholder labels such as `TASK-*` or `REQ-*` are not compliant result mapping in a final assistant-visible body:
+For formal tracked `Progress`, validation, install, or status responses, require concrete TASK/REQ mapping in the user-visible bullets; each non-`none` bullet must name the relevant concrete `TASK-N` and `REQ-N` IDs. Placeholder labels such as `TASK-*` or `REQ-*` are not compliant result mapping in a final assistant-visible body:
 
 - `Changes`: name the relevant `TASK-*` and `REQ-*`.
 - `Completed Items`: name the completed `TASK-*` and covered `REQ-*`.
@@ -393,13 +417,15 @@ For formal tracked `Progress`, validation, install, or status responses, require
 - `Residual Risks`: write `none`, or map each remaining risk to concrete `TASK-N`, `REQ-N`, `MB-N`, or `IDEA-N` scope. Free-floating risk prose is noncompliant because future agents cannot tell whether it belongs to completed scope, deferred backlog, or external validation.
 - `Next Action`: state the next recommended same-scope action, the user decision needed, or that no unresolved task remains in this scope. The content must be a bullet line starting with `- `, even when there is only one item.
 
+`Incomplete Items` must contain only unfinished in-scope TASK/REQ work. If a response cannot map to a TASK/REQ, treat it as ordinary output or regenerate the formal status from current bundle state before handoff.
+
 If a user asks to process `Unverified Items`, `Residual Risks`, or another non-`Next Action` item while `Incomplete Items` or remaining backlog exists, validation must find a `scope override` record before execution evidence. Open Scope Override records are verification blockers. Resolved records must show outcome evidence and must not remove the original carryover from `Incomplete Items`, `Remaining Backlog`, `Next Batch`, or `Key Technical Details` unless that carryover was independently completed, deferred, superseded, or accepted out of scope.
 
 When the session ledger contains multiple ideas, the same bullets must also name or clearly imply the relevant `IDEA-*` scope. A formal tracked response that cannot map each result bullet to TASK/REQ, or to IDEA/TASK/REQ for multi-idea session ledgers, is noncompliant and must be regenerated from `render-status` or corrected before sending.
 
 Do not report substantial check/install/validation work as tracked Progress unless that work was represented by a READY TASK before the report. If the user asks an ordinary explanation question, do not invent TASK accounting just to use the fixed template.
 
-Do not list `No commit made`, `bundle not finalized`, `awaiting user review`, or fresh-session/user acceptance retest as `Incomplete Items` unless commit, finalize, review, or retest is itself an explicit in-scope TASK/REQ. Put no-commit and bundle-finalization state in `Key Technical Details`; put fresh-session checks, user acceptance, or other external checks in `Unverified Items`.
+Do not list `No commit made`, `bundle not finalized`, `awaiting user review`, or fresh-session/user acceptance retest as incomplete. Do not list those items as `Incomplete Items` unless commit, finalize, review, or retest is itself an explicit in-scope TASK/REQ. Put no-commit and bundle-finalization state in `Key Technical Details`; put fresh-session checks, user acceptance, or other external checks in `Unverified Items`.
 
 If tracked local changes have not been committed, explicitly state `No commit made` in `Key Technical Details` unless commit was an explicit in-scope TASK/REQ and is therefore genuinely unfinished. Do not leave commit/publish state implicit.
 
@@ -414,7 +440,7 @@ When tracked work changes the idea-to-code skill itself and the user expects the
 - source/installed SHA256 parity for every changed skill file included in the batch;
 - `No commit made` under `Key Technical Details` when commit was not requested or performed.
 
-If any installed focused test or source/installed SHA256 parity check is missing or failing, the response must not claim "latest skill installed and verified." Report the gap in `Unverified Items` or in the incomplete TASK/REQ that owns installation evidence.
+If any installed focused test or source/installed SHA256 parity check is missing or failing, the response must not claim "latest skill installed and verified"; do not claim the latest skill code is installed and verified. Report the gap in `Unverified Items` or in the incomplete TASK/REQ that owns installation evidence.
 
 Use the repo-enforced parity command for source/installed comparison:
 
@@ -422,7 +448,7 @@ Use the repo-enforced parity command for source/installed comparison:
 python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" install-parity check --source <source-skill-dir> --target "$CODEX_HOME/skills/idea-to-code"
 ```
 
-Profile wrappers and upper-layer skills do not get a separate exemption. If they depend on the base idea-to-code skill, they must either run the same installed parity gate for the base skill they are invoking, or disclose the missing parity check in `Unverified Items`. A profile prefix is not evidence that the wrapper loaded the latest base skill.
+Profile wrappers, wrapper skills, and upper-layer skills do not get a separate exemption. If they depend on the base idea-to-code skill, they must either run the same installed parity gate for the base skill they are invoking, or disclose the missing parity check in `Unverified Items`. A profile prefix is not evidence that the wrapper loaded the latest base skill.
 
 When a host can inspect the final assistant-visible response before sending it, use `host-hook final-response-contract --json` as the native enforcement contract and run `output-compliance check --kind auto --action <observed-action>...` against the rendered status and final body. If the host cannot expose the final body before send, record that limit as `host-required`; do not claim final-body enforcement merely because `render-status` was generated.
 
@@ -467,9 +493,54 @@ If uncertain, use the stricter formal path only when tracked delivery actions, b
 When `Need Confirmation: yes`, the user-visible response is also a gate artifact. It must not look like a normal progress update. Check that it includes:
 
 - `[idea-to-code][Planner/agent] Confirmation Required`
-- why implementation is paused
-- the proposed scope after approval
-- exact accepted replies such as `yes`, `approved`, `change: <correction>`, `pause`, and `cancel`
-- what happens next after approval
+- an explicit decision request explaining that implementation is paused before implementation
+- Restated user goal and Observable acceptance outcome
+- Proposed scope after approval and Planned TASK list before approval
+- planned TASK entries such as `TASK-1: <change point>`, with `Files:`, `Execution Details:`, `Done Criteria:`, and `Planned Verification:`
+- exact accepted replies under `Please reply with one of:`, including `"yes" or "approved"`, `"change: <correction>"`, `"pause"`, and `"cancel"`
+- what happens next, including that approval will print the READY TASK list
+- the acceptance anchor for closeout: the approved TASK list
 
 If the user cannot tell how to answer from the message itself, the confirmation request is incomplete.
+
+## Structured acceptance and evolution records
+
+Candidate-rule trial and promotion policy belongs to workflow.md. The candidate register supplies hypotheses, not acceptance evidence or authority. Record rule-behavior results, installed file parity and subsequent effectiveness separately. Evidence for a narrower trial does not validate broader final wording or a later executable version.
+
+Use `delivery record --root <project> --slug <bundle> --action <action> --input <json-file>` to append typed entries to existing `local_records`. The controller owns IDs, references, file hashes and structural checks; the input owns observable expectations and reported outcomes. JSON payloads use the following fields (all IDs must reference the current plan or existing records):
+
+| Action | Payload |
+|---|---|
+| `acceptance-declare` | `id`, `task_id`, `requirement_ids`, `object_id`, `validation_type`, `candidate_files`, `expected`, `expected_basis`, `polarity` (`positive` or `negative`) |
+| `acceptance-amend` | New `id`, original `case_id`, `reason`, and declaration fields; retains case ownership and invalidates old evidence |
+| `acceptance-evidence` | `id`, `case_id`, `result` (`pass` or `fail`), `validation_type`, `artifacts`, `observed`, `command`, `environment` |
+| `evolution-capture` | `id`, `task_id`, `requirement_ids`, `fact`, `evidence_refs`, `hypotheses`, `resume` (`root`, `bundle`, `task_id`, `plan_revision`, `next_action`) |
+| `evolution-disposition` | `id`, `incident_id`, `diagnosis`, `reason`, `evidence_refs`, `action`, and `improvement` (`root`, `bundle`, `task_id`) when improving the skill; verified project resolution uses `resolved: true` and `case_ids` |
+| `evolution-activate` | `id`, `incident_id`, `case_ids`, `source_dir`, `installed_dir` |
+| `evolution-observe` | `id`, `incident_id`, `outcome` (`effective`, `ineffective`, `false-positive`, `insufficient`), `evidence_refs`, `note` |
+
+Example acceptance declaration for one changed public interface:
+
+```json
+{
+  "id": "CASE-1",
+  "task_id": "TASK-1",
+  "requirement_ids": ["REQ-1"],
+  "object_id": "public-command",
+  "validation_type": "real-product-path",
+  "candidate_files": ["src/command.py", "tests/test_command.py"],
+  "expected": "Invalid input exits nonzero and leaves persisted data unchanged.",
+  "expected_basis": "REQ-1 and the recorded baseline require validation before writes.",
+  "polarity": "negative"
+}
+```
+
+Declare cases before editing. Include added, modified and deleted implementation/configuration files that determine each result, plus relevant test code. Relative paths stay within the project. Missing candidate paths are explicit tombstones, not silently omitted files. A declaration is an inventory obligation, not a passed check. When a requirement or test basis changes, record an explicit amendment and obtain new evidence; do not rewrite historical results.
+
+`acceptance-evidence` hashes artifacts and the current declared candidate files. Its execution provenance is **reported**: the command did not itself launch the described test. Preserve the actual command output or inspection artifact; an exit-zero statement alone does not prove the intended behavior. For negative cases, `pass` means the required rejection and unchanged-state result were observed. It does not mean the tested operation should have exited zero. Test output generated before a candidate change must not be registered as evidence for the changed candidate.
+
+`delivery check` is read-only. It rejects absent results, failed results, wrong validation layers, amended-case evidence and changed candidate/artifact bytes. Once structured cases are declared, the controller also compares them with the real TASK blocks and non-deferred requirements, so omitting an entire planned task does not evade coverage. Normal `verify` and accepted closeout call the same checks when structured records exist. Legacy narrative records are retained but do not become structured proof. Untouched historical bundles are not forced through a business-specific or universal test matrix. The skill requires explicit inventory for new tracked changes; the script cannot discover every omitted requirement or prevent direct state tampering.
+
+Before skill activation, both the original negative challenge and a positive control must have current passing evidence in the linked improvement bundle. The incident can remain in a different business project; activation resolves the improvement link rather than copying its records. Their candidate scope must cover the installed runtime manifest. Activation computes source/installation parity itself, including tests and excluding generated caches, and retains the candidate identity; equal copies without current validation are insufficient. Activation checks every declared case for the linked improvement TASK, not only the selected positive and negative examples. A newly failed or missing case also invalidates activation. A later file change makes that acceptance stale. For typed acceptance workflows, rendering `Completed` also requires an accepted, verified lifecycle closeout; passing case evidence alone cannot change the task status. A passing checkpoint likewise requires current passing evidence for its declared TASK; it cannot bypass final verification through a free-text success statement. Inspect `delivery check` and `current inspect` for exact remaining gaps.
+
+`delivery resume-check --root <record-owning-project> --slug <bundle> --incident <incident-id>` compares the captured business task, plan and pointer to their current state without modifying them. A conflict means reconcile the saved next action with newer work before switching. Workflow guidance owns diagnosis, improvement routing and future-effectiveness interpretation.

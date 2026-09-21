@@ -20,6 +20,12 @@ Record roles in this order for the current `plan_revision`:
 
 The same agent may perform all roles, but each role requires separate evidence. Do not claim another person or subagent performed a role unless that actually happened and evidence was recorded.
 
+### Execution and supervision
+
+These are responsibilities within the existing role sequence, not additional role gates. The executing agent follows the bundle's current goal, decision, TASK and next action, performs the authorized work, and records actual results. A supervisor is the real user or assigned agent reviewing direction and evidence; it can identify drift or request a correction within its authority. The skill itself is the shared workflow and durable control state, not an independently reasoning supervisor.
+
+Planner evidence identifies the executor and any assigned supervisor for the current scope, or states that no separate supervisor is assigned. Reviewer evidence identifies who actually checked the work and any intervention being resolved. If one agent both executes and checks, disclose same-agent review; a supervisor label or a CLI success is not independent acceptance evidence. Preserve these assignments and unresolved interventions at handoff. The decision, intervention and return-to-task procedure belongs to `workflow.md#driving-the-current-task`; existing user authorization is not renewed merely because roles change.
+
 Role evidence recording is an ordered mutation sequence. Do not run `role record` commands in parallel; record Planner, Implementer, Validator, Reviewer, and Closer one at a time so each command sees the state written by the previous role.
 
 ## User-Visible Role Display

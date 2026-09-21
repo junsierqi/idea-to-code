@@ -387,89 +387,11 @@ Instruction gap, if any: <what to revise>
 
 ## Fresh-Session Reporting Format
 
-Use this format for real new-session benchmark results. The copyable template below is part of this benchmark reference; it is not a benchmark result until raw outputs are added and scored.
+Use the copyable template below for real new-session benchmark results. It is part of this benchmark reference; it is not a benchmark result until raw outputs are added and scored.
 
-```text
-Fresh-session run id: <YYYYMMDD-HHMM-session-label>
-Installed skill source: <path or version note>
-Current window runner: <agent surface/model/reasoning effort/session label>
-Fresh runner: <agent surface/model/reasoning effort/session label>
-Runner parity: yes | no | unverified
-Run comparability: release-readiness evidence | non-comparable diagnostic
-Repository fixture: <path or description>
-Run mode: same-session sequential | non-standard subagent-per-prompt | other: <description>
-Subagents used: no | yes: <reason and scenario ids>
-Fixture existing current.json: absent | present: <slug or path>
-State source for FS-4/FS-7: benchmark-produced temporary state | existing fixture bundle | none/read-only
-Elapsed time: <minutes>
-Prompt count: <n>
-Stop reason: completed default prompt set | early stop: <reason>
-Completed default prompt set: yes | no
+The report must include runner metadata, `Runner parity`, `Run comparability: release-readiness evidence | non-comparable diagnostic`, `Run mode: same-session sequential`, `Subagents used`, fixture state, `State source for FS-4/FS-7`, elapsed time, prompt count, stop reason, completed default prompt set, `External run status`, CLI lifecycle state, external run limitation, the default prompt set, `FS-3 Mode:`, result summary, `Raw Answers`, `Per-Output Scoring`, `Raw output`, `Instruction drift`, and next-change notes.
 
-Prompt set:
-- FS-1: <scenario name>
-- FS-2: <scenario name>
-- FS-3: <scenario name>
-- FS-4: <scenario name>
-- FS-5: <scenario name>
-- FS-6: <scenario name>
-- FS-7: <scenario name>
-
-Runner prompt:
-Do not spawn subagents; answer the default FS-1 through FS-7 benchmark prompts sequentially in this same fresh session unless the benchmark explicitly asks for subagent behavior.
-
-FS-3 mode:
-raw-answer benchmark mode | execution benchmark mode
-
-Result:
-- Total score: <n>/63
-- Small-task friction failures: none | <scenario ids>
-- Severe failures: none | <scenario ids + reason>
-- Decision: keep | revise | rollback candidate
-
-Raw Answers:
-
-FS-1 <name>:
-<raw assistant answer>
-
-FS-2 <name>:
-<raw assistant answer>
-
-FS-3 <name>:
-<raw assistant answer>
-
-FS-4 <name>:
-<raw assistant answer>
-
-FS-5 <name>:
-<raw assistant answer>
-
-FS-6 <name>:
-<raw assistant answer>
-
-FS-7 <name>:
-<raw assistant answer>
-
-Per-output scoring:
-
-Scenario: <FS-id and name>
-Raw output: <transcript id or artifact path>
-Generated bundle snippets: <path or none>
-Scores:
-- Controlled Exploration fit: 0|1 - <evidence>
-- User-goal critique: 0|1 - <evidence>
-- Recommended decision: 0|1 - <evidence; include user-goal fit, risk/cost reduction, constraint and non-goal preservation, and verifiability when relevant>
-- READY visibility: 0|1 - <evidence>
-- Current TASK loop: 0|1 - <evidence>
-- Overview loop: 0|1 - <evidence>
-- Response mode: 0|1 - <evidence>
-- Status semantics: 0|1 - <evidence>
-- Small-task friction: 0|1 - <evidence>
-Instruction drift:
-- none | <what the agent did that contradicted current policy>
-Next change:
-- none | <specific skill/script change to consider>
-```
+The canonical field order and copyable body live in `Copyable Fresh-Session Result Template`. Keep this section short so the benchmark has one full template instead of two divergent templates.
 
 ## Copyable Fresh-Session Result Template
 
@@ -887,6 +809,6 @@ Expected response shape:
 - Maps tracked work to concrete `TASK-*` and `REQ-*` IDs that were shown in the visible READY excerpt.
 - Keeps `No commit made` under `Key Technical Details`, not `Incomplete Items`.
 - Does not justify ordinary output by saying the initial prompt was an explanation after tracked edits, install, validation, checkpoint, finalize, or tracked status delivery occurred.
-- For broad ideas, preserves the separation: `Exploration Result` and role-sweep synthesis are planning/READY Display Layers, while `render-status` is the final tracked handoff Display Layer.
+- For broad ideas, preserve the separation: `Exploration Result` and role-sweep synthesis are planning/READY Display Layers, while `render-status` is the final tracked handoff Display Layer.
 - `Exploration Result` includes `Display Step: 1/2` and a no-edit `Display Boundary`; `Implementation Gate: READY` includes `Display Step: 2/2` and an edit-authorization `Display Boundary`.
 - Broad `role-sweep` output shows concrete `Synthesis` classification before REQ/TASK scope; raw Product/Engineering/UX/Business/Skeptic findings do not directly become TASKs.

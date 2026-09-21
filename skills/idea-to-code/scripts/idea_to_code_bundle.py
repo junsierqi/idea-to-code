@@ -25,6 +25,8 @@ from pathlib import Path
 from typing import Iterable
 
 from test_batch_runner import TEST_BATCH_PROFILE_KEYWORDS, run_test_batch
+from delivery_evidence import ACTIONS as DELIVERY_ACTIONS
+from delivery_evidence import acceptance_problems, build_record, evolution_problems, resume_problems
 
 
 SCHEMA_VERSION = 6
@@ -178,6 +180,22 @@ TASK_CLOSURE_STATUSES = ("verified", "partial", "blocked", "skipped", "deferred"
 IDEA_RECORD_STATUSES = ("active", "completed", "deferred", "rejected", "superseded", "blocked", "reference")
 PLAN_UPDATE_SECTIONS = ("requirements", "design", "implementation")
 BRANCH_COVERAGE_MAP = [
+    {
+        "id": "structured-acceptance",
+        "workflow_branch": "Structured acceptance branch",
+        "entry": "tracked changes declare object-specific acceptance cases",
+        "exit": "every declared case has matching current evidence",
+        "validation": "delivery check and verify validate case coverage and artifact/candidate hashes",
+        "failure_handling": "report missing or stale cases; amend an incorrect basis explicitly and revalidate",
+    },
+    {
+        "id": "workflow-evolution",
+        "workflow_branch": "Workflow evolution branch",
+        "entry": "an observed process failure requires diagnosis and disposition",
+        "exit": "verified disposition or validated activation preserves the original resume point",
+        "validation": "delivery check validates resolution and activation; resume-check detects original task drift",
+        "failure_handling": "retain unresolved diagnosis and evidence; reconcile changed plans without overwriting newer work",
+    },
     {
         "id": "branch-coverage-map",
         "workflow_branch": "Branch coverage map branch",
@@ -446,6 +464,22 @@ BRANCH_INVARIANT_DEFAULTS = {
 }
 
 BRANCH_INVARIANT_OVERRIDES = {
+    "structured-acceptance": {
+        "owner": "references/verification-and-evidence.md + scripts/delivery_evidence.py",
+        "gate": "delivery check, verify and render-status",
+        "evidence": "declared cases and current candidate/artifact hashes; execution provenance is reported",
+        "test": "test_delivery_evidence.py filesystem and CLI scenarios",
+        "closeout_surface": "verify and render-status",
+        "enforcement_boundary": "repo-enforced",
+    },
+    "workflow-evolution": {
+        "owner": "references/workflow.md + scripts/delivery_evidence.py",
+        "gate": "delivery record, delivery check and delivery resume-check",
+        "evidence": "linked improvement cases, source/install manifests and original resume identity",
+        "test": "test_delivery_evidence.py cross-project activation and resume cases",
+        "closeout_surface": "verify, current inspect and render-status",
+        "enforcement_boundary": "repo-enforced",
+    },
     "branch-coverage-map": {
         "owner": "references/workflow.md + scripts/idea_to_code_bundle.py",
         "gate": "branch-map --json and lifecycle-audit --json",
@@ -2461,6 +2495,16 @@ def checkpoint_bundle(
                 + ", ".join(unknown)
                 + "\nAdd them first with 'requirement add' or drop them from --covers."
             )
+
+        if gate_status == "pass" and any(
+            record.get("kind") == "ACCEPTANCE" for record in status.get("local_records", [])
+        ):
+            task_id = status.get("current_task_id")
+            if not task_id:
+                raise SystemExit("checkpoint refused - enter the TASK whose acceptance is being recorded")
+            evidence_problems = acceptance_problems(root, status, task_id=task_id)
+            if evidence_problems:
+                raise SystemExit("checkpoint refused - current TASK evidence is incomplete or stale:\n  - " + "\n  - ".join(evidence_problems))
 
         gate_suffix = f" (gate: {gate_status})" if gate_status else ""
         covers_line = f"- Covers: {', '.join(covers)}\n" if covers else ""
@@ -5873,6 +5917,7 @@ def current_inspect(root: Path) -> int:
     }
     if target.exists() and state_exists(target):
         status = read_status(target)
+        payload["delivery_problems"] = _delivery_problems(root, status, target)
         payload["bundle_status"] = {
             "title": status.get("title"),
             "slug": status.get("slug", slug),
@@ -6686,6 +6731,85 @@ def _unexpected_bundle_doc_problems(target: Path) -> list[str]:
     return problems
 
 
+def _delivery_plan_problems(target: Path, status: dict) -> list[str]:
+    declarations = [
+        record["data"] for record in status.get("local_records", [])
+        if record.get("kind") == "ACCEPTANCE"
+        and isinstance(record.get("data"), dict)
+        and record["data"].get("action") == "acceptance-declare"
+    ]
+    if not declarations:
+        return []
+    covered_tasks = {case.get("task_id") for case in declarations}
+    covered_requirements = {rid for case in declarations for rid in case.get("requirement_ids", [])}
+    required_tasks = {
+        _task_id_from_name(name)
+        for name, _ in _task_section_blocks((target / IDEA_FILE).read_text(encoding="utf-8"))
+    }
+    required_requirements = {
+        item["id"] for item in status.get("requirements", [])
+        if item.get("state", "open") not in {"deferred", "rejected", "superseded"}
+    }
+    return [
+        f"{item}: missing declared acceptance case"
+        for item in sorted((required_tasks - covered_tasks) | (required_requirements - covered_requirements))
+    ]
+
+
+def _delivery_problems(root: Path, status: dict, target: Path) -> list[str]:
+    """Validate planned coverage and evidence; prose is never execution proof."""
+    return (
+        _delivery_plan_problems(target, status)
+        + acceptance_problems(root, status)
+        + evolution_problems(root, status)
+    )
+
+
+def delivery_record(root: Path, slug: str, action: str, input_path: Path) -> int:
+    target = ensure_active_bundle(root, slug)
+    try:
+        payload = json.loads(input_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"Cannot read delivery record JSON: {exc}") from exc
+    with bundle_lock(target):
+        status = read_status(target)
+        task_ids = [
+            _task_id_from_name(name)
+            for name, _ in _task_section_blocks((target / IDEA_FILE).read_text(encoding="utf-8"))
+        ]
+        try:
+            entry = build_record(root, status, action, payload, task_ids)
+        except (OSError, ValueError) as exc:
+            raise SystemExit(f"Delivery record refused: {exc}") from exc
+        entry.update({
+            "timestamp_utc": utc_now(),
+            "plan_revision": status.get("plan_revision", 0),
+            "event_sequence": _next_event_sequence(status),
+        })
+        status.setdefault("local_records", []).append(entry)
+        status["last_verify_ok"] = False
+        write_status(target, status)
+        append_ledger(target, action, f"{entry['id']}: {entry['text']}", entry["covers"])
+    print(json.dumps(entry, indent=2, ensure_ascii=False))
+    return 0
+
+
+def delivery_check(root: Path, slug: str, incident_id: str | None = None) -> int:
+    target = ensure_bundle(root, slug)
+    status = read_status(target)
+    if incident_id is None:
+        problems = _delivery_problems(root, status, target)
+    else:
+        problems = resume_problems(root, status, incident_id)
+    print(json.dumps({
+        "ok": not problems,
+        "read_only": True,
+        "problems": problems,
+        "boundary": "Declared coverage and artifact freshness; imported execution remains reported, not independently observed.",
+    }, indent=2, ensure_ascii=False))
+    return 1 if problems else 0
+
+
 def _bundle_integrity_problems(target: Path, require_closer: bool) -> list[str]:
     problems: list[str] = []
     for name in FILES:
@@ -6728,6 +6852,7 @@ def _bundle_integrity_problems(target: Path, require_closer: bool) -> list[str]:
         )
     problems.extend(_english_only_doc_problems(target))
     problems.extend(_unexpected_bundle_doc_problems(target))
+    problems.extend(_delivery_problems(target.parent.parent, status, target))
 
     idea_text = (target / "00-idea.md").read_text(encoding="utf-8") if (target / "00-idea.md").exists() else ""
     if "{idea_body}" in idea_text or "## Original Idea\n\n-\n" in idea_text:
@@ -7280,6 +7405,21 @@ def build_render_status_response(
     target = ensure_bundle(root, slug)
     status = read_status(target)
     status_label = status_label or _default_render_status_label(status)
+    unresolved_blocks = [status["blocks"][index] for index in _unresolved_block_indexes(status)]
+    if status_label == "Completed" and unresolved_blocks:
+        raise SystemExit("render-status refused - unresolved blocker prevents Completed status")
+    delivery_problems = _delivery_problems(root, status, target)
+    if status_label == "Completed" and delivery_problems:
+        raise SystemExit("render-status refused - delivery evidence is incomplete or stale:\n  - " + "\n  - ".join(delivery_problems))
+    typed_acceptance = any(
+        record.get("kind") == "ACCEPTANCE" for record in status.get("local_records", [])
+    )
+    if status_label == "Completed" and typed_acceptance and not (
+        status.get("state") == "completed"
+        and status.get("decision") == "accepted"
+        and status.get("last_verify_ok") is True
+    ):
+        raise SystemExit("render-status refused - passing acceptance evidence does not replace accepted lifecycle closeout")
     prefix = _visibility_prefix(profile, role, source)
     if status_label not in {"Completed", "Progress", "Blocked"}:
         raise SystemExit("render-status refused - --status must be Completed, Progress, or Blocked")
@@ -7304,8 +7444,45 @@ def build_render_status_response(
     scope_classifications = status.get("scope_classifications", [])
     scope_overrides = status.get("scope_override_records", [])
     open_scope_overrides = _scope_override_open_records(status)
+    # Rendering projects current outcomes without changing the history consumed
+    # by scope carryover, overrides, or lifecycle acceptance.
+    latest_closures: dict[str, dict] = {}
+    for record in status.get("task_closure_records", []):
+        latest_closures[str(record.get("task_id", "")).strip().upper()] = record
+    display_status = {**status, "task_closure_records": list(latest_closures.values())}
+    accepted_closeout = (
+        status.get("state") == "completed"
+        and status.get("decision") == "accepted"
+        and bool(status.get("finalized_at_utc"))
+        and status.get("last_verify_ok") is True
+        and status.get("last_verified_plan_revision") == status.get("plan_revision")
+        and status.get("closeout_status", {}).get("final_verify_ok") is True
+    )
+    current_work_open = bool(
+        _current_task_is_open(status)
+        or (status.get("current_task_id") and status.get("current_task_status") != "verified")
+        or incomplete_backlog
+        or open_scope_overrides
+        or open_pre_edit_noncompliance
+        or open_delegation_findings
+        or delivery_problems
+        or unresolved_blocks
+    )
+    if (
+        status_label == "Completed"
+        and status.get("state") == "completed"
+        and status.get("decision") == "accepted"
+        and (typed_acceptance or status.get("finalized_at_utc"))
+        and (not accepted_closeout or current_work_open)
+    ):
+        raise SystemExit("render-status refused - accepted closeout is stale or current work remains unresolved")
+    historical_closures_only = accepted_closeout and not current_work_open
     incomplete_line = "- none"
-    incomplete_lines: list[str] = []
+    incomplete_lines: list[str] = [f"- Delivery evidence: {problem}" for problem in delivery_problems]
+    incomplete_lines.extend(
+        f"- Recorded blocker: {block.get('reason') or 'reason not recorded'}; needed: {block.get('need') or 'dependency not recorded'}"
+        for block in unresolved_blocks
+    )
     if open_scope_overrides:
         incomplete_lines.extend(
             f"- Scope Override open: {record.get('id')} ({record.get('classification')} -> {record.get('decision')}); requested: {record.get('requested_item')}"
@@ -7313,7 +7490,7 @@ def build_render_status_response(
         )
     if _current_task_is_open(status):
         incomplete_lines.append(f"- Current TASK open: {status.get('current_task_id')} (checkpoint or close-task required)")
-    incomplete_task_records = _task_closure_incomplete_records(status)
+    incomplete_task_records = [] if historical_closures_only else _task_closure_incomplete_records(display_status)
     if incomplete_task_records:
         incomplete_lines.extend(
             f"- {record.get('task_id')} {record.get('status')}: {record.get('reason') or 'reason missing'}; next: {record.get('next') or 'next step missing'}"
@@ -7358,7 +7535,19 @@ def build_render_status_response(
             f"{item.get('id')} ({item.get('title', '').strip() or 'untitled'})" for item in next_batch_items
         )
     change_lines, completed_lines, validation_lines = _render_status_evidence_lines(status, req_hint)
-    unverified_lines = _same_agent_only_unverified_lines(status, requirements) or ["- none"]
+    scope_source = ""
+    if not status.get("current_task_id"):
+        scope_source = " ".join(
+            str((latest_milestone or {}).get(key, ""))
+            for key in ("focus", "delivered", "verified", "name")
+        )
+        scope_source += " " + str(status.get("current_focus", ""))
+    scope = _status_scope_label(status, requirements, scope_source)
+    unverified_lines = _same_agent_only_unverified_lines(status, requirements)
+    unverified_lines.extend(
+        f"- {scope}: unresolved dependency: {block.get('reason') or 'reason not recorded'}; needed: {block.get('need') or 'dependency not recorded'}"
+        for block in unresolved_blocks
+    )
     if open_scope_overrides:
         unverified_lines = [
             *([] if unverified_lines == ["- none"] else unverified_lines),
@@ -7367,8 +7556,66 @@ def build_render_status_response(
                 for record in open_scope_overrides
             ],
         ]
+    if not unverified_lines:
+        unverified_lines = [
+            f"- {scope}: no outstanding recorded verification gaps in the current accepted closeout."
+            if historical_closures_only else f"- {scope}: verification gap assessment not recorded."
+        ]
+    risk_records = [record for record in status.get("local_records", []) if record.get("kind") == "R"]
+    recorded_risk_lines = [
+        f"- {', '.join(record.get('covers') or []) or scope}: recorded risk observation {record.get('id', 'unknown')} "
+        f"(plan revision {record.get('plan_revision', 'unknown')}; current resolution not recorded): {line.strip().removeprefix('- ')}"
+        for record in risk_records
+        for line in str(record.get("text", "")).splitlines() if line.strip()
+    ]
+    risk_lines = recorded_risk_lines
+    historical_risk_lines: list[str] = []
+    risk_assessment_problem = "risk assessment not recorded."
+    if historical_closures_only:
+        report_path = target / FINAL_REPORT_FILE
+        assessment = None
+        try:
+            if report_path.exists():
+                assessment = _section_text(report_path.read_text(encoding="utf-8"), "## Risks And Follow-Up")
+        except (OSError, UnicodeError):
+            risk_assessment_problem = "risk assessment unavailable; final report could not be read."
+        historical_risk_lines = [line.replace("recorded risk observation", "historical recorded risk observation", 1) for line in recorded_risk_lines]
+        risk_lines = []
+        if assessment and assessment.strip() not in {"", "-"}:
+            if _section_is_none(assessment):
+                risk_lines = ["- none"]
+            else:
+                risk_lines = [
+                    f"- {scope}: {line.strip().removeprefix('- ')}"
+                    for line in assessment.splitlines() if line.strip()
+                ]
+    if not risk_lines:
+        risk_lines = [f"- {scope}: {risk_assessment_problem}"]
     idea_records = status.get("idea_records", [])
-    next_action_line = _render_next_action_line(status, incomplete_backlog, remaining_backlog)
+    current_closure = latest_closures.get(str(status.get("current_task_id", "")).strip().upper())
+    if unresolved_blocks:
+        latest_block = unresolved_blocks[-1]
+        next_action_line = (
+            f"- Blocked: {latest_block.get('reason') or 'reason not recorded'}. "
+            f"Needed to resume: {latest_block.get('need') or 'dependency not recorded'}."
+        )
+    elif historical_closures_only and not remaining_backlog:
+        next_action_line = "- No unresolved task remains in this accepted scope."
+    elif (
+        not open_scope_overrides
+        and not remaining_backlog
+        and not incomplete_backlog
+        and not _current_task_is_open(status)
+        and current_closure
+        and current_closure.get("status") in {"partial", "blocked", "failed", "replan", "deferred", "skipped"}
+    ):
+        continuation_label = "Carryover condition" if current_closure.get("status") in {"deferred", "skipped"} else "Recorded next step"
+        next_action_line = (
+            f"- {current_closure.get('task_id')} ({current_closure.get('status')}): "
+            f"{continuation_label}: {current_closure.get('next') or 'next step not recorded'}."
+        )
+    else:
+        next_action_line = _render_next_action_line(display_status, incomplete_backlog, remaining_backlog)
 
     lines = [
         f"{prefix} Status: {status_label}",
@@ -7389,7 +7636,7 @@ def build_render_status_response(
         *unverified_lines,
         "",
         "Residual Risks:",
-        "- none",
+        *risk_lines,
         "",
         "Key Technical Details:",
         f"- EXPLORATION_OUTPUT_ID: {exploration_id}",
@@ -7398,6 +7645,7 @@ def build_render_status_response(
         f"- {_render_edit_wrapper_compliance(status)}",
         f"- {commit_note}",
         "- Bundle finalization/commit/publish state belongs here unless explicitly in scope.",
+        *historical_risk_lines,
     ]
     if backlog_line:
         lines.append(f"- {backlog_line}")
@@ -10556,6 +10804,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Manage idea-to-code delivery artifacts.")
     sub = parser.add_subparsers(dest="command", required=True)
 
+    p = sub.add_parser("delivery", help="Record and check candidate-bound acceptance and workflow improvement.")
+    delivery = p.add_subparsers(dest="delivery_command", required=True)
+    for name in ("record", "check", "resume-check"):
+        command = delivery.add_parser(name)
+        command.add_argument("--root", required=True)
+        command.add_argument("--slug", required=True)
+        if name == "record":
+            command.add_argument("--action", required=True, choices=DELIVERY_ACTIONS)
+            command.add_argument("--input", required=True, type=Path, help="JSON payload; hashes are computed by the controller.")
+        elif name == "resume-check":
+            command.add_argument("--incident", required=True)
+
     p = sub.add_parser("init", help="Create the delivery bundle.")
     p.add_argument("--root", required=True)
     p.add_argument("--slug", required=True)
@@ -11206,6 +11466,11 @@ def main(argv: Iterable[str] | None = None) -> int:
             return output_compliance_transcript_audit(transcript, args.json)
 
     root = Path(args.root).resolve()
+
+    if args.command == "delivery":
+        if args.delivery_command == "record":
+            return delivery_record(root, args.slug, args.action, args.input)
+        return delivery_check(root, args.slug, args.incident if args.delivery_command == "resume-check" else None)
 
     if args.command == "init":
         target = init_bundle(root, args.slug, args.title, args.idea, args.unique, not args.no_current)
