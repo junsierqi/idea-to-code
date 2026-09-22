@@ -180,6 +180,8 @@ Detailed gate semantics live in `references/workflow.md`, `references/roles-and-
 
 Read `references/planning-patterns.md` when turning vague input into requirements, splitting work into milestones, writing `TASK-*` plans, or shaping final reports.
 
+For existing-system changes, follow the mandatory [code-grounded planning and self-challenge](references/planning-patterns.md#code-grounded-planning-required) before selecting an actionable proposal or declaring READY. Material unread logic sends the proposal back to inspection.
+
 Required planning concepts:
 
 - `Intake Gate`: Understanding, Assumptions, Acceptance Criteria, `Need Confirmation`, Confirmation Reason.
@@ -188,6 +190,8 @@ Required planning concepts:
 - `Decision Options`: only mutually exclusive route choices, not required work items.
 - `Implementation Plan`: one or more concrete `TASK-*` blocks with Files, Execution Details, Implementation Quality Contract, Done Criteria, and Planned Verification.
 - `MB-*`: stable IDs for user-provided multi-issue lists.
+
+After enumerating idea points, apply [independent numbered-point exploration](references/planning-patterns.md#independent-numbered-point-exploration-required): investigate and conclude each point separately before advancing. Proven identical problems may share a fix, but retain each point's evidence and acceptance.
 
 Do not invent fake options for a clear low-risk task. Do challenge a flawed requested implementation and recommend a better default path when evidence supports it.
 

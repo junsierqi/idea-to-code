@@ -40,6 +40,20 @@ If the user corrects or adds an idea inside the same conversation session, updat
 
 Use the chat session as the default ledger boundary. One session slug can contain multiple IDEA scopes because the ideas share context. Do not create one slug per user utterance or per idea by default: clarifications, acceptance details, new same-session ideas, and boundary cases belong in the same session bundle. If the relationship to the active session is ambiguous, ask a concise scope question before mutating bundle files.
 
+## Code-grounded Planning (Required)
+
+Before selecting an actionable proposal for an existing system, read the relevant implementation and trace its real callers, dependencies, configuration/defaults, compatibility paths, state writes and consumers, failure handling and cleanup. Cross-check applicable tests and documentation against that code. Follow the affected behavior far enough to account for the proposed change; this is not a requirement to read unrelated repository files. Search hits, function names, documentation alone and plausible explanations do not establish a defect.
+
+Keep the intended contract, observed behavior and hypothesis distinct. Record the evidence and trigger for a confirmed defect, what the change may alter, what must remain, and any unverified impact. Derive test expectations from the requirement or an established behavioral contract, not from the proposed implementation. No confirmed problem is a valid conclusion; an audit has no defect quota. A bug-fix request does not authorize changing business meaning or adding speculative improvements.
+
+Before presenting an actionable proposal or READY, explicitly challenge it:
+
+1. Have I actually read all logic relevant to this proposal, including indirect callers and compatibility, state and failure paths? Which concrete evidence establishes the impact boundary?
+2. What observation establishes the problem, what counterexample would refute this proposal, and which original behaviors must remain?
+3. Is there a smaller or better solution under the same requirements and constraints, including reuse or leaving correct behavior unchanged?
+
+If a material path remains unread or an answer depends on an unsupported assumption, return to targeted inspection or a bounded experiment, then revise the proposal. Do not convert uncertainty into a defect or label the proposal READY. If the missing evidence is inaccessible, state the specific blocked claim and preserve independently established facts. Tentative hypotheses can guide exploration but cannot substitute for a verified diagnosis. For greenfield work, state that no existing implementation exists and examine the available interfaces, requirements and constraints instead. This self-check is agent-owned work, not an extra user-approval ceremony, and finite review cannot guarantee zero future defects.
+
 ## Controlled Exploration Pattern
 
 Controlled Exploration is the bounded brainstorming step after Intake Gate and before Task Classification. It is also a required Exploration Visibility Gate before READY. It records whether exploration is needed, selects an adaptive exploration mode, compares a small set of options only when needed, chooses one decision before implementation planning, and surfaces that decision to the user.
@@ -178,6 +192,14 @@ For multi-issue repair work, use `MB-*` as the stable issue-list index before RE
 Before implementation, enumerate the requested changes as `1.`, `2.`, `3.` and map them to stable REQ/TASK IDs. Preserve this list across interruptions. Identify dependencies before choosing execution order; do not lose an earlier outcome while pursuing a later improvement. The whole assignment is accepted only when every required item has its applicable evidence.
 
 For each item, inspect the real entrypoints, callers, authoritative data, external effects, failure recovery and user-visible result. Record what may change and what must remain. Rehearse applicable positive cases, counterexamples and boundary states against the existing behavior before READY. Mark irrelevant states with a reason; do not require every possible environment for every task. Unknown critical behavior requires a bounded read-only investigation or isolated experiment, not an unsupported implementation assumption.
+
+#### Independent Numbered-point Exploration (Required)
+
+Once the idea is listed as `1.`, `2.`, `3.`, explore, analyze and verify each point independently in the agreed order. Finish the current point's investigation and record its conclusion before exploring the next; listing all points or reading shared context is not collective acceptance. For each number, retain its requirement/observed behavior, actual code and evidence, affected paths, proposal self-challenge, applicable validation and disposition: confirmed, not reproduced/unverified, rejected/no change, or blocked. A numbered candidate is not automatically a defect, and a plausible concern is not a confirmed finding. Use the existing REQ/TASK/MB records rather than adding a second ledger.
+
+Where the user requires fixing and accepting one point before the next, complete that point's implementation and required acceptance, including real-environment tests, before advancing. If it is blocked, preserve that status and follow the user's sequencing constraint; do not count it as done or silently start the next point. Read necessary dependencies while investigating the current point, but do not turn that reading into unexamined conclusions for later points.
+
+Identical problems may be grouped only after independently checking each member and demonstrating the same root cause, compatible intended behavior and applicable correction. Similar symptoms, names or a shared helper alone do not prove equivalence. Show the original-number-to-group mapping and keep a separate conclusion and validation coverage for each member. Shared code observations or test evidence may be cited where their applicability is demonstrated; one tested caller does not cover other callers by assumption. Grouping can share implementation and avoid duplicate work, but cannot erase unverified members, silently renumber scope, expand the allowed behavior change, or bypass the agreed sequence. Split the group again if member-specific evidence contradicts the proposed common fix.
 
 Compare meaningful alternatives, including reuse of the existing design. Challenge the preferred proposal: which requirement would refute it, which failure leaves ambiguous state, and whether a simpler proposal satisfies the same cases. Reject proposals based on evidence and constraints, not because they differ from the first implementation. Do not promise that a finite review proves zero future defects.
 
