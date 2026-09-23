@@ -16,23 +16,15 @@ The operative isolation, trial, promotion and rollback procedure belongs to [wor
 
 After a decision, retain its evidence in the owning task and remove duplicate candidate wording. A short decision pointer may remain while needed for continuity. Do not accumulate retired proposals as a second manual.
 
-## EVC-001: Scope-preserving concise display records
+## EVC-001 decision
 
-Status: proposed; no trial authorized by this entry.
-
-Origin: skill-development bundle `20260919-1945-evolution-delivery-control`, TASK-4 / REQ-5; `artifacts/display-candidate-observation.json` records the checker reproduction and `artifacts/task4-visible.txt` preserves its input. These are development evidence references, not installed runtime dependencies.
-
-Observed problem: During skill maintenance, display recording rejected scope-bearing updates because required English block markers and boilerplate were absent. Repeating the complete boilerplate made the current task harder to follow. The existing checker establishes formatting compliance, not whether the communicated scope is complete.
-
-Hypothesis: An explicit structured scope record plus a concise visible description could preserve scope accountability while reducing repeated protocol output. This is a proposal, not permission to skip the current display gate.
-
-Applies to: display recording for an already planned TASK. Does not apply to removing exploration, omitting file/REQ scope, bypassing edit authorization, or treating tool stdout as user-visible explanation.
-
-Trial TASK/version: not assigned. Preserve the observation in the next ordinary maintenance task before implementing a candidate.
-
-Verification: a complete concise scope passes; missing task, files, current plan identity or necessary user decision fails; changing output language does not change acceptance; a forged claim of display is not presented as host-verified evidence. Compare actual readability and lifecycle behavior against the stable version.
-
-Decision criteria: promote only if scope checks and normal flows remain intact with a demonstrated reduction in redundant output. Reject if it weakens visibility or merely exchanges one keyword checklist for another. Intended owner: verification-and-evidence.md and the existing display validator, through a separately planned change.
+The bounded trial in `sequential-workflow-trial`, TASK-2 / REQ-2, retained an
+optional plan-bound brief format after rejecting and repairing loss of wrapped
+constraints. The operative contract belongs only to
+[verification-and-evidence.md](verification-and-evidence.md#brief-display-contract)
+and the existing controller. Same-plan measurement, negative cases, independent
+review and limitations remain in the task evidence; future-session effectiveness
+is unverified. Arbitrary free-text shortening was not accepted.
 
 ## EVC-002: Meaning-preserving quality-contract checks
 

@@ -137,14 +137,33 @@ def install_skill(source: Path, target: Path, dry_run: bool) -> int:
         return len(files)
 
     target.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix=f".{target.name}-", dir=str(target.parent)) as tmp:
-        staged = Path(tmp) / target.name
+    temporary = Path(tempfile.mkdtemp(prefix=f".{target.name}-", dir=str(target.parent)))
+    preserve_temporary = False
+    try:
+        staged = temporary / target.name
         copied = copy_skill_tree(source, staged)
+        backup = temporary / f"{target.name}.previous"
         if target.exists():
             if not target.is_dir():
                 raise ValueError(f"target exists and is not a directory: {target}")
-            shutil.rmtree(target)
-        staged.replace(target)
+            target.replace(backup)
+        try:
+            staged.replace(target)
+        except Exception:
+            if backup.exists():
+                try:
+                    if target.exists():
+                        shutil.rmtree(target)
+                    backup.replace(target)
+                except Exception as restore_error:
+                    preserve_temporary = True
+                    raise RuntimeError(
+                        f"skill activation and restore failed; previous installation preserved at: {backup}"
+                    ) from restore_error
+            raise
+    finally:
+        if not preserve_temporary:
+            shutil.rmtree(temporary, ignore_errors=True)
     print(f"Installed: {target}")
     return copied
 

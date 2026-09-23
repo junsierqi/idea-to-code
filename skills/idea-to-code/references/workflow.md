@@ -6,6 +6,98 @@ Use this reference for the normal idea-to-code lifecycle: initialize, route, upd
 
 Ownership boundary: this file owns lifecycle order, bundle routing, branch closure, context boundaries, and command flow. Evidence strength, acceptance semantics, final response compliance, installed parity, and screenshot/runtime artifact quality live in `verification-and-evidence.md`. Benchmark prompts and scoring live in `controlled-exploration-benchmark.md`; do not treat benchmark scenarios as runtime command authority.
 
+## Item-by-item delivery loop
+
+The human-facing unit is a numbered Plan item. Map original numbers to existing
+`MB-*` records when a master backlog is required; link each confirmed outcome to
+`REQ-*` and its executable `TASK-*` slices. Do not add a second Plan database or
+force these IDs into a one-to-one relationship. A one-item request uses the same
+loop without manufacturing a multi-item backlog.
+
+| Phase | Decision before moving on | Visible role and result |
+| --- | --- | --- |
+| Idea | Outcome, original meaning, scope and authorization understood | Planner: restated goal; ask only for material missing user decisions |
+| Plan | Enumerate candidates, screen obvious non-goals, record dependencies and possible groups | Planner: original numbers, tentative status and current item |
+| Explore one item | Read actual code and evidence, establish or refute the issue, challenge impact and alternatives | Planner: confirmed / no change / unverified / blocked, with reason |
+| Design and READY | Feasible correction and independent acceptance cases; affected paths read | Planner: current scope, selected approach and verification boundary before edits |
+| Implement | Scoped code achieves the design; derived work classified | Implementer: material changes or reason to return to design |
+| Test | Compare observed outcome with requirement, including applicable real path | Validator: evidence type, result and missing coverage |
+| Review and item result | Reconcile requirement, diff, evidence and remaining risks | Reviewer: item disposition and next action; close current TASK before switching |
+| Overall closeout | Every original number has an evidence-backed disposition | Closer: completed, no-change, deferred and blocked outcomes, plus delivery state |
+
+The canonical tracked-edit order is `implementation ready` -> `implementation
+enter-task` -> show the full assistant-visible Exploration and READY Display
+Layer -> `implementation visible-output record` -> `implementation lease
+acquire` -> `implementation pre-edit` -> edit. Recording before task entry is
+invalid because the record is bound to `current_task_id`.
+
+Screening the list is not collective exploration or acceptance. Read shared
+context as needed, then investigate and conclude each item in the agreed order.
+Group confirmed identical root causes only under the existing independent
+numbered-point rule in `planning-patterns.md`. Preserve each member's evidence.
+
+Failure returns to its cause: unclear intended behavior -> Idea/Plan; inadequate
+design -> exploration and affected plan; implementation defect -> current TASK;
+invalid test oracle or environment -> validation preparation. Apply the existing
+Controlled Repair rules rather than starting a new lifecycle for every failure.
+An ordinary code error does not itself justify a new skill rule. Reusable
+mechanism gaps enter the evidence-backed improvement procedure below.
+
+No supported solution is a legitimate item result. Record why and what would
+unblock it; proceed only to independent work permitted by the user's sequencing
+constraint. Never carry an unexplained partial mutation into the next item.
+An audit finding refuted by evidence can be completed as an investigation with
+zero code changes; describe it as `no change`, not a repaired defect. Do not
+invent an edit TASK or READY solely to dispose of a read-only finding.
+
+For a multi-item bundle, `backlog sync` activates this lifecycle. Run `backlog
+begin` for the earliest unresolved `MB-*`, record inspected-code evidence, and
+run `backlog conclude` with one of `confirmed`, `no-change`, `rejected`,
+`unverified`, `deferred`, or `blocked`. A confirmed item stays current while its
+REQ/TASK work is implemented; checkpoint coverage of all REQs mapped to that MB
+marks it completed. Every other disposition is a recorded item result and must
+not create a synthetic REQ or TASK. The controller refuses READY before a
+confirmed disposition and refuses beginning a later item while an earlier item
+remains unresolved.
+
+For multi-issue work, assign stable `MB-*` IDs and run `backlog sync` before READY; the strong flow then requires begin and conclude for the earliest unresolved item, and accepted closeout is refused while master backlog items remain incomplete.
+
+### Worked example: one fix, one disproven suspicion, one blocker
+
+This is a hypothetical walkthrough, not executed acceptance evidence. The
+controller's rendered Exploration/READY and final status contracts still apply;
+the progress messages below do not substitute for an edit gate.
+
+1. **Plan:** `1. category contract; 2. scheduled acquisition; 3. remote recovery`.
+   Record 2 and 3 as pending, not pre-judged. Establish original behavior and
+   permitted changes for item 1 first.
+2. **Explore 1:** reproduce a classified label disappearing at validation;
+   trace persistence and consumers. Reject copying source-specific filters into
+   every adapter because that would expand semantics. Select the smallest fix.
+3. **Execute 1:** declare REQ/TASK and acceptance cases, render and visibly show
+   current Exploration/READY, enter the current TASK, record visibility, lease
+   and pre-edit, then change code. Diagnose a failing assertion: when the
+   approved contract and test oracle are valid and implementation is wrong,
+   repair the current TASK; otherwise return to the affected design or validation
+   preparation. Do not weaken the test merely to pass. Run applicable real
+   persistence checks, review, checkpoint and emit the item result:
+   `[idea-to-code][Reviewer/agent] Plan 1: verified; evidence recorded; next: Plan 2`.
+4. **Explore 2:** inspect the actual external scheduler and its configuration.
+   Evidence disproves the missing-acquisition suspicion. Record the observation
+   and conclude `[idea-to-code][Reviewer/agent] Plan 2: no change; scheduling exists`.
+   Do not add another cron entry just to produce a modification.
+5. **Explore 3:** read available code, but required remote credentials are absent.
+   State exactly which runtime claim remains unknown. Record blocked status and
+   resume action; do not call simulated results real-server acceptance.
+6. **Overall:** render a Blocked handoff, with 1 verified, 2 no change,
+   3 blocked, no hidden completion, and actual commit/deployment status. On
+   resume, read the current ledger and retry item 3 from its recorded boundary;
+   do not reopen the accepted fix without new contradictory evidence.
+
+If checkpoint evidence omits its validation type, the controller rejects the
+input before appending records. Correct the description to match the actual
+evidence and retry; do not fabricate evidence or edit state to claim success.
+
 When command shape is uncertain, use the read-only command guide before retrying:
 
 ```bash
@@ -206,7 +298,9 @@ flowchart TD
   ER --> R[requirements + acceptance matrix + TASK plan]
   R --> G[implementation ready: TASK quality contract visible]
   G --> T[implementation enter-task]
-  T --> L[implementation lease acquire]
+  T --> O[show Exploration and READY in main chat]
+  O --> VR[implementation visible-output record]
+  VR --> L[implementation lease acquire]
   L --> P[implementation pre-edit]
   P --> E[Controlled Repair: scoped edit]
   E --> I[Implementer evidence]
@@ -270,7 +364,7 @@ Lifecycle invariant contract: every branch below must be represented in `branch-
 - Scope classification branch: when a follow-up could change or relate to active scope, record `scope classify --classification same-scope|scope-correction|new-related-scope|unrelated` before planning, editing, or claiming tracked status. Related corrections are not ordinary answers; unrelated questions are not forced into tracked work.
 - Autonomous next-action branch: after an idea, correction, or related follow-up enters idea-to-code, same-IDEA safe next actions are agent-owned work. The agent continues through planning, READY refresh, task entry, edits, validation, review, install parity, self-run diagnostics, status repair, and closeout while the action remains in the same IDEA/TASK/REQ scope and is safe in the current environment. This branch does not remove the `Next Action` field or change the formal result template: display the next action normally, then continue into it without waiting for the user when it is same-scope, safe, and executable. A formal handoff cannot leave `Next Action` as an instruction for the user to type `next`, `下一步`, or `continue` for work the agent can perform now. Stop only for a concrete user-required stop condition: explicit pause/status-only/review-only request, missing product decision, missing credential/account/permission/tool/external service, destructive or irreversible action, commit/push/deploy/publish/payment/release approval, scope uncertainty, safety/legal/security/privacy uncertainty, or repeated tool/environment failure. Repeated `next` prompts after safe work remains are a premature-stop signal and must trigger immediate resume plus workflow hardening when the guidance caused the stop.
 - Scope Override branch: when incomplete work exists and the user asks to handle non-`Next Action` work first, record `scope override` before execution. Classify it as `same-ledger-verification`, `same-ledger-repair`, `new-ledger-improvement`, or `accepted-residual`, preserve the original carryover snapshot, and resolve it with `scope override-resolve` after execution or decision. Open Scope Override records block `verify`; `render-status` must show the override, original carryover, and recomputed `Next Action`.
-- Master backlog branch: when one related request contains multiple issues or work items, assign stable `MB-*` IDs and run `backlog sync` before READY. READY and closeout must keep pending/deferred/skipped/blocked/partial/failed MB IDs visible; accepted closeout is refused while master backlog items remain incomplete.
+- Master backlog branch: when one related request contains multiple issues or work items, assign stable `MB-*` IDs and run `backlog sync`. Begin and conclude only the earliest unresolved item. READY requires the current item to be `confirmed` and mapped to a REQ; checkpoint coverage completes it before the next item may begin. `no-change`, `rejected`, `unverified`, `deferred`, and `blocked` are evidence-backed results without synthetic TASKs. Status and closeout keep all unresolved or carried outcomes visible.
 - Controlled repair branch: after `implementation enter-task`, the current TASK is the only mainline repair target. Blocking derived work may interrupt only when required to complete or verify that TASK and must return to the parent TASK. Non-blocking derived work is deferred/carryover. Scope-changing derived work stops implementation and returns to Execution Planning. A different TASK cannot become current until the previous current TASK has been closed by checkpoint evidence or `implementation close-task`.
 - Enumerated scope branch: numbered issue lists are stable scope IDs. A later list with the same visible numbers must preserve the previous meanings, or the output must show a mapping table with `Previous ID`, `Current ID`, and `Change Reason` before planning, READY, validation, or status claims use the new numbering.
 - Current TASK entry branch: `implementation enter-task --task <TASK-ID>` records the current task and prints READY Focus before edits for that TASK; `show-ready --task` is only a fallback with a recorded reason. `enter-task` refuses to switch to a different TASK while the current TASK is open.
@@ -438,6 +532,37 @@ Place unverified reusable rule proposals in that register before treating them a
 Name the candidate and its bounded trial in an ordinary TASK before use. Script candidates execute from an isolated candidate directory; putting their documentation in a candidate Markdown file does not isolate executable code already installed in the stable entrypoint. Keep the stable installation unchanged until required candidate acceptance passes.
 
 A failed or partial trial stays inactive. Promotion requires evidence for the declared scope and review of the final rule wording and associated code. If promotion expands semantics or applicability, validate that changed scope before promotion. Move only the validated rule into its single maintained owner, retain decision evidence in the task, and remove duplicate candidate wording. Neither elapsed time nor test count establishes stable behavior. Rule acceptance, installation parity and later effectiveness are different claims; future observation must not indefinitely prevent completion of an otherwise verified business task.
+
+### Deciding what to retain
+
+Make the decision in the existing trial evidence, not a new score or learning
+ledger. Compare baseline and candidate on the same task, inputs and acceptance
+criteria. State the observed difference, its likely cause and competing
+explanation, applicable scope, preserved normal/negative cases, and added work
+or maintenance cost. A shorter response or more passing tests alone is not a
+benefit if scope, correctness or useful diagnostics disappear.
+
+| Decision | Evidence required and next action |
+| --- | --- |
+| Retain within scope | The intended outcome improves, relevant counterexamples and normal paths still hold, and cost is justified. Promote only the tested wording/code; keep broader effectiveness unverified. |
+| Revise and retry | The need is confirmed but the candidate misses acceptance, causes false positives or costs too much. Keep it inactive, diagnose code/design/test/environment, change the smallest justified part, then rerun the original challenge and affected regressions. |
+| Reject or retire | The premise is disproved, an adequate existing rule already solves it, measured benefit is absent, or a simpler approach achieves the same result with less cost. Remove candidate guidance, not the factual observation or decision evidence. |
+| Insufficient evidence | Cause, baseline, outcome or required coverage is unknown. Keep the hypothesis inactive and state what observation would resolve it; do not count unknown as success or failure. |
+
+Bound retries by a concrete new hypothesis or evidence-producing experiment.
+Repeating an unchanged failed attempt is not learning. If no justified next
+experiment is available, record the item as blocked/deferred and continue only
+independent work allowed by the user's sequencing. Do not silently change the
+requirement or extend the experiment into unrelated work.
+
+For example, a brief-output trial can reduce text yet lose a wrapped scope
+constraint. Reject that candidate, preserve the failing case, repair extraction
+and repeat the comparison. Retain the corrected format only if constraints and
+normal entry still hold. This supports that format under tested conditions; it
+does not prove all future agent reasoning will be correct. When a later
+`ineffective` or `false-positive` observation contradicts acceptance, the existing
+evolution checks demand renewed diagnosis; an `insufficient` observation must
+remain explicitly distinct from `effective`.
 
 When revising or rolling back a promoted rule, check the current version and later independent changes first. Revert only the rule and associated implementation within the authorized scope; preserve unrelated improvements and historical evidence. Do not blindly restore an entire older installation.
 

@@ -197,6 +197,14 @@ For each item, inspect the real entrypoints, callers, authoritative data, extern
 
 Once the idea is listed as `1.`, `2.`, `3.`, explore, analyze and verify each point independently in the agreed order. Finish the current point's investigation and record its conclusion before exploring the next; listing all points or reading shared context is not collective acceptance. For each number, retain its requirement/observed behavior, actual code and evidence, affected paths, proposal self-challenge, applicable validation and disposition: confirmed, not reproduced/unverified, rejected/no change, or blocked. A numbered candidate is not automatically a defect, and a plausible concern is not a confirmed finding. Use the existing REQ/TASK/MB records rather than adding a second ledger.
 
+Make that order executable for multi-item work: run `backlog sync`, then
+`backlog begin --id MB-N --evidence "..."` and `backlog conclude --id MB-N
+--disposition <result> --evidence "..."`. Only a confirmed result proceeds to
+REQ/TASK design and READY. Complete all mapped REQs before beginning the next
+MB. Record `no-change`, `rejected`, `unverified`, `deferred`, or `blocked`
+directly on the MB and move on only when the sequencing constraint permits it;
+do not manufacture implementation work for those outcomes.
+
 Where the user requires fixing and accepting one point before the next, complete that point's implementation and required acceptance, including real-environment tests, before advancing. If it is blocked, preserve that status and follow the user's sequencing constraint; do not count it as done or silently start the next point. Read necessary dependencies while investigating the current point, but do not turn that reading into unexamined conclusions for later points.
 
 Identical problems may be grouped only after independently checking each member and demonstrating the same root cause, compatible intended behavior and applicable correction. Similar symptoms, names or a shared helper alone do not prove equivalence. Show the original-number-to-group mapping and keep a separate conclusion and validation coverage for each member. Shared code observations or test evidence may be cited where their applicability is demonstrated; one tested caller does not cover other callers by assumption. Grouping can share implementation and avoid duplicate work, but cannot erase unverified members, silently renumber scope, expand the allowed behavior change, or bypass the agreed sequence. Split the group again if member-specific evidence contradicts the proposed common fix.

@@ -282,6 +282,46 @@ class DeliveryEvidenceTests(unittest.TestCase):
             "outcome": "ineffective", "evidence_refs": ["EVID-POS"], "note": "A later task repeated the same omission."})
         self.assertIn("renewed diagnosis", " ".join(evolution_problems(self.root, self.status)))
 
+    def test_later_effective_observation_does_not_mask_unresolved_ineffectiveness(self):
+        payload = self.activation_ready()
+        self.record("evolution-activate", payload)
+        self.record("evolution-observe", {"id": "OBS-FAIL", "incident_id": "EVOL-1",
+            "outcome": "ineffective", "evidence_refs": ["EVID-POS"],
+            "note": "A later task repeated the same omission."})
+        self.record("evolution-observe", {"id": "OBS-PASS", "incident_id": "EVOL-1",
+            "outcome": "effective", "evidence_refs": ["EVID-POS"],
+            "note": "A separate later task followed the rule."})
+
+        self.assertIn("renewed diagnosis", " ".join(evolution_problems(self.root, self.status)))
+
+    def test_later_false_positive_reopens_decision_without_erasing_evidence(self):
+        payload = self.activation_ready()
+        self.record("evolution-activate", payload)
+        accepted_records = copy.deepcopy(self.status["local_records"])
+        self.record("evolution-observe", {"id": "OBS-FALSE", "incident_id": "EVOL-1",
+            "outcome": "false-positive", "evidence_refs": ["EVID-NEG"],
+            "note": "The accepted rule rejected a valid normal task in a later trial."})
+        self.assertIn("renewed diagnosis", " ".join(evolution_problems(self.root, self.status)))
+        self.assertEqual(self.status["local_records"][:len(accepted_records)], accepted_records)
+        self.disposition(id="DISP-REVISED", diagnosis="unconfirmed", action="defer",
+                         reason="Cause is not yet confirmed; keep the observation unresolved.")
+        revised_problems = " ".join(evolution_problems(self.root, self.status))
+        self.assertIn("verified resolution", revised_problems)
+        self.assertNotIn("renewed diagnosis", revised_problems)
+
+    def test_effective_and_insufficient_observations_keep_distinct_claims(self):
+        payload = self.activation_ready()
+        self.record("evolution-activate", payload)
+        accepted = copy.deepcopy(self.status)
+        for outcome in ("effective", "insufficient"):
+            with self.subTest(outcome=outcome):
+                self.status = copy.deepcopy(accepted)
+                observation = self.record("evolution-observe", {"id": "OBS-NEXT", "incident_id": "EVOL-1",
+                    "outcome": outcome, "evidence_refs": ["EVID-POS"],
+                    "note": "Observation applies only to the named fixture trial."})
+                self.assertEqual(observation["data"]["outcome"], outcome)
+                self.assertEqual(evolution_problems(self.root, self.status), [])
+
     def test_linked_task_requires_heading_not_arbitrary_mention(self):
         self.capture()
         self.write(".idea-to-code/business/00-idea.md", "The text merely mentions TASK-1 without declaring it.\n")

@@ -39,7 +39,7 @@ When this skill is triggered, default to autonomous delivery unless the user ask
 3. Register `REQ-*` scope, acceptance matrix, design, and `TASK-*` implementation plan.
 4. Show `Exploration Result` or `Confirmation Required` before READY.
 5. Show focused `Implementation Gate: READY` for the current TASK before edits.
-6. Record visible output, enter task, acquire lease, and pass `implementation pre-edit`.
+6. Enter the current task, show the full Exploration/READY Display Layer in main chat, record that visible output, acquire the lease, and pass `implementation pre-edit`.
 7. Implement only the visible TASK/REQ/file scope.
 8. Validate with named validation types and evidence.
 9. Review user-intent fit, risks, non-goals, counterexamples, and branch closure.
@@ -61,15 +61,28 @@ python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" command
 
 ## Workflow
 
+For numbered work, follow the [item-by-item delivery loop](references/workflow.md#item-by-item-delivery-loop):
+Idea -> numbered Plan -> explore/design/implement/test/review/result for one item
+-> next independent item -> overall closeout. Plan items are candidates, not
+confirmed defects. The existing MB/REQ/TASK records remain the only ledger.
+
 Normal flow:
 
 ```text
 route/current -> init/resume bundle -> intake gate -> controlled exploration
--> requirements/REQs -> acceptance matrix -> design -> TASK plan
+-> candidate MB list -> backlog sync -> backlog begin -> independently explore current item
+-> backlog conclude -> confirmed item only: requirements/REQs -> acceptance matrix -> design -> TASK plan
 -> exploration render -> implementation ready -> enter-task -> visible-output record -> lease -> pre-edit
--> scoped edit -> validate -> review -> checkpoint/close-task
+-> scoped edit -> validate -> review -> checkpoint/close-task -> Plan item result -> next backlog begin
 -> pre-close verify -> closer/finalize -> final verify -> render-status
 ```
+
+For multi-item work, plain `backlog sync` activates the strong Plan Item flow. Use
+`backlog begin --id MB-N --evidence "..."` only for the earliest unresolved item,
+then `backlog conclude --id MB-N --disposition confirmed|no-change|rejected|unverified|deferred|blocked --evidence "..."`.
+Only `confirmed` may create executable REQ/TASK scope. Verified requirement
+coverage completes that item and permits the next one. Do not use `backlog mark`
+to bypass these transitions.
 
 Read `references/workflow.md` for lifecycle order, command flow, bundle contract, current pointer rules, branch closure, quickstart/fast-lane, generated test ownership, pause/resume/archive, checkpoint, verify, finalize, and installed parity workflow.
 
@@ -92,6 +105,13 @@ python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" current
 
 ### Edit Gate Checklist
 
+For an autonomous, fully planned current TASK, `implementation enter-task
+--brief` can generate the concise pair of visible Exploration/READY blocks.
+Follow the [brief display contract](references/verification-and-evidence.md#brief-display-contract)
+instead of manually shortening the full format. Both formats retain the same
+visibility recording, lease and pre-edit gates; unresolved confirmation uses
+the full format. The complete plan and quality contract remain in the bundle.
+
 Before tracked source, docs, tests, config, script, or artifact edits:
 
 1. Ask the controller what is missing:
@@ -100,17 +120,17 @@ Before tracked source, docs, tests, config, script, or artifact edits:
 python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation next-action --root "$(pwd)" --slug <slug> --task <TASK-ID> --files <path-a> <path-b> --json
 ```
 
-2. Show required Display Layer blocks in the main assistant-visible body.
-3. Record visible output for same-agent work:
-
-```bash
-python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation visible-output record --root "$(pwd)" --slug <slug> --task <TASK-ID> --display-channel main-chat --assistant-body "<body>" --display-assertion "The full Display Layer was shown in main chat, not tool stdout."
-```
-
-4. Enter the current TASK:
+2. Enter the current TASK:
 
 ```bash
 python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation enter-task --root "$(pwd)" --slug <slug> --task <TASK-ID>
+```
+
+3. Show the required Display Layer blocks in the main assistant-visible body.
+4. Record visible output for same-agent work:
+
+```bash
+python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation visible-output record --root "$(pwd)" --slug <slug> --task <TASK-ID> --display-channel main-chat --assistant-body "<body>" --display-assertion "The full Display Layer was shown in main chat, not tool stdout."
 ```
 
 5. Acquire a write lease:
@@ -428,7 +448,7 @@ This glossary is the canonical maintenance point for protocol terms that must re
 - Display and gate labels: `Exploration Result`, `Confirmation Required`, `Implementation Gate: READY`, `Display Layer`, `Next Layer`, `READY Focus`, `Full Plan`.
 - Scope and trace IDs: `TASK-*`, `REQ-*`, `IDEA-*`, `MB-*`, `IMP-*`.
 - Output and guard IDs: `EXPLORATION_OUTPUT_ID`, `READY_TASK_OUTPUT_ID`, `PRE_EDIT_OK_ID`, `LEASE_ID`, `VISIBLE_OUTPUT_ID`.
-- CLI command names and arguments: `render-status`, `response classify`, `implementation ready`, `implementation enter-task`, `implementation close-task`, `implementation pre-edit`, `implementation lease acquire`, `implementation visible-output record`, `implementation noncompliance`, `implementation noncompliance-resolve`, `idea record`, `idea status`, `backlog sync`, `scope override`, `scope override-resolve`, `--root`, `--slug`, `--task`, `--file`, `--files`, `--covers`.
+- CLI command names and arguments: `render-status`, `response classify`, `implementation ready`, `implementation enter-task`, `implementation close-task`, `implementation pre-edit`, `implementation lease acquire`, `implementation visible-output record`, `implementation noncompliance`, `implementation noncompliance-resolve`, `idea record`, `idea status`, `backlog sync`, `backlog begin`, `backlog conclude`, `scope override`, `scope override-resolve`, `--root`, `--slug`, `--task`, `--file`, `--files`, `--covers`.
 - Response kinds: `ordinary-answer`, `read-only-status`, `mixed-review`, `formal-tracked-handoff`, `blocked-handoff`.
 - Scope override terms: `Scope Override`, `same-ledger-verification`, `same-ledger-repair`, `new-ledger-improvement`, `accepted-residual`, `create-child-task`, `create-new-ledger`, `child-task-created`, `new-ledger-created`.
 - File, artifact, and state names: `00-idea.md`, `01-progress.md`, `02-report.md`, `state.json`, `bundle`, `ledger`, `current.json`.

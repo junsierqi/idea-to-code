@@ -224,6 +224,10 @@ For upper-layer profile work, pass the same profile through `render-status --pro
 
 ## Exploration Visibility Check
 
+For the optional generated `brief-v1` pair, use the [brief display contract](#brief-display-contract)
+below. The field-by-field Display Layer requirements in this section describe
+the existing full format; both formats require real assistant-visible output.
+
 Before READY and before product-file edits, the Controlled Exploration decision must be visible to the user in a normal assistant message, not only command stdout, tool output, folded transcript, or internal notes.
 
 Use:
@@ -278,6 +282,42 @@ READY output must also show the trace hierarchy and implementation granularity. 
 Visibility evidence requires meaningful content, not just IDs. A valid execution handoff before tracked edits shows the Exploration summary fields (`Required Now`, `Deferred`, `Selected Option`, and `What READY Will Cover`), `Implementation Granularity`, `Trace Hierarchy`, plus the focused TASK fields (`Files`, `Execution Details`, `Done Criteria`, and `Planned Verification`). Tool stdout, folded transcripts, internal notes, `EXPLORATION_OUTPUT_ID`, or `READY_TASK_OUTPUT_ID` alone do not prove the user saw the scope.
 
 Friendly display is the compact required block, not a prose substitute. A line like `Exploration Result: Required Now = ...` or `READY Focus TASK-2 / REQ-2: files are ...` may be useful context, but it is not compliant gate visibility unless the same assistant-visible message also contains the required `Display Layer` block fields. Keep the block short by using focused READY, but do not collapse it into a single sentence.
+
+## Brief display contract
+
+For an autonomous current TASK, `implementation enter-task --brief` emits two
+separate Planner blocks under `Display Contract: brief-v1`: Exploration first,
+then READY. This is an opt-in alternative to the full-format field lists above
+and in `roles-and-state.md`, not an exception to edit authorization or evidence.
+Use full output for unresolved confirmation or when the plan lacks the explicit
+fields needed for brief rendering. Do not fabricate missing fields to shorten it.
+
+The generated pair shows the goal, current scope, decision and reason, deferred
+scope, TASK, complete file list, changes, scope/safety constraints, acceptance
+and verification. It links the complete quality contract in `00-idea.md` and
+binds both current output IDs on one line. It removes duplicated headings and
+protocol explanations, not the plan or its checks. Values come from the plan;
+the renderer does not infer requirements from matching TASK/REQ numbers.
+
+Show the generated pair intact in the main assistant body before edits. Pass
+that exact pair to `visible-output record` with the normal display assertion;
+it compares the blocks with the current plan and rejects changed scope, missing
+files, stale bindings and altered acceptance. Extra prose can be a separate
+message. If scope changes, update the plan and regenerate READY and the pair.
+No new command is required between task entry and recording visibility.
+
+`output-compliance check` and transcript audit check the brief shape and visible
+presence only. The state-bound comparison happens in `visible-output record`.
+Neither proves actual UI display; that remains a host-required assertion.
+Lease, pre-edit, validation types, independent evidence and permission boundaries
+are unchanged. A shorter block cannot authorize a broader edit.
+
+Keep phase updates focused: `[idea-to-code][Role/agent] Plan N · phase`, followed
+by the decision/result, supporting evidence or missing coverage, and next step.
+Do not repeat all gate fields during implementation and testing. Overall
+closeout retains its existing fixed fields; fill them concisely and do not repeat
+internal audit history unless it explains an unresolved issue. No-change
+investigation, implemented fix and blocked verification remain distinct.
 
 ## Output Acceptance Gate
 

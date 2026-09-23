@@ -33,6 +33,7 @@ TEST_BATCH_PROFILE_KEYWORDS: dict[str, tuple[str, ...]] = {
         "maintainer_fast_profile",
     ),
     "output": (
+        "brief",
         "output_compliance",
         "visible_output",
         "ready_output",
@@ -41,6 +42,7 @@ TEST_BATCH_PROFILE_KEYWORDS: dict[str, tuple[str, ...]] = {
         "transcript_audit",
     ),
     "lifecycle": (
+        "brief",
         "test_delivery_evidence.",
         "lifecycle",
         "branch_map",
@@ -55,6 +57,7 @@ TEST_BATCH_PROFILE_KEYWORDS: dict[str, tuple[str, ...]] = {
         "next_action",
     ),
     "changed-surface": (
+        "brief",
         "test_delivery_evidence.",
         "host_hook",
         "guarded_apply",

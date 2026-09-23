@@ -93,7 +93,7 @@ python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" fresh-b
 FS-3 mode must be explicit before the prompt is answered:
 
 - `raw-answer benchmark mode`: do not edit files. The answer should show the expected small-task behavior: `Exploration Needed: no`, a narrow `Implementation Gate: READY` / `READY Focus`, target files, verification, and the next lifecycle command. This mode measures response quality without mutating the fixture.
-- `execution benchmark mode`: a product-file edit is allowed only when the runner intentionally wants to test real execution. The agent must show `READY Focus`, run `implementation enter-task`, acquire any required lease, pass `implementation pre-edit`, perform only the scoped edit, validate it, and report the edit under benchmark evidence. A direct README edit without these lifecycle artifacts is instruction drift even if the edit itself is small and correct.
+- `execution benchmark mode`: a product-file edit is allowed only when the runner intentionally wants to test real execution. The agent must run `implementation enter-task`, show the Exploration/READY Display Layer in the assistant-visible main chat, record it with `implementation visible-output record`, acquire any required lease, pass `implementation pre-edit`, perform only the scoped edit, validate it, and report the edit under benchmark evidence. A direct README edit without these lifecycle artifacts is instruction drift even if the edit itself is small and correct.
 - Record the selected FS-3 mode in the raw output and score file.
 
 Time and cost bounds:
@@ -142,7 +142,7 @@ Fresh-session score dimensions:
 | User-goal critique | Identifies the real goal and challenges flawed requested implementations when needed. |
 | Recommended decision | Gives one default path whose reasoning improves user-goal fit, reduces risk/cost, preserves constraints and non-goals, and names a verification path; not unresolved option dumping. |
 | READY visibility | Surfaces the relevant READY TASK list or focused excerpt in a normal assistant message before edits. |
-| Current TASK loop | Uses `implementation enter-task --task <TASK-ID>` before edits for each TASK, or records why only `show-ready --task` was possible. |
+| Current TASK loop | Uses `implementation enter-task --task <TASK-ID>`, displays and records the current Exploration/READY blocks, then passes lease and pre-edit before edits for each TASK; or records why only `show-ready --task` was possible. |
 | Overview loop | Uses `implementation overview` for status-style questions and shows Planned Scope, Current TASK, Next Tasks, and Full Plan hint without mutating delivery evidence. |
 | Response mode | Uses fixed fields only for formal tracked delivery status and natural concise replies for ordinary questions. |
 | Status semantics | Uses `Status: Completed` for fully validated response-scoped TASK/REQ slices with `Incomplete Items: none`; keeps `Incomplete Items` limited to unfinished in-scope TASK/REQ work, puts `No commit made` in Key Technical Details by default, and puts external retest/user acceptance in Unverified Items. |
@@ -621,7 +621,7 @@ Expected mode: `tracked-task-entry`
 Expected response shape:
 
 - TASK-1 READY Focus is visible before TASK-1 edits.
-- Before TASK-2 edits, uses or cites `implementation enter-task --task TASK-2`.
+- Before TASK-2 edits, uses or cites `implementation enter-task --task TASK-2`, assistant-visible Exploration/READY display, `visible-output record`, lease, and pre-edit.
 - Output includes `Display Layer: READY Focus`.
 - READY output includes `Display Step: 2/2` and the edit-authorization `Display Boundary`.
 - Machine state records `current_task_id: TASK-2` when the script is available.
@@ -673,7 +673,7 @@ Expected mode: `tracked-ownership-control`
 
 Expected response shape:
 
-- Requires `implementation lease acquire --task <TASK-ID> --owner <owner> --file <path>` before pre-edit for implementation edits.
+- Requires assistant-visible Exploration/READY display plus `implementation visible-output record` before `implementation lease acquire --task <TASK-ID> --owner <owner> --file <path>` and pre-edit for implementation edits.
 - Refuses or flags overlapping active write leases for different owners.
 - Allows Validator/Reviewer read-only subagents to inspect and record evidence without write leases.
 - Does not claim OS-level distributed locking beyond the recorded bundle lease state.

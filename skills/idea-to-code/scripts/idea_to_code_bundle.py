@@ -175,7 +175,13 @@ PRE_EDIT_OUTPUT_FIELDS = (
     "pre_edit_ready_task_output_id",
     "pre_edit_exploration_output_id",
 )
-MASTER_BACKLOG_STATUSES = ("pending", "active", "deferred", "covered", "completed", "blocked", "skipped", "partial", "failed", "superseded")
+MASTER_BACKLOG_STATUSES = (
+    "pending", "active", "exploring", "confirmed", "no-change", "rejected", "unverified",
+    "deferred", "covered", "completed", "blocked", "skipped", "partial", "failed",
+    "superseded",
+)
+PLAN_ITEM_DISPOSITIONS = ("confirmed", "no-change", "rejected", "unverified", "deferred", "blocked")
+PLAN_ITEM_TERMINAL_STATUSES = {"no-change", "rejected", "unverified", "deferred", "blocked", "covered", "completed", "superseded"}
 TASK_CLOSURE_STATUSES = ("verified", "partial", "blocked", "skipped", "deferred", "failed", "replan")
 IDEA_RECORD_STATUSES = ("active", "completed", "deferred", "rejected", "superseded", "blocked", "reference")
 PLAN_UPDATE_SECTIONS = ("requirements", "design", "implementation")
@@ -264,9 +270,9 @@ BRANCH_COVERAGE_MAP = [
         "id": "master-backlog",
         "workflow_branch": "Master backlog branch",
         "entry": "one related request contains multiple issues or work items",
-        "exit": "backlog sync assigns stable MB-* IDs before READY",
-        "validation": "READY and closeout keep pending, deferred, skipped, blocked, partial, or failed MB IDs visible",
-        "failure_handling": "accepted closeout is refused while master backlog items remain incomplete",
+        "exit": "backlog sync activates ordered Plan Items; begin/conclude records evidence before confirmed work enters READY",
+        "validation": "READY requires the current confirmed MB with mapped REQ scope; checkpoint coverage completes it before the next MB begins",
+        "failure_handling": "out-of-order exploration, unsupported dispositions, and accepted closeout with incomplete items are refused",
     },
     {
         "id": "controlled-repair",
@@ -1146,6 +1152,8 @@ def _migrate_master_backlog_fields(status: dict) -> None:
     status.setdefault("master_backlog_synced_at_utc", None)
     status.setdefault("master_backlog_plan_revision", None)
     status.setdefault("master_backlog_event_sequence", None)
+    status.setdefault("plan_item_flow_required", False)
+    status.setdefault("current_plan_item_id", None)
 
 
 def _migrate_idea_record_fields(status: dict) -> None:
@@ -1367,10 +1375,53 @@ def _master_backlog_item_map(status: dict) -> dict[str, dict]:
     }
 
 
+def _plan_item_flow_problems(status: dict, *, for_ready: bool = False) -> list[str]:
+    if not status.get("plan_item_flow_required"):
+        return []
+    items = status.get("master_backlog", [])
+    current_id = status.get("current_plan_item_id")
+    current = _master_backlog_item_map(status).get(str(current_id or "").upper())
+    problems: list[str] = []
+    if current_id and not current:
+        return [f"current Plan Item {current_id} is missing from the master backlog"]
+    if for_ready:
+        if not current:
+            unresolved = [item.get("id") for item in items if item.get("status") not in PLAN_ITEM_TERMINAL_STATUSES]
+            if unresolved:
+                return [
+                    "strong Plan Item flow requires `backlog begin` and `backlog conclude --disposition confirmed` "
+                    "for the earliest unresolved item before READY: " + unresolved[0]
+                ]
+            return []
+        if current.get("status") != "confirmed":
+            problems.append(
+                f"current Plan Item {current.get('id')} is {current.get('status', 'pending')}; "
+                "READY requires an evidence-backed confirmed disposition"
+            )
+        mapped = sorted(
+            rid for rid, mb_ids in _requirement_mb_map(status).items()
+            if current.get("id") in mb_ids
+        )
+        if not mapped:
+            problems.append(f"confirmed Plan Item {current.get('id')} has no mapped REQ; create REQ/TASK scope before READY")
+    for index, item in enumerate(items):
+        if item.get("id") == current_id:
+            earlier_open = [
+                prior.get("id") for prior in items[:index]
+                if prior.get("status") not in PLAN_ITEM_TERMINAL_STATUSES
+            ]
+            if earlier_open:
+                problems.append(
+                    f"current Plan Item {current_id} skips unresolved earlier items: " + ", ".join(earlier_open)
+                )
+            break
+    return problems
+
+
 def _master_backlog_incomplete_items(status: dict) -> list[dict]:
     incomplete = []
     for item in status.get("master_backlog", []):
-        if item.get("status") not in {"covered", "completed", "deferred", "superseded"}:
+        if item.get("status") not in {"covered", "completed", "no-change", "rejected", "deferred", "superseded"}:
             incomplete.append(item)
     return incomplete
 
@@ -1378,7 +1429,7 @@ def _master_backlog_incomplete_items(status: dict) -> list[dict]:
 def _master_backlog_remaining_items(status: dict) -> list[dict]:
     remaining = []
     for item in status.get("master_backlog", []):
-        if item.get("status") not in {"covered", "completed", "superseded"}:
+        if item.get("status") not in {"covered", "completed", "no-change", "rejected", "superseded"}:
             remaining.append(item)
     return remaining
 
@@ -1441,6 +1492,13 @@ def _render_next_action_line(status: dict, incomplete_backlog: list[dict], remai
             f"- Resolve Scope Override {latest.get('id')} before continuing normal Next Action. "
             f"Original carryover remains open."
         )
+    current_plan_item = status.get("current_plan_item_id")
+    if current_plan_item:
+        item = _master_backlog_item_map(status).get(current_plan_item, {})
+        if item.get("status") == "exploring":
+            return f"- Finish independent exploration and conclude {current_plan_item} before advancing."
+        if item.get("status") == "confirmed":
+            return f"- Complete and verify all REQ/TASK work mapped to confirmed {current_plan_item}."
     if _current_task_is_open(status):
         current_task = status.get("current_task_id") or "current TASK"
         return f"- Resume or close {current_task}; it is still open."
@@ -1806,7 +1864,18 @@ def _update_master_backlog_coverage(status: dict, covers: list[str], milestone: 
             item.setdefault("covered_by", [])
             if milestone not in item["covered_by"]:
                 item["covered_by"].append(milestone)
-            if item.get("status") not in {"completed", "deferred"}:
+            item.setdefault("covered_requirements", [])
+            for rid in covers:
+                if item.get("id") in req_map.get(rid, []) and rid not in item["covered_requirements"]:
+                    item["covered_requirements"].append(rid)
+            if status.get("plan_item_flow_required"):
+                required = {rid for rid, mb_ids in req_map.items() if item.get("id") in mb_ids}
+                if item.get("status") == "confirmed" and required and required.issubset(set(item["covered_requirements"])):
+                    item["status"] = "completed"
+                    item["completed_at_utc"] = utc_now()
+                    if status.get("current_plan_item_id") == item.get("id"):
+                        status["current_plan_item_id"] = None
+            elif item.get("status") not in {"completed", "deferred"}:
                 item["status"] = "covered"
 
 
@@ -2475,6 +2544,11 @@ def checkpoint_bundle(
         values.append(gate_status)
     if not all(_is_ascii(value) for value in values):
         raise SystemExit("checkpoint arguments must be English-only ASCII text.")
+    if not re.search(r"\b(real-product-path|mock-only|fixture-only|source-only|dom-only|manual-inspection|unverified)\b", verified, re.I):
+        raise SystemExit(
+            "checkpoint refused - --verified must name a validation type before any records are written. "
+            "Use the actual evidence type, such as source-only or real-product-path."
+        )
     target = ensure_active_bundle(root, slug)
     with bundle_lock(target):
         timestamp = utc_now()
@@ -2865,6 +2939,7 @@ def implementation_gate_problems(target: Path, ignore_pending_plan_update: bool 
     if pending_problem and not ignore_pending_plan_update:
         problems.append(f"{STATE_FILE}: {pending_problem}")
     problems.extend(f"{STATE_FILE}: {problem}" for problem in _master_backlog_problems(target, status))
+    problems.extend(f"{STATE_FILE}: {problem}" for problem in _plan_item_flow_problems(status, for_ready=True))
     problems.extend(_controlled_exploration_problems(target))
     if not re.search(r"^Gate Status:\s*READY\s*$", text, re.MULTILINE):
         problems.append(f"{IMPLEMENTATION_FILE}: Gate Status is not READY")
@@ -3924,11 +3999,71 @@ def implementation_show_ready(
     return 0
 
 
+BRIEF_DISPLAY_CONTRACT = "Display Contract: brief-v1"
+
+
+def _brief_ready_body(target: Path, slug: str, status: dict, task_id: str, profile: str | None = None) -> str:
+    """Render both visible phases from current state, never from a second plan."""
+    task = next((item for item in _task_section_blocks((target / IMPLEMENTATION_FILE).read_text(encoding="utf-8"))
+                 if item[0].split(":", 1)[0].strip() == task_id), None)
+    if task is None:
+        raise SystemExit("brief output refused - current TASK is absent from the plan")
+    task_name, sections = task
+    exploration = _controlled_exploration_values(target)
+    intake = _intake_gate_values(target)
+    if intake.get("need_confirmation") == "yes":
+        raise SystemExit("brief output refused - resolve the existing confirmation gate first")
+
+    def one_line(value: str) -> str:
+        values = [line.strip() for line in value.splitlines() if line.strip()]
+        return " ".join(line[2:] if line.startswith("- ") else line for line in values)
+
+    quality = sections.get("Implementation Quality Contract:", "")
+    def complete_quality_field(label: str) -> str:
+        # Keep wrapped constraints; the general single-line field reader would lose them.
+        labels = "|".join(re.escape(item) for item in QUALITY_CONTRACT_REQUIRED_LABELS)
+        match = re.search(
+            rf"^[ \t]*-[ \t]+{re.escape(label)}:[ \t]*(.*?)(?=^[ \t]*-[ \t]+(?:{labels})|\Z)",
+            quality, re.MULTILINE | re.DOTALL,
+        )
+        return match.group(1).strip() if match else ""
+
+    scope = complete_quality_field("Scope Boundary")
+    safety = complete_quality_field("Security/Safety Notes")
+    fields = {
+        "Goal": intake.get("understanding", ""),
+        "Scope": exploration.get("required_now", ""),
+        "Decision": exploration.get("chosen_option", ""),
+        "Reason": exploration.get("decision_reason", ""),
+        "Deferred": exploration.get("deferred", ""),
+        "Task": task_name,
+        "Files": "; ".join(_task_files_for_id(target, task_id)),
+        "Change": sections.get("Execution Details:", ""),
+        "Preserve": scope + " " + safety,
+        "Accept": sections.get("Done Criteria:", ""),
+        "Verify": sections.get("Planned Verification:", ""),
+    }
+    if any(not value.strip() for value in fields.values()) or not scope or not safety:
+        raise SystemExit("brief output refused - current plan lacks explicit scope, decision or acceptance; use full output and repair the plan")
+    prefix = _visibility_prefix(profile, "planner", "agent")
+    lines = [f"{prefix} Exploration Result | Bundle: {slug}", BRIEF_DISPLAY_CONTRACT]
+    lines.extend(f"{name}: {one_line(fields[name])}" for name in ("Goal", "Scope", "Decision", "Reason", "Deferred"))
+    lines.extend(["Boundary: Exploration authorizes no edits.", "", f"{prefix} Implementation Gate: READY | Bundle: {slug}"])
+    lines.extend(f"{name}: {one_line(fields[name])}" for name in ("Task", "Files", "Change", "Preserve", "Accept", "Verify"))
+    lines.extend([
+        f"Plan: .idea-to-code/{slug}/00-idea.md (complete quality contract and evidence)",
+        f"Binding: {status.get('exploration_output_id')}; {status.get('ready_task_output_id')}",
+        "Boundary: Record visible output, acquire lease and pass pre-edit before changes.",
+    ])
+    return "\n".join(lines)
+
+
 def implementation_enter_task(
     root: Path,
     slug: str,
     task_id: str,
     profile: str | None = None,
+    brief: bool = False,
 ) -> int:
     target = ensure_active_bundle(root, slug)
     with bundle_lock(target):
@@ -3963,6 +4098,8 @@ def implementation_enter_task(
         output_problems = _ready_output_contract_problems(lines, blocks)
         if output_problems:
             raise SystemExit("READY output contract failed:\n  - " + "\n  - ".join(output_problems))
+        if brief:
+            lines = _brief_ready_body(target, slug, status, normalized_task_id, profile).splitlines()
         status["current_task_id"] = normalized_task_id
         status["current_task_entered_at_utc"] = utc_now()
         status["current_task_event_sequence"] = _next_event_sequence(status)
@@ -4854,6 +4991,13 @@ def implementation_visible_output_record(
                 f"{current_task}; record visible output for {current_task} or enter {normalized_task_id} first."
             )
         validation_problems = validate_visible_ready_output("", body)
+        if BRIEF_DISPLAY_CONTRACT in body:
+            ready_problem = _ready_output_problem(status, target)
+            if ready_problem:
+                validation_problems.append(ready_problem)
+            expected = _brief_ready_body(target, slug, status, normalized_task_id, profile)
+            if body.replace("\r\n", "\n").strip() != expected:
+                validation_problems.append("brief visible output differs from the current plan-bound blocks; regenerate enter-task --brief")
         if "Exploration Result | Bundle:" not in body:
             validation_problems.append("assistant-visible body missing full Exploration Result block marker")
         if "Implementation Gate: READY | Bundle:" not in body:
@@ -5373,7 +5517,7 @@ def requirement_add(
     return target
 
 
-def master_backlog_sync(root: Path, slug: str) -> Path:
+def master_backlog_sync(root: Path, slug: str, legacy: bool = False) -> Path:
     target = ensure_active_bundle(root, slug)
     with bundle_lock(target):
         status = read_status(target)
@@ -5382,25 +5526,89 @@ def master_backlog_sync(root: Path, slug: str) -> Path:
         if len(mb_ids) <= 1:
             raise SystemExit("backlog sync refused - master backlog requires at least two MB-* IDs in 00-idea.md.")
         existing = _master_backlog_item_map(status)
+        activating_strong_flow = not legacy and not status.get("plan_item_flow_required")
         items = []
         for mb_id in mb_ids:
             old = existing.get(mb_id, {})
+            old_status = old.get("status") if old.get("status") in MASTER_BACKLOG_STATUSES else "pending"
+            if activating_strong_flow and old_status == "active":
+                old_status = "pending"
             items.append(
                 {
                     "id": mb_id,
                     "title": _master_backlog_label_from_text(idea_text, mb_id),
-                    "status": old.get("status") if old.get("status") in MASTER_BACKLOG_STATUSES else "pending",
+                    "status": old_status,
                     "covered_by": old.get("covered_by", []),
+                    "covered_requirements": old.get("covered_requirements", []),
                     "deferred_reason": old.get("deferred_reason", ""),
+                    "exploration_evidence": old.get("exploration_evidence", ""),
+                    "disposition_evidence": old.get("disposition_evidence", ""),
                 }
             )
         status["master_backlog_required"] = True
+        status["plan_item_flow_required"] = not legacy
         status["master_backlog"] = items
         status["master_backlog_synced_at_utc"] = utc_now()
         status["master_backlog_plan_revision"] = status.get("plan_revision")
         status["master_backlog_event_sequence"] = _next_event_sequence(status)
         write_status(target, status)
         append_ledger(target, "backlog-sync", "Synced master backlog: " + ", ".join(mb_ids), [])
+    return target
+
+
+def master_backlog_begin(root: Path, slug: str, mb_id: str, evidence: str) -> Path:
+    mb_id = mb_id.upper()
+    if _weak_text_value(evidence, min_len=16) or not _is_ascii(evidence):
+        raise SystemExit("backlog begin refused - --evidence must be concrete English-only ASCII evidence.")
+    target = ensure_active_bundle(root, slug)
+    with bundle_lock(target):
+        status = read_status(target)
+        if not status.get("plan_item_flow_required"):
+            raise SystemExit("backlog begin refused - strong Plan Item flow is not active; run backlog sync without --legacy.")
+        items = status.get("master_backlog", [])
+        item_map = _master_backlog_item_map(status)
+        if mb_id not in item_map:
+            raise SystemExit(f"backlog begin refused - unknown master backlog ID: {mb_id}.")
+        if status.get("current_plan_item_id"):
+            raise SystemExit(f"backlog begin refused - {status['current_plan_item_id']} is already current.")
+        item = item_map[mb_id]
+        earlier = [prior.get("id") for prior in items[:items.index(item)] if prior.get("status") not in PLAN_ITEM_TERMINAL_STATUSES]
+        if earlier:
+            raise SystemExit("backlog begin refused - resolve earlier Plan Items first: " + ", ".join(earlier))
+        if item.get("status") != "pending":
+            raise SystemExit(f"backlog begin refused - {mb_id} is {item.get('status')}, expected pending.")
+        item["status"] = "exploring"
+        item["exploration_evidence"] = evidence
+        item["exploration_started_at_utc"] = utc_now()
+        status["current_plan_item_id"] = mb_id
+        status["master_backlog_event_sequence"] = _next_event_sequence(status)
+        write_status(target, status)
+        append_ledger(target, "backlog-begin", f"{mb_id}: {evidence}", [])
+    return target
+
+
+def master_backlog_conclude(root: Path, slug: str, mb_id: str, disposition: str, evidence: str) -> Path:
+    mb_id = mb_id.upper()
+    disposition = disposition.lower()
+    if disposition not in PLAN_ITEM_DISPOSITIONS:
+        raise SystemExit("backlog conclude refused - --disposition must be one of: " + ", ".join(PLAN_ITEM_DISPOSITIONS))
+    if _weak_text_value(evidence, min_len=16) or not _is_ascii(evidence):
+        raise SystemExit("backlog conclude refused - --evidence must be concrete English-only ASCII evidence.")
+    target = ensure_active_bundle(root, slug)
+    with bundle_lock(target):
+        status = read_status(target)
+        item = _master_backlog_item_map(status).get(mb_id)
+        if not item or status.get("current_plan_item_id") != mb_id or item.get("status") != "exploring":
+            raise SystemExit(f"backlog conclude refused - {mb_id} must be the current exploring Plan Item.")
+        item["status"] = disposition
+        item["disposition"] = disposition
+        item["disposition_evidence"] = evidence
+        item["concluded_at_utc"] = utc_now()
+        if disposition != "confirmed":
+            status["current_plan_item_id"] = None
+        status["master_backlog_event_sequence"] = _next_event_sequence(status)
+        write_status(target, status)
+        append_ledger(target, "backlog-conclude", f"{mb_id} -> {disposition}: {evidence}", [])
     return target
 
 
@@ -5417,6 +5625,8 @@ def master_backlog_mark(root: Path, slug: str, mb_id: str, item_status: str, rea
         items = _master_backlog_item_map(status)
         if mb_id not in items:
             raise SystemExit(f"backlog mark refused - unknown master backlog ID: {mb_id}. Run backlog sync first.")
+        if status.get("plan_item_flow_required"):
+            raise SystemExit("backlog mark refused - strong Plan Item flow requires backlog begin/conclude and verified requirement coverage.")
         item = items[mb_id]
         item["status"] = item_status
         if item_status in {"deferred", "blocked", "skipped", "partial", "failed", "superseded"}:
@@ -5439,6 +5649,8 @@ def master_backlog_status(root: Path, slug: str) -> int:
     payload = {
         "path": str(target),
         "required": status.get("master_backlog_required"),
+        "plan_item_flow_required": status.get("plan_item_flow_required"),
+        "current_plan_item_id": status.get("current_plan_item_id"),
         "plan_revision": status.get("master_backlog_plan_revision"),
         "items": status.get("master_backlog", []),
         "incomplete": _master_backlog_incomplete_items(status),
@@ -7833,6 +8045,21 @@ def _looks_like_ready_summary(text: str) -> bool:
 
 def validate_visible_ready_output(tool_stdout: str, assistant_visible_body: str) -> list[str]:
     problems: list[str] = []
+    if BRIEF_DISPLAY_CONTRACT in tool_stdout or BRIEF_DISPLAY_CONTRACT in assistant_visible_body:
+        # This standalone check proves shape only. Recording visibility also
+        # compares the entire generated body with the current task/plan state.
+        if BRIEF_DISPLAY_CONTRACT not in assistant_visible_body:
+            return ["brief display was only present in tool stdout, not assistant-visible body"]
+        for marker in ("Exploration Result | Bundle:", "Implementation Gate: READY | Bundle:"):
+            if not re.search(r"\[idea-to-code(?:/[^\]]+)?\]\[Planner/agent\] " + re.escape(marker), assistant_visible_body):
+                problems.append("brief display missing Planner block: " + marker)
+        for field in ("Goal", "Scope", "Decision", "Reason", "Deferred", "Task", "Files", "Change", "Preserve", "Accept", "Verify", "Plan", "Binding"):
+            if not re.search(r"(?m)^" + field + r":[ \t]*\S[^\n]*$", assistant_visible_body):
+                problems.append("brief display missing nonempty field: " + field)
+        for boundary in ("Boundary: Exploration authorizes no edits.", "Boundary: Record visible output, acquire lease and pass pre-edit before changes."):
+            if boundary not in assistant_visible_body:
+                problems.append("brief display missing boundary: " + boundary)
+        return problems
     if "Exploration Result | Bundle:" in tool_stdout and "Exploration Result | Bundle:" not in assistant_visible_body:
         problems.append("Exploration Result was only present in tool stdout, not assistant-visible body")
     if "Implementation Gate: READY | Bundle:" in tool_stdout and "Implementation Gate: READY | Bundle:" not in assistant_visible_body:
@@ -8498,8 +8725,40 @@ def _sample_formal_status_body() -> str:
     )
 
 
+def _sample_brief_ready_body() -> str:
+    return "\n".join([
+        "[idea-to-code][Planner/agent] Exploration Result | Bundle: sample",
+        BRIEF_DISPLAY_CONTRACT,
+        "Goal: Preserve classified categories.", "Scope: TASK-1 / REQ-1.",
+        "Decision: Remove obsolete public filtering.", "Reason: Confirmed contract mismatch.",
+        "Deferred: Production data changes.", "Boundary: Exploration authorizes no edits.", "",
+        "[idea-to-code][Planner/agent] Implementation Gate: READY | Bundle: sample",
+        "Task: TASK-1 / REQ-1", "Files: src/category.py; tests/test_category.py",
+        "Change: Correct normalization and add regression coverage.", "Preserve: Raw evidence and adapter policies.",
+        "Accept: Reproduction fixed and existing source behavior preserved.",
+        "Verify: fixture-only category tests; real-product-path isolated database acceptance.",
+        "Plan: .idea-to-code/sample/00-idea.md", "Binding: sample-explore-r1; sample-r1",
+        "Boundary: Record visible output, acquire lease and pass pre-edit before changes.",
+    ])
+
+
 def output_compliance_self_test(json_only: bool) -> int:
     scenarios = [
+        {
+            "name": "brief_shape_valid_not_state_acceptance",
+            "expect_ok": True, "kind": "ready",
+            "tool_stdout": _sample_brief_ready_body(), "assistant_body": _sample_brief_ready_body(),
+        },
+        {
+            "name": "brief_tool_only_rejected",
+            "expect_ok": False, "kind": "ready",
+            "tool_stdout": _sample_brief_ready_body(), "assistant_body": "The scope is in tool output.",
+        },
+        {
+            "name": "brief_missing_files_rejected",
+            "expect_ok": False, "kind": "ready",
+            "tool_stdout": "", "assistant_body": re.sub(r"(?m)^Files:.*\n", "", _sample_brief_ready_body()),
+        },
         {
             "name": "ready_focus_valid",
             "expect_ok": True,
@@ -10360,6 +10619,11 @@ COMMAND_GUIDE_FLOWS: dict[str, list[dict[str, str]]] = {
             "notes": "Shows focused READY for the TASK and records current_task_id.",
         },
         {
+            "step": "Record the assistant-visible Exploration and READY display",
+            "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation visible-output record --root "$(pwd)" --slug <slug> --task TASK-1 --assistant-body-file <assistant-visible-body.txt> --display-channel main-chat --display-assertion "The full Display Layer was shown in main chat and not tool stdout"',
+            "notes": "Run after enter-task and after the full Display Layer is visible in main chat; tool stdout alone is insufficient.",
+        },
+        {
             "step": "Acquire write lease for all edited files",
             "command": 'python "$HOME/.codex/skills/idea-to-code/scripts/idea_to_code_bundle.py" implementation lease acquire --root "$(pwd)" --slug <slug> --task TASK-1 --owner agent --files <path-a> <path-b>',
             "notes": "Use --files for grouped multi-file edits; repeat --file only for compatibility.",
@@ -11040,6 +11304,7 @@ def build_parser() -> argparse.ArgumentParser:
     bs = backlog_sub.add_parser("sync", help="Sync MB-* IDs from 00-idea.md into state.json.")
     bs.add_argument("--root", required=True)
     bs.add_argument("--slug", required=True)
+    bs.add_argument("--legacy", action="store_true", help=argparse.SUPPRESS)
     bst = backlog_sub.add_parser("status", help="Print master backlog state and coverage.")
     bst.add_argument("--root", required=True)
     bst.add_argument("--slug", required=True)
@@ -11049,6 +11314,17 @@ def build_parser() -> argparse.ArgumentParser:
     bm.add_argument("--id", required=True, help="Master backlog ID such as MB-2.")
     bm.add_argument("--status", required=True, choices=MASTER_BACKLOG_STATUSES)
     bm.add_argument("--reason", required=True)
+    bb = backlog_sub.add_parser("begin", help="Begin independent exploration of the earliest unresolved Plan Item.")
+    bb.add_argument("--root", required=True)
+    bb.add_argument("--slug", required=True)
+    bb.add_argument("--id", required=True)
+    bb.add_argument("--evidence", required=True)
+    bc = backlog_sub.add_parser("conclude", help="Record the evidence-backed disposition of the current Plan Item.")
+    bc.add_argument("--root", required=True)
+    bc.add_argument("--slug", required=True)
+    bc.add_argument("--id", required=True)
+    bc.add_argument("--disposition", required=True, choices=PLAN_ITEM_DISPOSITIONS)
+    bc.add_argument("--evidence", required=True)
 
     p = sub.add_parser("idea", help="Record and inspect same-session idea continuity.")
     idea_sub = p.add_subparsers(dest="idea_command", required=True)
@@ -11199,6 +11475,7 @@ def build_parser() -> argparse.ArgumentParser:
     ipc.add_argument("--slug", required=True)
     ipc.add_argument("--json", action="store_true")
     iet = impl_sub.add_parser("enter-task", help="Record the current TASK and print its READY Focus before edits.")
+    iet.add_argument("--brief", action="store_true", help="Render concise plan-bound Exploration and READY blocks; all edit gates still apply.")
     iet.add_argument("--root", required=True)
     iet.add_argument("--slug", required=True)
     iet.add_argument("--task", required=True, help="TASK/IMP id to enter, such as TASK-2.")
@@ -11563,12 +11840,18 @@ def main(argv: Iterable[str] | None = None) -> int:
 
     if args.command == "backlog":
         if args.backlog_command == "sync":
-            print(master_backlog_sync(root, args.slug))
+            print(master_backlog_sync(root, args.slug, args.legacy))
             return 0
         if args.backlog_command == "status":
             return master_backlog_status(root, args.slug)
         if args.backlog_command == "mark":
             print(master_backlog_mark(root, args.slug, args.id, args.status, args.reason))
+            return 0
+        if args.backlog_command == "begin":
+            print(master_backlog_begin(root, args.slug, args.id, args.evidence))
+            return 0
+        if args.backlog_command == "conclude":
+            print(master_backlog_conclude(root, args.slug, args.id, args.disposition, args.evidence))
             return 0
 
     if args.command == "idea":
@@ -11675,7 +11958,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         if args.implementation_command == "plan-check":
             return implementation_plan_check(root, args.slug, args.json)
         if args.implementation_command == "enter-task":
-            return implementation_enter_task(root, args.slug, args.task, args.profile)
+            return implementation_enter_task(root, args.slug, args.task, args.profile, args.brief)
         if args.implementation_command == "close-task":
             return implementation_close_task(root, args.slug, args.task, args.status, args.reason, args.next)
         if args.implementation_command == "overview":

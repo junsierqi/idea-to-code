@@ -596,6 +596,79 @@ class BundleTest(unittest.TestCase):
             self.assertIn("Mode: dry-run", result.stdout)
             self.assertFalse(target.exists())
 
+    def test_install_skill_restores_existing_target_when_activation_fails(self) -> None:
+        spec = importlib.util.spec_from_file_location("install_skill_under_test", INSTALL_SKILL)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        installer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(installer)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            target = root / "target" / "idea-to-code"
+            source.mkdir()
+            target.mkdir(parents=True)
+            (source / "SKILL.md").write_text("new skill\n", encoding="utf-8")
+            (target / "SKILL.md").write_text("working skill\n", encoding="utf-8")
+            path_type = type(target)
+            original_replace = path_type.replace
+            replace_count = 0
+
+            def replace_with_activation_failure(path: Path, destination: Path) -> Path:
+                nonlocal replace_count
+                replace_count += 1
+                if replace_count == 2:
+                    raise OSError("simulated staged activation failure")
+                return original_replace(path, destination)
+
+            with mock.patch.object(path_type, "replace", autospec=True, side_effect=replace_with_activation_failure):
+                with self.assertRaisesRegex(OSError, "simulated staged activation failure"):
+                    installer.install_skill(source, target, dry_run=False)
+
+            self.assertTrue(target.is_dir())
+            self.assertEqual((target / "SKILL.md").read_text(encoding="utf-8"), "working skill\n")
+            self.assertEqual([path.name for path in target.parent.iterdir()], ["idea-to-code"])
+
+    def test_install_skill_preserves_backup_when_activation_and_restore_fail(self) -> None:
+        spec = importlib.util.spec_from_file_location("install_skill_under_test", INSTALL_SKILL)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        installer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(installer)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            target = root / "target" / "idea-to-code"
+            source.mkdir()
+            target.mkdir(parents=True)
+            (source / "SKILL.md").write_text("new skill\n", encoding="utf-8")
+            (target / "SKILL.md").write_text("working skill\n", encoding="utf-8")
+            path_type = type(target)
+            original_replace = path_type.replace
+            replace_count = 0
+
+            def replace_with_activation_and_restore_failure(path: Path, destination: Path) -> Path:
+                nonlocal replace_count
+                replace_count += 1
+                if replace_count >= 2:
+                    raise OSError("simulated move failure")
+                return original_replace(path, destination)
+
+            with mock.patch.object(
+                path_type,
+                "replace",
+                autospec=True,
+                side_effect=replace_with_activation_and_restore_failure,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "previous installation preserved at") as raised:
+                    installer.install_skill(source, target, dry_run=False)
+
+            backup = Path(str(raised.exception).split(": ", 1)[1])
+            self.assertTrue(backup.is_dir())
+            self.assertEqual((backup / "SKILL.md").read_text(encoding="utf-8"), "working skill\n")
+
     def test_skill_description_is_concise_and_capability_focused(self) -> None:
         text = SKILL_MD.read_text(encoding="utf-8")
         match = re.search(r"^description:\s*(.+)$", text, re.MULTILINE)
@@ -3973,6 +4046,93 @@ Planned Verification:
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("closer evidence refused", result.stderr)
 
+    def test_brief_visible_scope_is_bound_to_plan_and_allows_preedit(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        full = self.run_bundle("implementation", "enter-task", "--root", str(self.root), "--slug", slug, "--task", "TASK-1")
+        exploration = self.run_bundle("exploration", "render", "--root", str(self.root), "--slug", slug)
+        self.run_ready_output(slug)
+        brief = self.run_bundle("implementation", "enter-task", "--root", str(self.root), "--slug", slug, "--task", "TASK-1", "--brief")
+        module = load_bundle_module()
+        self.assertEqual(module.validate_visible_ready_output(brief.stdout, brief.stdout), [])
+        self.assertTrue(module.validate_visible_ready_output(brief.stdout, "Only tool stdout contains the scope"))
+        self.assertLess(len(brief.stdout), len(full.stdout + exploration.stdout) * 0.8)
+        target = self.root / ".idea-to-code" / slug
+        before = (target / "state.json").read_bytes()
+        for field in ("Files", "Change", "Accept", "Verify", "Decision", "Binding"):
+            changed = re.sub(r"(?m)^" + field + r":.*$", field + ": altered scope", brief.stdout)
+            result = self.run_bundle(
+                "implementation", "visible-output", "record", "--root", str(self.root), "--slug", slug,
+                "--task", "TASK-1", "--assistant-body", changed, "--display-channel", "main-chat",
+                "--display-assertion", "The full Display Layer was shown in main chat, not tool stdout.", check=False,
+            )
+            self.assertNotEqual(result.returncode, 0, field)
+            self.assertEqual((target / "state.json").read_bytes(), before)
+        self.run_bundle(
+            "implementation", "visible-output", "record", "--root", str(self.root), "--slug", slug,
+            "--task", "TASK-1", "--assistant-body", brief.stdout, "--display-channel", "main-chat",
+            "--display-assertion", "The full Display Layer was shown in main chat, not tool stdout.",
+        )
+        files = module._task_files_for_id(target, "TASK-1")
+        self.run_bundle("implementation", "lease", "acquire", "--root", str(self.root), "--slug", slug,
+                        "--task", "TASK-1", "--owner", "agent", "--files", *files)
+        result = self.run_bundle("implementation", "pre-edit", "--root", str(self.root), "--slug", slug,
+                                 "--task", "TASK-1", "--files", *files)
+        self.assertIn("Pre-Edit Guard: OK", result.stdout)
+
+    def test_brief_preserves_wrapped_scope_and_safety_constraints(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        target = self.root / ".idea-to-code" / slug
+        plan = target / "00-idea.md"
+        content = plan.read_text(encoding="utf-8")
+        content = re.sub(r"(?m)^(- Scope Boundary:.*)$", r"\1\n  Never change persisted user data.", content)
+        content = re.sub(r"(?m)^(- Security/Safety Notes:.*)$", r"\1\n  Never upload local credentials.", content)
+        plan.write_text(content, encoding="utf-8")
+        self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        self.run_ready_output(slug)
+        brief = self.run_bundle("implementation", "enter-task", "--root", str(self.root), "--slug", slug,
+                                "--task", "TASK-1", "--brief")
+        self.assertIn("Never change persisted user data.", brief.stdout)
+        self.assertIn("Never upload local credentials.", brief.stdout)
+
+    def test_brief_stale_plan_cannot_record_visibility(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        brief = self.run_bundle("implementation", "enter-task", "--root", str(self.root), "--slug", slug, "--task", "TASK-1", "--brief")
+        target = self.root / ".idea-to-code" / slug
+        plan = target / "00-idea.md"
+        plan.write_text(plan.read_text(encoding="utf-8") + "\nNew scope needs replanning.\n", encoding="utf-8")
+        before = (target / "state.json").read_bytes()
+        result = self.run_bundle(
+            "implementation", "visible-output", "record", "--root", str(self.root), "--slug", slug,
+            "--task", "TASK-1", "--assistant-body", brief.stdout, "--display-channel", "main-chat",
+            "--display-assertion", "The full Display Layer was shown in main chat, not tool stdout.", check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((target / "state.json").read_bytes(), before)
+
+    def test_checkpoint_missing_validation_type_has_no_writes_and_can_retry(self) -> None:
+        slug = self.init_bundle()
+        self.write_ready_bundle(slug)
+        self.record_roles_through_reviewer(slug)
+        target = self.root / ".idea-to-code" / slug
+        before = {p.relative_to(target): p.read_bytes() for p in target.rglob("*") if p.is_file()}
+        result = self.run_bundle(
+            "checkpoint", "--root", str(self.root), "--slug", slug,
+            "--milestone", "TASK-1", "--delivered", "REQ-1 actual implementation",
+            "--verified", "All relevant checks passed with recorded results",
+            "--next", "finalize", "--focus", "TASK-1", "--gate", "acceptance",
+            "--gate-status", "pass", "--covers", "REQ-1", check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("validation type", result.stderr)
+        after = {p.relative_to(target): p.read_bytes() for p in target.rglob("*") if p.is_file()}
+        self.assertEqual(before, after)
+        self.checkpoint(slug)
+        result = self.run_bundle("verify", "--root", str(self.root), "--slug", slug)
+        self.assertIn('"ok": true', result.stdout)
+
     def test_checkpoint_after_verify_invalidates_preclose_verify(self) -> None:
         slug = self.init_bundle()
         self.write_ready_bundle(slug)
@@ -5628,7 +5788,7 @@ Planned Verification:
     def test_render_status_surfaces_deferred_remaining_backlog_and_next_batch(self) -> None:
         slug = self.init_bundle()
         self.write_master_backlog_bundle(slug)
-        self.run_bundle("backlog", "sync", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("backlog", "sync", "--root", str(self.root), "--slug", slug, "--legacy")
         self.run_bundle("backlog", "mark", "--root", str(self.root), "--slug", slug, "--id", "MB-1", "--status", "covered", "--reason", "REQ-1 covered in this batch")
         self.run_bundle("backlog", "mark", "--root", str(self.root), "--slug", slug, "--id", "MB-2", "--status", "deferred", "--reason", "Next batch will cover MB-2")
         self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
@@ -5643,7 +5803,7 @@ Planned Verification:
     def test_render_status_surfaces_skipped_backlog_as_incomplete_carryover(self) -> None:
         slug = self.init_bundle()
         self.write_master_backlog_bundle(slug)
-        self.run_bundle("backlog", "sync", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("backlog", "sync", "--root", str(self.root), "--slug", slug, "--legacy")
         self.run_bundle("backlog", "mark", "--root", str(self.root), "--slug", slug, "--id", "MB-1", "--status", "covered", "--reason", "REQ-1 covered in this batch")
         self.run_bundle("backlog", "mark", "--root", str(self.root), "--slug", slug, "--id", "MB-2", "--status", "skipped", "--reason", "User skipped this backlog item for the current run.")
 
@@ -5666,7 +5826,7 @@ Planned Verification:
             "| MB-4 | Second replacement issue split from MB-1.",
         )
         idea_path.write_text(idea_text, encoding="utf-8")
-        self.run_bundle("backlog", "sync", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("backlog", "sync", "--root", str(self.root), "--slug", slug, "--legacy")
         self.run_bundle("backlog", "mark", "--root", str(self.root), "--slug", slug, "--id", "MB-1", "--status", "superseded", "--reason", "MB-1 split into MB-3 and MB-4 during replan.")
         self.run_bundle("backlog", "mark", "--root", str(self.root), "--slug", slug, "--id", "MB-2", "--status", "covered", "--reason", "REQ-2 covered outside this split fixture.")
 
@@ -5680,7 +5840,7 @@ Planned Verification:
     def test_scope_override_blocks_verify_and_preserves_original_carryover(self) -> None:
         slug = self.init_bundle()
         self.write_master_backlog_bundle(slug)
-        self.run_bundle("backlog", "sync", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("backlog", "sync", "--root", str(self.root), "--slug", slug, "--legacy")
         self.run_bundle("backlog", "mark", "--root", str(self.root), "--slug", slug, "--id", "MB-1", "--status", "covered", "--reason", "REQ-1 covered in this batch")
 
         self.run_bundle(
@@ -5719,7 +5879,7 @@ Planned Verification:
     def test_scope_override_resolve_restores_original_next_action(self) -> None:
         slug = self.init_bundle()
         self.write_master_backlog_bundle(slug)
-        self.run_bundle("backlog", "sync", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("backlog", "sync", "--root", str(self.root), "--slug", slug, "--legacy")
         self.run_bundle("backlog", "mark", "--root", str(self.root), "--slug", slug, "--id", "MB-1", "--status", "covered", "--reason", "REQ-1 covered in this batch")
         self.run_bundle(
             "scope", "override",
@@ -5755,7 +5915,7 @@ Planned Verification:
     def test_scope_override_new_ledger_resolution_requires_related_slug(self) -> None:
         slug = self.init_bundle()
         self.write_master_backlog_bundle(slug)
-        self.run_bundle("backlog", "sync", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("backlog", "sync", "--root", str(self.root), "--slug", slug, "--legacy")
         self.run_bundle("backlog", "mark", "--root", str(self.root), "--slug", slug, "--id", "MB-1", "--status", "covered", "--reason", "REQ-1 covered in this batch")
         self.run_bundle(
             "scope", "override",
@@ -5934,7 +6094,7 @@ Planned Verification:
         self.run_bundle("update", "--root", str(self.root), "--slug", slug, "--file", "implementation", "--content-file", str(impl_path))
         self.run_bundle("requirement", "add", "--root", str(self.root), "--slug", slug, "--id", "REQ-1", "--description", "MB-6..MB-9 range remains visible", "--type", "functional")
 
-        self.run_bundle("backlog", "sync", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("backlog", "sync", "--root", str(self.root), "--slug", slug, "--legacy")
         status = self.run_bundle("backlog", "status", "--root", str(self.root), "--slug", slug)
         payload = json.loads(status.stdout)
 
@@ -5996,7 +6156,7 @@ Planned Verification:
         self.assertIn("clear low-risk one-file tasks", combined)
         self.assertIn("refuses the same risky or broad scopes", combined)
 
-    def test_command_guide_implementation_edit_lists_enter_lease_and_pre_edit(self) -> None:
+    def test_command_guide_implementation_edit_lists_canonical_gate_order(self) -> None:
         result = run_test_subprocess([
             sys.executable,
             str(SCRIPT),
@@ -6008,11 +6168,26 @@ Planned Verification:
 
         self.assertEqual(0, result.returncode, result.stderr)
         payload = json.loads(result.stdout)
-        commands = "\n".join(item["command"] for item in payload["flows"]["implementation-edit"])
+        flow = payload["flows"]["implementation-edit"]
+        commands = "\n".join(item["command"] for item in flow)
         self.assertIn("implementation enter-task --root", commands)
+        self.assertIn("implementation visible-output record --root", commands)
         self.assertIn("implementation lease acquire --root", commands)
         self.assertIn("--files <path-a> <path-b>", commands)
         self.assertIn("implementation pre-edit --root", commands)
+        command_order = [item["command"] for item in flow]
+        enter_index = next(index for index, command in enumerate(command_order) if "implementation enter-task" in command)
+        record_index = next(index for index, command in enumerate(command_order) if "implementation visible-output record" in command)
+        lease_index = next(index for index, command in enumerate(command_order) if "implementation lease acquire" in command)
+        pre_edit_index = next(index for index, command in enumerate(command_order) if "implementation pre-edit" in command)
+        self.assertLess(enter_index, record_index)
+        self.assertLess(record_index, lease_index)
+        self.assertLess(lease_index, pre_edit_index)
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        checklist = skill_text.split("## Direct Trigger Behavior", 1)[1].split("## Script Invocation", 1)[0]
+        self.assertLess(checklist.index("Enter the current task"), checklist.index("record that visible output"))
+        edit_checklist = skill_text.split("### Edit Gate Checklist", 1)[1].split("### Autonomous Next-Action SOP", 1)[0]
+        self.assertLess(edit_checklist.index("2. Enter the current TASK"), edit_checklist.index("4. Record visible output"))
 
         help_result = run_test_subprocess([sys.executable, str(SCRIPT), "--help"])
         self.assertEqual(0, help_result.returncode, help_result.stderr)
@@ -7070,7 +7245,7 @@ Planned Verification:
         self.assertNotEqual(missing.returncode, 0)
         self.assertIn("master backlog required but not synced", missing.stderr)
 
-        self.run_bundle("backlog", "sync", "--root", str(self.root), "--slug", slug)
+        self.run_bundle("backlog", "sync", "--root", str(self.root), "--slug", slug, "--legacy")
         ready = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
         self.assertIn("Implementation Gate: READY", ready.stdout)
 
@@ -7080,10 +7255,68 @@ Planned Verification:
         self.assertTrue(payload["items"][0]["title"].startswith("REQ-1 / MB-1 | MB-1 is tracked in state."))
         self.assertEqual([item["id"] for item in payload["incomplete"]], ["MB-1", "MB-2"])
 
-    def test_master_backlog_checkpoint_coverage_and_render_status_keep_pending_visible(self) -> None:
+    def test_strong_plan_item_flow_enforces_exploration_order_and_confirmed_ready(self) -> None:
         slug = self.init_bundle()
         self.write_master_backlog_bundle(slug)
         self.run_bundle("backlog", "sync", "--root", str(self.root), "--slug", slug)
+
+        skipped = self.run_bundle(
+            "backlog", "begin", "--root", str(self.root), "--slug", slug,
+            "--id", "MB-2", "--evidence", "Source inspection found the second candidate.",
+            check=False,
+        )
+        self.assertIn("resolve earlier Plan Items first: MB-1", skipped.stderr)
+
+        self.run_bundle(
+            "backlog", "begin", "--root", str(self.root), "--slug", slug,
+            "--id", "MB-1", "--evidence", "Controller inspection proves arbitrary backlog transitions.",
+        )
+        premature = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug, check=False)
+        self.assertIn("READY requires an evidence-backed confirmed disposition", premature.stderr)
+
+        self.run_bundle(
+            "backlog", "conclude", "--root", str(self.root), "--slug", slug,
+            "--id", "MB-1", "--disposition", "confirmed",
+            "--evidence", "The public CLI accepts arbitrary marks without an exploration gate.",
+        )
+        ready = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        self.assertIn("Implementation Gate: READY", ready.stdout)
+
+        still_current = self.run_bundle(
+            "backlog", "begin", "--root", str(self.root), "--slug", slug,
+            "--id", "MB-2", "--evidence", "The second item is ready for independent inspection.",
+            check=False,
+        )
+        self.assertIn("MB-1 is already current", still_current.stderr)
+
+        self.run_bundle(
+            "checkpoint", "--root", str(self.root), "--slug", slug,
+            "--milestone", "Complete MB-1", "--delivered", "TASK-1 delivered MB-1.",
+            "--verified", "source-only controller lifecycle tests passed.", "--next", "Explore MB-2.",
+            "--focus", "MB-1 completed.", "--gate", "continue", "--gate-status", "pass",
+            "--covers", "REQ-1",
+        )
+        self.run_bundle(
+            "backlog", "begin", "--root", str(self.root), "--slug", slug,
+            "--id", "MB-2", "--evidence", "Independent source inspection found no required implementation.",
+        )
+        self.run_bundle(
+            "backlog", "conclude", "--root", str(self.root), "--slug", slug,
+            "--id", "MB-2", "--disposition", "no-change",
+            "--evidence", "The candidate is disproved and requires no synthetic REQ or TASK.",
+        )
+        status = self.run_bundle("backlog", "status", "--root", str(self.root), "--slug", slug)
+        payload = json.loads(status.stdout)
+        self.assertTrue(payload["plan_item_flow_required"])
+        self.assertIsNone(payload["current_plan_item_id"])
+        self.assertEqual([item["status"] for item in payload["items"]], ["completed", "no-change"])
+        final_gate = self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
+        self.assertIn("Implementation Gate: READY", final_gate.stdout)
+
+    def test_master_backlog_checkpoint_coverage_and_render_status_keep_pending_visible(self) -> None:
+        slug = self.init_bundle()
+        self.write_master_backlog_bundle(slug)
+        self.run_bundle("backlog", "sync", "--root", str(self.root), "--slug", slug, "--legacy")
         self.run_bundle("implementation", "ready", "--root", str(self.root), "--slug", slug)
 
         self.run_bundle(
@@ -7269,6 +7502,21 @@ Planned Verification:
         for profile in ("lifecycle", "changed-surface"):
             with self.subTest(profile=profile):
                 self.assertEqual(tests[:1], runner.filter_tests_by_profile(tests, profile))
+
+    def test_relevant_focused_profiles_include_all_brief_contract_tests(self) -> None:
+        runner = load_test_batch_runner_module()
+        discovered = runner.discover_unittest_suite(SCRIPT.parent)
+        brief_tests = [test for test in discovered if ".test_brief_" in test.lower()]
+
+        self.assertEqual(3, len(brief_tests))
+        for profile in ("output", "lifecycle", "changed-surface"):
+            with self.subTest(profile=profile):
+                selected = runner.filter_tests_by_profile(discovered, profile)
+                self.assertEqual(brief_tests, [test for test in selected if ".test_brief_" in test.lower()])
+        for profile in ("quick", "maintainer-fast"):
+            with self.subTest(profile=profile):
+                selected = runner.filter_tests_by_profile(discovered, profile)
+                self.assertEqual([], [test for test in selected if ".test_brief_" in test.lower()])
 
     def test_test_batch_timeout_prints_controlled_diagnostics(self) -> None:
         runner = load_test_batch_runner_module()

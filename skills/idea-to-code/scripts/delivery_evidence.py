@@ -360,10 +360,14 @@ def evolution_problems(root: Path, status: dict) -> list[str]:
         disposition = dispositions[-1]
         observations = [record for record in _records(status, "evolution-observe")
                         if record["data"]["incident_id"] == incident_id]
-        if observations and observations[-1]["data"]["outcome"] in {"ineffective", "false-positive"}:
-            records = status.get("local_records", [])
-            if records.index(observations[-1]) > records.index(disposition):
-                problems.append(f"{incident_id}: ineffective change requires renewed diagnosis")
+        records = status.get("local_records", [])
+        unresolved_negative_observations = [
+            observation for observation in observations
+            if observation["data"]["outcome"] in {"ineffective", "false-positive"}
+            and records.index(observation) > records.index(disposition)
+        ]
+        if unresolved_negative_observations:
+            problems.append(f"{incident_id}: ineffective change requires renewed diagnosis")
         if disposition["data"]["disposition"] in {"repair-project", "enforce-existing-rule", "defer"}:
             if not disposition["data"].get("resolved"):
                 problems.append(f"{incident_id}: disposition still needs verified resolution")
